@@ -10,8 +10,11 @@ import dentistRoutes from '../modules/dentists/dentist.routes.js';
 
 import clinicRoutes from '../modules/clinic/clinic.routes.js';
 
+import availabilityRoutes from '../modules/availability/availability.routes.js';
 
-const router = express.Router();
+
+const router =
+  express.Router();
 
 
 router.use(
@@ -37,6 +40,11 @@ router.use(
 router.use(
   '/clinic',
   clinicRoutes
+);
+
+router.use(
+  '/availability',
+  availabilityRoutes
 );
 
 
