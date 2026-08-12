@@ -8,6 +8,8 @@ import serviceRoutes from '../modules/services/service.routes.js';
 
 import dentistRoutes from '../modules/dentists/dentist.routes.js';
 
+import clinicRoutes from '../modules/clinic/clinic.routes.js';
+
 
 const router = express.Router();
 
@@ -30,6 +32,11 @@ router.use(
 router.use(
   '/dentists',
   dentistRoutes
+);
+
+router.use(
+  '/clinic',
+  clinicRoutes
 );
 
 
