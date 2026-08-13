@@ -18,6 +18,8 @@ import auditRoutes from '../modules/audit/audit.routes.js';
 
 import mediaRoutes from '../modules/media/media.routes.js';
 
+import beforeAfterRoutes from '../modules/beforeAfter/beforeAfter.routes.js';
+
 
 const router =
   express.Router();
@@ -68,6 +70,12 @@ router.use(
   mediaRoutes
 );
 
+router.use(
+  '/before-after',
+  beforeAfterRoutes
+);
+
 
 export default router;
+
 

@@ -33,19 +33,84 @@ const multerUpload =
       fileSize:
         MAX_IMAGE_SIZE,
 
-      files: 1,
+      files: 2,
 
-      fields: 10,
+      fields: 20,
 
-      parts: 12,
+      parts: 25,
     },
   });
+
+
+const handleMulterError = (
+  error,
+  next
+) => {
+  if (
+    error instanceof
+      multer.MulterError
+  ) {
+    if (
+      error.code ===
+      'LIMIT_FILE_SIZE'
+    ) {
+      return next(
+        new ApiError(
+          413,
+          'Image must be 5 MB or smaller'
+        )
+      );
+    }
+
+
+    if (
+      error.code ===
+      'LIMIT_FILE_COUNT'
+    ) {
+      return next(
+        new ApiError(
+          400,
+          'Too many image files'
+        )
+      );
+    }
+
+
+    return next(
+      new ApiError(
+        400,
+        `Upload error: ${error.code}`
+      )
+    );
+  }
+
+
+  next(error);
+};
 
 
 const uploadSingleImage =
   multerUpload.single(
     'image'
   );
+
+
+const uploadBeforeAfter =
+  multerUpload.fields([
+    {
+      name:
+        'beforeImage',
+
+      maxCount: 1,
+    },
+
+    {
+      name:
+        'afterImage',
+
+      maxCount: 1,
+    },
+  ]);
 
 
 const handleImageUpload = (
@@ -58,37 +123,73 @@ const handleImageUpload = (
     res,
     (error) => {
       if (error) {
-        if (
-          error instanceof
-            multer.MulterError
-        ) {
-          if (
-            error.code ===
-            'LIMIT_FILE_SIZE'
-          ) {
-            return next(
-              new ApiError(
-                413,
-                'Image must be 5 MB or smaller'
-              )
-            );
-          }
-
-          return next(
-            new ApiError(
-              400,
-              `Upload error: ${error.code}`
-            )
-          );
-        }
-
-        return next(error);
+        return handleMulterError(
+          error,
+          next
+        );
       }
 
       next();
     }
   );
 };
+
+
+const handleBeforeAfterUpload = (
+  req,
+  res,
+  next
+) => {
+  uploadBeforeAfter(
+    req,
+    res,
+    (error) => {
+      if (error) {
+        return handleMulterError(
+          error,
+          next
+        );
+      }
+
+      next();
+    }
+  );
+};
+
+
+const validateFileSignature =
+  async (
+    file
+  ) => {
+    if (!file) {
+      throw new ApiError(
+        400,
+        'Image file is required'
+      );
+    }
+
+
+    const detected =
+      await fileTypeFromBuffer(
+        file.buffer
+      );
+
+
+    if (
+      !detected ||
+      !ALLOWED_TYPES.has(
+        detected.mime
+      )
+    ) {
+      throw new ApiError(
+        415,
+        'Unsupported image format'
+      );
+    }
+
+
+    return detected;
+  };
 
 
 const verifyImageSignature =
@@ -98,35 +199,57 @@ const verifyImageSignature =
     next
   ) => {
     try {
-      if (!req.file) {
-        throw new ApiError(
-          400,
-          'Image file is required'
+      req.detectedFileType =
+        await validateFileSignature(
+          req.file
         );
-      }
+
+      next();
+    }
+    catch (error) {
+      next(error);
+    }
+  };
 
 
-      const detected =
-        await fileTypeFromBuffer(
-          req.file.buffer
-        );
+const verifyBeforeAfterSignatures =
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const before =
+        req.files
+          ?.beforeImage
+          ?.[0];
+
+      const after =
+        req.files
+          ?.afterImage
+          ?.[0];
 
 
       if (
-        !detected ||
-        !ALLOWED_TYPES.has(
-          detected.mime
-        )
+        !before ||
+        !after
       ) {
         throw new ApiError(
-          415,
-          'Unsupported image format'
+          400,
+          'Both beforeImage and afterImage are required'
         );
       }
 
 
-      req.detectedFileType =
-        detected;
+      await Promise.all([
+        validateFileSignature(
+          before
+        ),
+
+        validateFileSignature(
+          after
+        ),
+      ]);
 
 
       next();
@@ -140,4 +263,6 @@ const verifyImageSignature =
 export {
   handleImageUpload,
   verifyImageSignature,
+  handleBeforeAfterUpload,
+  verifyBeforeAfterSignatures,
 };

@@ -5,6 +5,8 @@
 
 const RESPONSE_ENTITY_KEYS = [
   'appointment',
+  'case',
+  'image',
   'service',
   'category',
   'dentist',
@@ -169,3 +171,4 @@ const auditAction = (
 
 
 export default auditAction;
+
