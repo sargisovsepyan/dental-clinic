@@ -14,6 +14,8 @@ import availabilityRoutes from '../modules/availability/availability.routes.js';
 
 import appointmentRoutes from '../modules/appointments/appointment.routes.js';
 
+import auditRoutes from '../modules/audit/audit.routes.js';
+
 
 const router =
   express.Router();
@@ -52,6 +54,11 @@ router.use(
 router.use(
   '/appointments',
   appointmentRoutes
+);
+
+router.use(
+  '/audit-logs',
+  auditRoutes
 );
 
 

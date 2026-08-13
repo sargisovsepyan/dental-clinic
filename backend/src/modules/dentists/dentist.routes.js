@@ -28,14 +28,21 @@ import authorize from '../../middlewares/authorize.js';
 import validate from '../../middlewares/validate.js';
 import asyncHandler from '../../utils/asyncHandler.js';
 
+import auditAction from '../audit/audit.middleware.js';
 
-const router = express.Router();
+
+const router =
+  express.Router();
 
 
 router.get(
   '/',
-  validate(listDentistsSchema),
-  asyncHandler(getDentists)
+  validate(
+    listDentistsSchema
+  ),
+  asyncHandler(
+    getDentists
+  )
 );
 
 
@@ -43,7 +50,9 @@ router.get(
   '/admin/all',
   auth,
   authorize('admin'),
-  asyncHandler(getAdminDentists)
+  asyncHandler(
+    getAdminDentists
+  )
 );
 
 
@@ -67,7 +76,24 @@ router.put(
   validate(
     scheduleExceptionSchema
   ),
-  asyncHandler(
+  auditAction(
+    {
+      action:
+        'dentist.schedule_exception.set',
+
+      entityType:
+        'dentist_schedule',
+
+      metadata:
+        (req) => ({
+          date:
+            req.params.date,
+
+          isWorking:
+            req.body.isWorking,
+        }),
+    },
+
     setScheduleException
   )
 );
@@ -80,7 +106,21 @@ router.delete(
   validate(
     deleteScheduleExceptionSchema
   ),
-  asyncHandler(
+  auditAction(
+    {
+      action:
+        'dentist.schedule_exception.delete',
+
+      entityType:
+        'dentist_schedule',
+
+      metadata:
+        (req) => ({
+          date:
+            req.params.date,
+        }),
+    },
+
     deleteScheduleException
   )
 );
@@ -90,8 +130,29 @@ router.post(
   '/',
   auth,
   authorize('admin'),
-  validate(createDentistSchema),
-  asyncHandler(createDentist)
+  validate(
+    createDentistSchema
+  ),
+  auditAction(
+    {
+      action:
+        'dentist.create',
+
+      entityType:
+        'dentist',
+
+      metadata:
+        (req) => ({
+          firstName:
+            req.body.firstName,
+
+          lastName:
+            req.body.lastName,
+        }),
+    },
+
+    createDentist
+  )
 );
 
 
@@ -99,8 +160,20 @@ router.patch(
   '/:id/restore',
   auth,
   authorize('admin'),
-  validate(dentistIdSchema),
-  asyncHandler(restoreDentist)
+  validate(
+    dentistIdSchema
+  ),
+  auditAction(
+    {
+      action:
+        'dentist.restore',
+
+      entityType:
+        'dentist',
+    },
+
+    restoreDentist
+  )
 );
 
 
@@ -108,8 +181,20 @@ router.patch(
   '/:id',
   auth,
   authorize('admin'),
-  validate(updateDentistSchema),
-  asyncHandler(updateDentist)
+  validate(
+    updateDentistSchema
+  ),
+  auditAction(
+    {
+      action:
+        'dentist.update',
+
+      entityType:
+        'dentist',
+    },
+
+    updateDentist
+  )
 );
 
 
@@ -117,14 +202,28 @@ router.delete(
   '/:id',
   auth,
   authorize('admin'),
-  validate(dentistIdSchema),
-  asyncHandler(disableDentist)
+  validate(
+    dentistIdSchema
+  ),
+  auditAction(
+    {
+      action:
+        'dentist.disable',
+
+      entityType:
+        'dentist',
+    },
+
+    disableDentist
+  )
 );
 
 
 router.get(
   '/:slug',
-  asyncHandler(getDentist)
+  asyncHandler(
+    getDentist
+  )
 );
 
 

@@ -20,13 +20,18 @@ import authorize from '../../middlewares/authorize.js';
 import validate from '../../middlewares/validate.js';
 import asyncHandler from '../../utils/asyncHandler.js';
 
+import auditAction from '../audit/audit.middleware.js';
 
-const router = express.Router();
+
+const router =
+  express.Router();
 
 
 router.get(
   '/',
-  asyncHandler(getClinic)
+  asyncHandler(
+    getClinic
+  )
 );
 
 
@@ -37,7 +42,15 @@ router.patch(
   validate(
     updateClinicSchema
   ),
-  asyncHandler(
+  auditAction(
+    {
+      action:
+        'clinic.settings.update',
+
+      entityType:
+        'clinic',
+    },
+
     updateClinic
   )
 );
@@ -63,7 +76,24 @@ router.put(
   validate(
     closureSchema
   ),
-  asyncHandler(
+  auditAction(
+    {
+      action:
+        'clinic.schedule_exception.set',
+
+      entityType:
+        'clinic_schedule',
+
+      metadata:
+        (req) => ({
+          date:
+            req.params.date,
+
+          isOpen:
+            req.body.isOpen,
+        }),
+    },
+
     setClosure
   )
 );
@@ -76,7 +106,21 @@ router.delete(
   validate(
     closureDateSchema
   ),
-  asyncHandler(
+  auditAction(
+    {
+      action:
+        'clinic.schedule_exception.delete',
+
+      entityType:
+        'clinic_schedule',
+
+      metadata:
+        (req) => ({
+          date:
+            req.params.date,
+        }),
+    },
+
     deleteClosure
   )
 );

@@ -35,6 +35,8 @@ import {
 
 import asyncHandler from '../../utils/asyncHandler.js';
 
+import auditAction from '../audit/audit.middleware.js';
+
 
 const router =
   express.Router();
@@ -46,7 +48,27 @@ router.post(
   validate(
     createAppointmentSchema
   ),
-  asyncHandler(
+  auditAction(
+    {
+      action:
+        'appointment.create.website',
+
+      entityType:
+        'appointment',
+
+      metadata:
+        (req) => ({
+          date:
+            req.body.date,
+
+          startTime:
+            req.body.startTime,
+
+          source:
+            'website',
+        }),
+    },
+
     createAppointment
   )
 );
@@ -62,7 +84,27 @@ router.post(
   validate(
     createAdminAppointmentSchema
   ),
-  asyncHandler(
+  auditAction(
+    {
+      action:
+        'appointment.create.admin',
+
+      entityType:
+        'appointment',
+
+      metadata:
+        (req) => ({
+          date:
+            req.body.date,
+
+          startTime:
+            req.body.startTime,
+
+          source:
+            req.body.source,
+        }),
+    },
+
     createAdminAppointment
   )
 );
@@ -94,7 +136,24 @@ router.patch(
   validate(
     rescheduleAppointmentSchema
   ),
-  asyncHandler(
+  auditAction(
+    {
+      action:
+        'appointment.reschedule',
+
+      entityType:
+        'appointment',
+
+      metadata:
+        (req) => ({
+          date:
+            req.body.date,
+
+          startTime:
+            req.body.startTime,
+        }),
+    },
+
     rescheduleAppointment
   )
 );
@@ -110,7 +169,21 @@ router.patch(
   validate(
     updateStatusSchema
   ),
-  asyncHandler(
+  auditAction(
+    {
+      action:
+        'appointment.status.update',
+
+      entityType:
+        'appointment',
+
+      metadata:
+        (req) => ({
+          status:
+            req.body.status,
+        }),
+    },
+
     updateStatus
   )
 );
@@ -126,7 +199,15 @@ router.post(
   validate(
     cancelAppointmentSchema
   ),
-  asyncHandler(
+  auditAction(
+    {
+      action:
+        'appointment.cancel',
+
+      entityType:
+        'appointment',
+    },
+
     cancelAppointment
   )
 );

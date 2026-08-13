@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -18,10 +18,13 @@ import notFound from './middlewares/notFound.js';
 import errorHandler from './middlewares/errorHandler.js';
 
 import ApiError from './utils/ApiError.js';
+import requestId from './middlewares/requestId.js';
 
 const app = express();
 
 app.disable('x-powered-by');
+
+app.use(requestId);
 
 app.use(helmet());
 
