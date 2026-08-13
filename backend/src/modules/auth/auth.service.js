@@ -117,13 +117,25 @@ const refresh = async (
     const tokenHash =
         hashToken(currentRefreshToken);
 
-    const session = await Session.findOne({
+    const nextRefreshToken =
+        generateRefreshToken();
+
+    const session = await Session.findOneAndUpdate({
         tokenHash,
         revokedAt: null,
 
         expiresAt: {
             $gt: new Date(),
         },
+    }, {
+        $set: {
+            tokenHash:
+                hashToken(nextRefreshToken),
+            expiresAt:
+                getRefreshTokenExpiry(),
+        },
+    }, {
+        returnDocument: 'after',
     }).populate('user');
 
     if (
@@ -136,17 +148,6 @@ const refresh = async (
             'Invalid or expired session'
         );
     }
-
-    const nextRefreshToken =
-        generateRefreshToken();
-
-    session.tokenHash =
-        hashToken(nextRefreshToken);
-
-    session.expiresAt =
-        getRefreshTokenExpiry();
-
-    await session.save();
 
     const accessToken =
         generateToken(session.user);

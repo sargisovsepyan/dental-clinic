@@ -23,9 +23,9 @@ const createAdmin = async () => {
       );
     }
 
-    if (password.length < 6) {
+    if (password.length < 12) {
       throw new Error(
-        'ADMIN_PASSWORD must contain at least 6 characters'
+        'ADMIN_PASSWORD must contain at least 12 characters'
       );
     }
 

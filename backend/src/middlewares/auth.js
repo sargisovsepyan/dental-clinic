@@ -32,9 +32,22 @@ const auth = asyncHandler(
         try {
             decoded = jwt.verify(
                 token,
-                env.JWT_SECRET
+                env.JWT_SECRET,
+                {
+                    algorithms: ['HS256'],
+                }
             );
         } catch {
+            throw new ApiError(
+                401,
+                'Invalid or expired token'
+            );
+        }
+
+        if (
+            typeof decoded.sub !== 'string' ||
+            !/^[a-f0-9]{24}$/i.test(decoded.sub)
+        ) {
             throw new ApiError(
                 401,
                 'Invalid or expired token'

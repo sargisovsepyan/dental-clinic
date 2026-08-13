@@ -1,6 +1,13 @@
 ﻿const errorHandler = (err, req, res, next) => {
+  const errorStatus =
+    err.statusCode || err.status;
+
   let statusCode =
-    err.statusCode || 500;
+    Number.isInteger(errorStatus) &&
+    errorStatus >= 400 &&
+    errorStatus <= 599
+      ? errorStatus
+      : 500;
 
   let message =
     err.message ||
@@ -39,19 +46,42 @@
       .join(', ');
   }
 
+  if (err.type === 'entity.parse.failed') {
+    statusCode = 400;
+    message = 'Malformed JSON body';
+  }
 
-  console.error({
-    method: req.method,
-    url: req.originalUrl,
-    statusCode,
-    error: err.message,
-    code: err.code,
-  });
+  if (err.type === 'entity.too.large') {
+    statusCode = 413;
+    message = 'Request body is too large';
+  }
+
+  const responseMessage =
+    process.env.NODE_ENV === 'production' &&
+    statusCode >= 500
+      ? 'Internal server error'
+      : message;
+
+
+  if (
+    statusCode >= 500 ||
+    process.env.NODE_ENV ===
+      'development'
+  ) {
+    console.error({
+      requestId: req.id,
+      method: req.method,
+      url: req.originalUrl,
+      statusCode,
+      error: err.message,
+      code: err.code,
+    });
+  }
 
 
   res.status(statusCode).json({
     success: false,
-    message,
+    message: responseMessage,
 
     ...(process.env.NODE_ENV !==
       'production' && {

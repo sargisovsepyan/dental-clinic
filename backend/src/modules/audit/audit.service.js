@@ -13,7 +13,35 @@ const SENSITIVE_KEYS = new Set([
   'patientname',
   'patientcomment',
   'internalnote',
+  'jwt',
+  'setcookie',
 ]);
+
+
+const isSensitiveKey = (
+  normalizedKey
+) => {
+  return (
+    SENSITIVE_KEYS.has(
+      normalizedKey
+    ) ||
+    normalizedKey.includes(
+      'password'
+    ) ||
+    normalizedKey.endsWith(
+      'token'
+    ) ||
+    normalizedKey.includes(
+      'secret'
+    ) ||
+    normalizedKey.includes(
+      'authorization'
+    ) ||
+    normalizedKey.includes(
+      'cookie'
+    )
+  );
+};
 
 
 const sanitizeValue = (
@@ -79,7 +107,7 @@ const sanitizeValue = (
 
 
       if (
-        SENSITIVE_KEYS.has(
+        isSensitiveKey(
           normalizedKey
         )
       ) {
@@ -282,6 +310,7 @@ const getAuditLogs = async (
 
 
 export {
+  sanitizeValue,
   logAuditEvent,
   getAuditLogs,
 };

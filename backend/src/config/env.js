@@ -2,6 +2,30 @@
 import Joi from 'joi';
 
 
+const timeZone = Joi.string()
+  .custom((value, helpers) => {
+    try {
+      new Intl.DateTimeFormat(
+        'en-US',
+        {
+          timeZone: value,
+        }
+      ).format();
+
+      return value;
+    }
+    catch {
+      return helpers.error(
+        'any.invalid'
+      );
+    }
+  })
+  .messages({
+    'any.invalid':
+      '{{#label}} must be a valid IANA time zone',
+  });
+
+
 const envSchema = Joi.object({
   NODE_ENV:
     Joi.string()
@@ -44,7 +68,7 @@ const envSchema = Joi.object({
       .required(),
 
   CLINIC_TIMEZONE:
-    Joi.string()
+    timeZone
       .default('Asia/Yerevan'),
 
   CLOUDINARY_CLOUD_NAME:

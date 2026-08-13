@@ -61,8 +61,10 @@ app.use(
         methods: [
             'GET',
             'POST',
+            'PUT',
             'PATCH',
             'DELETE',
+            'OPTIONS',
         ],
 
         allowedHeaders: [
@@ -92,7 +94,7 @@ app.use(
 );
 
 if (
-    env.NODE_ENV !== 'production'
+    env.NODE_ENV === 'development'
 ) {
     app.use(morgan('dev'));
 }
