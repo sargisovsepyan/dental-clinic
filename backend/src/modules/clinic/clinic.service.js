@@ -4,6 +4,7 @@ import Clinic from './clinic.model.js';
 import ClinicClosure from './clinicClosure.model.js';
 
 import ApiError from '../../utils/ApiError.js';
+import env from '../../config/env.js';
 
 
 const timeToMinutes = (time) => {
@@ -162,19 +163,24 @@ const validateDate = (
 
 
 const ensureClinic = async () => {
-  let clinic =
-    await Clinic.findOne({
+  return Clinic.findOneAndUpdate(
+    {
       key: 'default',
-    });
-
-  if (!clinic) {
-    clinic =
-      await Clinic.create({
+    },
+    {
+      $setOnInsert: {
         key: 'default',
-      });
-  }
-
-  return clinic;
+        timezone:
+          env.CLINIC_TIMEZONE,
+      },
+    },
+    {
+      upsert: true,
+      returnDocument: 'after',
+      setDefaultsOnInsert: true,
+      runValidators: true,
+    }
+  );
 };
 
 
@@ -294,7 +300,7 @@ const upsertClosure = async (
       },
 
       {
-        new: true,
+        returnDocument: 'after',
         upsert: true,
         runValidators: true,
         setDefaultsOnInsert: true,

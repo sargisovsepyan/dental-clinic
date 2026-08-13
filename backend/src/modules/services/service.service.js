@@ -233,7 +233,7 @@ const updateService = async (
       id,
       data,
       {
-        new: true,
+        returnDocument: 'after',
         runValidators: true,
       }
     ).populate(
@@ -252,7 +252,7 @@ const deleteService = async (id) => {
         isActive: false,
       },
       {
-        new: true,
+        returnDocument: 'after',
       }
     );
 

@@ -50,7 +50,8 @@ const buildLockKeys = (
 
 
 const createAppointment = async (
-  data
+  data,
+  context = {}
 ) => {
   const patientPhone =
     normalizePhone(
@@ -60,6 +61,18 @@ const createAppointment = async (
 
   const clinic =
     await clinicService.getClinic();
+
+
+  if (
+    clinic.bookingSettings
+      .requireEmail &&
+    !data.patientEmail
+  ) {
+    throw new ApiError(
+      400,
+      'Email is required for booking'
+    );
+  }
 
 
   const availability =
@@ -254,6 +267,7 @@ const createAppointment = async (
 
 
     source:
+      context.source ||
       'website',
 
 
@@ -261,8 +275,19 @@ const createAppointment = async (
       data.patientComment || '',
 
 
+    internalNote:
+      context.internalNote || '',
+
+
     privacyConsentAt:
       new Date(),
+
+    privacyConsentMethod:
+      context.privacyConsentMethod ||
+      'website',
+
+    createdBy:
+      context.createdBy || null,
   };
 
 
@@ -541,23 +566,48 @@ const updateStatus = async (
   }
 
 
-  appointment.status =
-    status;
+  const update = {
+    status,
+  };
 
 
   if (
     internalNote !==
     undefined
   ) {
-    appointment.internalNote =
+    update.internalNote =
       internalNote;
   }
 
 
-  await appointment.save();
+  const updated =
+    await Appointment
+      .findOneAndUpdate(
+        {
+          _id: id,
+          status:
+            appointment.status,
+        },
+        {
+          $set: update,
+        },
+        {
+          returnDocument:
+            'after',
+          runValidators: true,
+        }
+      );
 
 
-  return appointment;
+  if (!updated) {
+    throw new ApiError(
+      409,
+      'Appointment status changed; reload and try again'
+    );
+  }
+
+
+  return updated;
 };
 
 
@@ -604,28 +654,45 @@ const cancelAppointment = async (
   }
 
 
-  appointment.status =
-    'cancelled';
+  const cancelled =
+    await Appointment
+      .findOneAndUpdate(
+        {
+          _id: appointment._id,
+          status:
+            appointment.status,
+        },
+        {
+          $set: {
+            status: 'cancelled',
+            cancelledAt:
+              new Date(),
+            cancelledBy:
+              userId,
+            cancellationReason:
+              reason,
+            lockKeys: [
+              `released:${appointment._id}`,
+            ],
+          },
+        },
+        {
+          returnDocument:
+            'after',
+          runValidators: true,
+        }
+      );
 
-  appointment.cancelledAt =
-    new Date();
 
-  appointment.cancelledBy =
-    userId;
-
-  appointment.cancellationReason =
-    reason;
-
-
-  appointment.lockKeys = [
-    `released:${appointment._id}`,
-  ];
+  if (!cancelled) {
+    throw new ApiError(
+      409,
+      'Appointment changed; reload and try again'
+    );
+  }
 
 
-  await appointment.save();
-
-
-  return appointment;
+  return cancelled;
 };
 
 
@@ -634,39 +701,21 @@ const createAdminAppointment = async (
   data,
   userId
 ) => {
-  const appointment =
-    await createAppointment({
+  return createAppointment(
+    {
       ...data,
-    });
-
-
-  await Appointment.updateOne(
-    {
-      _id: appointment._id,
     },
-
     {
-      $set: {
-        source:
-          data.source ||
-          'phone',
-
-        createdBy:
-          userId,
-
-        internalNote:
-          data.internalNote ||
-          '',
-
-        privacyConsentMethod:
-          data.consentMethod,
-      },
+      source:
+        data.source ||
+        'phone',
+      createdBy:
+        userId,
+      internalNote:
+        data.internalNote || '',
+      privacyConsentMethod:
+        data.consentMethod,
     }
-  );
-
-
-  return getAppointmentById(
-    appointment._id
   );
 };
 
@@ -758,101 +807,125 @@ const rescheduleAppointment = async (
       .bufferMinutes;
 
 
-  appointment.dentist =
-    availability.dentist.id;
+  const update = {
+    dentist:
+      availability.dentist.id,
 
-  appointment.service =
-    availability.service.id;
+    service:
+      availability.service.id,
 
+    dentistSnapshot: {
+      firstName:
+        availability
+          .dentist
+          .firstName,
 
-  appointment.dentistSnapshot = {
-    firstName:
-      availability
-        .dentist
-        .firstName,
+      lastName:
+        availability
+          .dentist
+          .lastName,
 
-    lastName:
-      availability
-        .dentist
-        .lastName,
-
-    title:
-      availability
-        .dentist
-        .title || '',
-  };
-
-
-  appointment.serviceSnapshot = {
-    name:
-      availability
-        .service
-        .name,
-
-    durationMinutes:
-      availability
-        .service
-        .durationMinutes,
-  };
+      title:
+        availability
+          .dentist
+          .title || '',
+    },
 
 
-  appointment.priceSnapshot = {
-    priceType:
-      availability
-        .service
-        .priceType,
+    serviceSnapshot: {
+      name:
+        availability
+          .service
+          .name,
 
-    priceFrom:
-      availability
-        .service
-        .priceFrom,
-
-    priceTo:
-      availability
-        .service
-        .priceTo,
-
-    currency:
-      availability
-        .service
-        .currency,
-  };
+      durationMinutes:
+        availability
+          .service
+          .durationMinutes,
+    },
 
 
-  appointment.date =
-    data.date;
+    priceSnapshot: {
+      priceType:
+        availability
+          .service
+          .priceType,
 
-  appointment.startTime =
-    selectedSlot.start;
+      priceFrom:
+        availability
+          .service
+          .priceFrom,
 
-  appointment.endTime =
-    selectedSlot.end;
+      priceTo:
+        availability
+          .service
+          .priceTo,
 
-  appointment.startAt =
-    new Date(
-      selectedSlot.startAt
-    );
-
-  appointment.endAt =
-    new Date(
-      selectedSlot.endAt
-    );
-
-  appointment.bufferMinutes =
-    availability.rules
-      .bufferMinutes;
+      currency:
+        availability
+          .service
+          .currency,
+    },
 
 
-  appointment.lockKeys =
-    buildLockKeys(
+    date:
       data.date,
-      startMinute,
-      endMinute
-    );
+
+    startTime:
+      selectedSlot.start,
+
+    endTime:
+      selectedSlot.end,
+
+    startAt:
+      new Date(
+        selectedSlot.startAt
+      ),
+
+    endAt:
+      new Date(
+        selectedSlot.endAt
+      ),
+
+    bufferMinutes:
+      availability.rules
+        .bufferMinutes,
+
+    lockKeys:
+      buildLockKeys(
+        data.date,
+        startMinute,
+        endMinute
+      ),
+  };
 
 
   try {
-    await appointment.save();
+    const updated =
+      await Appointment
+        .findOneAndUpdate(
+          {
+            _id:
+              appointment._id,
+            status:
+              appointment.status,
+          },
+          {
+            $set: update,
+          },
+          {
+            returnDocument:
+              'after',
+            runValidators: true,
+          }
+        );
+
+    if (!updated) {
+      throw new ApiError(
+        409,
+        'Appointment changed; reload and try again'
+      );
+    }
   }
   catch (error) {
     const duplicate =

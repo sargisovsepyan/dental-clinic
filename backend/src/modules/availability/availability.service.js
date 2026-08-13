@@ -203,8 +203,7 @@ const buildOccupiedSet = async (
   date,
   excludeAppointmentId = null
 ) => {
-  const appointments =
-    await Appointment.find({
+  const filter = {
       dentist: dentistId,
 
       date,
@@ -212,7 +211,16 @@ const buildOccupiedSet = async (
       status: {
         $ne: 'cancelled',
       },
-    })
+    };
+
+  if (excludeAppointmentId) {
+    filter._id = {
+      $ne: excludeAppointmentId,
+    };
+  }
+
+  const appointments =
+    await Appointment.find(filter)
       .select('+lockKeys')
       .lean();
 

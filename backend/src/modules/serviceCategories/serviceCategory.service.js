@@ -78,7 +78,7 @@ const updateCategory = async (
       id,
       data,
       {
-        new: true,
+        returnDocument: 'after',
         runValidators: true,
       }
     );
@@ -132,7 +132,7 @@ const restoreCategory = async (id) => {
         isActive: true,
       },
       {
-        new: true,
+        returnDocument: 'after',
       }
     );
 

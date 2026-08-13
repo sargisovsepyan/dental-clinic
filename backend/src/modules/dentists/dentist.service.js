@@ -214,10 +214,14 @@ const getPublicDentists = async (
   }
 
   return Dentist.find(filter)
-    .populate(
-      'services',
-      'name slug durationMinutes priceType priceFrom priceTo currency bookingEnabled'
-    )
+    .populate({
+      path: 'services',
+      match: {
+        isActive: true,
+      },
+      select:
+        'name slug durationMinutes priceType priceFrom priceTo currency bookingEnabled',
+    })
     .sort({
       sortOrder: 1,
       lastName: 1,
@@ -250,10 +254,14 @@ const getDentistBySlug = async (
       slug,
       isActive: true,
     })
-      .populate(
-        'services',
-        'name slug shortDescription durationMinutes priceType priceFrom priceTo currency bookingEnabled'
-      )
+      .populate({
+        path: 'services',
+        match: {
+          isActive: true,
+        },
+        select:
+          'name slug shortDescription durationMinutes priceType priceFrom priceTo currency bookingEnabled',
+      })
       .lean();
 
   if (!dentist) {
@@ -319,7 +327,7 @@ const disableDentist = async (
         bookingEnabled: false,
       },
       {
-        new: true,
+        returnDocument: 'after',
         runValidators: true,
       }
     );
@@ -345,7 +353,7 @@ const restoreDentist = async (
         isActive: true,
       },
       {
-        new: true,
+        returnDocument: 'after',
         runValidators: true,
       }
     );
@@ -438,7 +446,7 @@ const upsertScheduleException =
         },
 
         {
-          new: true,
+          returnDocument: 'after',
           upsert: true,
           runValidators: true,
           setDefaultsOnInsert: true,
