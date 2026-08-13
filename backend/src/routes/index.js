@@ -12,6 +12,8 @@ import clinicRoutes from '../modules/clinic/clinic.routes.js';
 
 import availabilityRoutes from '../modules/availability/availability.routes.js';
 
+import appointmentRoutes from '../modules/appointments/appointment.routes.js';
+
 
 const router =
   express.Router();
@@ -45,6 +47,11 @@ router.use(
 router.use(
   '/availability',
   availabilityRoutes
+);
+
+router.use(
+  '/appointments',
+  appointmentRoutes
 );
 
 

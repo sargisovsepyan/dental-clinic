@@ -5,7 +5,7 @@ import DentistScheduleException from '../dentists/dentistScheduleException.model
 
 import Service from '../services/service.model.js';
 
-import BookingDay from '../appointments/bookingDay.model.js';
+import Appointment from '../appointments/appointment.model.js';
 
 import * as clinicService from '../clinic/clinic.service.js';
 
@@ -40,12 +40,10 @@ const minutesToTime = (minutes) => {
 const roundUpToInterval = (
   minutes,
   interval
-) => {
-  return (
-    Math.ceil(minutes / interval) *
-    interval
-  );
-};
+) => (
+  Math.ceil(minutes / interval) *
+  interval
+);
 
 
 const validateDate = (
@@ -96,6 +94,7 @@ const intersectShifts = (
         clinicShift.end
       );
 
+
     for (
       const dentistShift
       of dentistShifts
@@ -110,6 +109,7 @@ const intersectShifts = (
           dentistShift.end
         );
 
+
       const start =
         Math.max(
           clinicStart,
@@ -122,6 +122,7 @@ const intersectShifts = (
           dentistEnd
         );
 
+
       if (start < end) {
         result.push({
           start,
@@ -130,6 +131,7 @@ const intersectShifts = (
       }
     }
   }
+
 
   return result.sort(
     (a, b) =>
@@ -150,6 +152,7 @@ const getDentistSchedule = async (
         date,
       })
       .lean();
+
 
   if (exception) {
     return {
@@ -199,22 +202,61 @@ const buildOccupiedSet = async (
   dentistId,
   date
 ) => {
-  const bookingDay =
-    await BookingDay.findOne({
+  const appointments =
+    await Appointment.find({
       dentist: dentistId,
+
       date,
+
+      status: {
+        $ne: 'cancelled',
+      },
     })
-      .select(
-        'occupiedMinutes'
-      )
+      .select('+lockKeys')
       .lean();
 
 
-  return new Set(
-    bookingDay
-      ?.occupiedMinutes ||
-      []
-  );
+  const occupied =
+    new Set();
+
+
+  for (
+    const appointment
+    of appointments
+  ) {
+    for (
+      const key
+      of appointment.lockKeys || []
+    ) {
+      if (
+        !key.startsWith(
+          `${date}:`
+        )
+      ) {
+        continue;
+      }
+
+      const minute =
+        Number(
+          key.slice(
+            date.length + 1
+          )
+        );
+
+      if (
+        Number.isInteger(
+          minute
+        )
+      ) {
+        occupied.add(
+          minute
+        );
+      }
+    }
+  }
+
+
+  return occupied;
 };
 
 
@@ -586,12 +628,12 @@ const getAvailability = async ({
         totalBlockedDuration <=
       window.end
     ) {
-      const blockedUntilMinute =
+      const blockedUntil =
         startMinute +
         totalBlockedDuration;
 
 
-      const appointmentEndMinute =
+      const appointmentEnd =
         startMinute +
         duration;
 
@@ -618,7 +660,7 @@ const getAvailability = async ({
         !isRangeFree(
           occupiedMinutes,
           startMinute,
-          blockedUntilMinute
+          blockedUntil
         )
       ) {
         startMinute +=
@@ -631,7 +673,7 @@ const getAvailability = async ({
       const endLocal =
         requestedDay.plus({
           minutes:
-            appointmentEndMinute,
+            appointmentEnd,
         });
 
 
@@ -643,7 +685,7 @@ const getAvailability = async ({
 
         end:
           minutesToTime(
-            appointmentEndMinute
+            appointmentEnd
           ),
 
         startAt:
@@ -689,6 +731,9 @@ const getAvailability = async ({
 
       slug:
         dentist.slug,
+
+      title:
+        dentist.title,
     },
 
     service: {
