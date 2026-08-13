@@ -1,6 +1,12 @@
 ﻿import crypto from 'crypto';
 
+import mongoose from 'mongoose';
+
 import Appointment from './appointment.model.js';
+import {
+  acquirePhoneDailyQuota,
+  releasePhoneDailyQuota,
+} from './phoneDailyQuota.service.js';
 
 import * as availabilityService from '../availability/availability.service.js';
 import * as clinicService from '../clinic/clinic.service.js';
@@ -110,28 +116,11 @@ const createAppointment = async (
       .maxAppointmentsPerPhonePerDay;
 
 
-  const existingCount =
-    await Appointment.countDocuments({
-      patientPhone,
+  const appointmentId =
+    new mongoose.Types.ObjectId();
 
-      date:
-        data.date,
-
-      status: {
-        $ne: 'cancelled',
-      },
-    });
-
-
-  if (
-    existingCount >=
-    maxPerDay
-  ) {
-    throw new ApiError(
-      429,
-      `Maximum number of appointments per phone for this day is ${maxPerDay}`
-    );
-  }
+  const quotaReservationId =
+    appointmentId;
 
 
   const startMinute =
@@ -268,6 +257,8 @@ const createAppointment = async (
 
     lockKeys,
 
+    quotaReservationId,
+
 
     status:
       clinic.bookingSettings
@@ -303,75 +294,90 @@ const createAppointment = async (
 
   await Appointment.init();
 
+  await acquirePhoneDailyQuota({
+    patientPhone,
+    date: data.date,
+    reservationId: quotaReservationId,
+    limit: maxPerDay,
+  });
 
-  for (
-    let attempt = 1;
-    attempt <= 3;
-    attempt += 1
-  ) {
-    try {
-      const appointment =
-        await Appointment.create({
-          ...basePayload,
+  let appointment;
 
-          confirmationCode:
-            generateConfirmationCode(),
-        });
+  try {
+    for (
+      let attempt = 1;
+      attempt <= 3;
+      attempt += 1
+    ) {
+      try {
+        appointment =
+          await Appointment.create({
+            _id: appointmentId,
+            ...basePayload,
 
+            confirmationCode:
+              generateConfirmationCode(),
+          });
 
-      return Appointment
-        .findById(
-          appointment._id
-        )
-        .populate(
-          'dentist',
-          'firstName lastName slug title translations'
-        )
-        .populate(
-          'service',
-          'name slug translations'
-        )
-        .lean();
+        break;
+      }
+      catch (error) {
+        const isDuplicateKey =
+          error?.code === 11000 ||
+          String(error?.message || '')
+            .includes('E11000');
+
+        if (!isDuplicateKey) {
+          throw error;
+        }
+
+        const duplicateField =
+          Object.keys(
+            error?.keyPattern || {}
+          )[0];
+
+        if (
+          duplicateField ===
+          'confirmationCode'
+        ) {
+          continue;
+        }
+
+        throw new ApiError(
+          409,
+          'Selected time was just booked by another patient. Please choose another time.'
+        );
+      }
     }
 
-    catch (error) {
-      const isDuplicateKey =
-        error?.code === 11000 ||
-        String(error?.message || '')
-          .includes('E11000');
-
-
-      if (!isDuplicateKey) {
-        throw error;
-      }
-
-
-      const duplicateField =
-        Object.keys(
-          error?.keyPattern || {}
-        )[0];
-
-
-      if (
-        duplicateField ===
-        'confirmationCode'
-      ) {
-        continue;
-      }
-
-
+    if (!appointment) {
       throw new ApiError(
-        409,
-        'Selected time was just booked by another patient. Please choose another time.'
+        500,
+        'Could not generate appointment confirmation code'
       );
     }
   }
+  catch (error) {
+    await releasePhoneDailyQuota({
+      patientPhone,
+      date: data.date,
+      reservationId: quotaReservationId,
+    }).catch(() => {});
 
+    throw error;
+  }
 
-  throw new ApiError(
-    500,
-    'Could not generate appointment confirmation code'
-  );
+  return Appointment
+    .findById(appointment._id)
+    .populate(
+      'dentist',
+      'firstName lastName slug title translations'
+    )
+    .populate(
+      'service',
+      'name slug translations'
+    )
+    .lean();
 };
 
 
@@ -631,7 +637,9 @@ const cancelAppointment = async (
   const appointment =
     await Appointment
       .findById(id)
-      .select('+lockKeys');
+      .select(
+        '+lockKeys +quotaReservationId'
+      );
 
 
   if (!appointment) {
@@ -705,6 +713,24 @@ const cancelAppointment = async (
     );
   }
 
+  await releasePhoneDailyQuota({
+    patientPhone:
+      appointment.patientPhone,
+    date: appointment.date,
+    reservationId:
+      appointment.quotaReservationId ||
+      appointment._id,
+  }).catch((error) => {
+    console.error(
+      'APPOINTMENT_QUOTA_RELEASE_FAILED',
+      {
+        appointmentId:
+          String(appointment._id),
+        message: error.message,
+      }
+    );
+  });
+
 
   return cancelled;
 };
@@ -741,7 +767,9 @@ const rescheduleAppointment = async (
   const appointment =
     await Appointment
       .findById(id)
-      .select('+lockKeys');
+      .select(
+        '+lockKeys +quotaReservationId'
+      );
 
 
   if (!appointment) {
@@ -819,6 +847,18 @@ const rescheduleAppointment = async (
     ) +
     availability.rules
       .bufferMinutes;
+
+  const changesQuotaDate =
+    data.date !== appointment.date;
+
+  const currentReservationId =
+    appointment.quotaReservationId ||
+    appointment._id;
+
+  const targetReservationId =
+    changesQuotaDate
+      ? new mongoose.Types.ObjectId()
+      : currentReservationId;
 
 
   const update = {
@@ -921,7 +961,34 @@ const rescheduleAppointment = async (
         startMinute,
         endMinute
       ),
+
+    quotaReservationId:
+      targetReservationId,
   };
+
+  let acquiredTargetQuota = false;
+
+  if (
+    changesQuotaDate ||
+    !appointment.quotaReservationId
+  ) {
+    const clinic =
+      await clinicService.getClinic();
+
+    await acquirePhoneDailyQuota({
+      patientPhone:
+        appointment.patientPhone,
+      date: data.date,
+      reservationId:
+        targetReservationId,
+      limit:
+        clinic.bookingSettings
+          .maxAppointmentsPerPhonePerDay,
+    });
+
+    acquiredTargetQuota =
+      changesQuotaDate;
+  }
 
 
   try {
@@ -954,6 +1021,16 @@ const rescheduleAppointment = async (
     }
   }
   catch (error) {
+    if (acquiredTargetQuota) {
+      await releasePhoneDailyQuota({
+        patientPhone:
+          appointment.patientPhone,
+        date: data.date,
+        reservationId:
+          targetReservationId,
+      }).catch(() => {});
+    }
+
     const duplicate =
       error?.code === 11000 ||
       String(
@@ -971,6 +1048,25 @@ const rescheduleAppointment = async (
     }
 
     throw error;
+  }
+
+  if (changesQuotaDate) {
+    await releasePhoneDailyQuota({
+      patientPhone:
+        appointment.patientPhone,
+      date: appointment.date,
+      reservationId:
+        currentReservationId,
+    }).catch((error) => {
+      console.error(
+        'APPOINTMENT_OLD_QUOTA_RELEASE_FAILED',
+        {
+          appointmentId:
+            String(appointment._id),
+          message: error.message,
+        }
+      );
+    });
   }
 
 

@@ -63,6 +63,12 @@ const envSchema = Joi.object({
       .max(30)
       .default(7),
 
+  APPOINTMENT_QUOTA_SECRET:
+    Joi.string()
+      .allow('')
+      .min(32)
+      .default(''),
+
   CLIENT_URL:
     Joi.string()
       .required(),
@@ -125,6 +131,10 @@ const env = {
 
   REFRESH_TOKEN_TTL_DAYS:
     value.REFRESH_TOKEN_TTL_DAYS,
+
+  APPOINTMENT_QUOTA_SECRET:
+    value.APPOINTMENT_QUOTA_SECRET ||
+    value.JWT_SECRET,
 
   CLIENT_URL:
     value.CLIENT_URL,

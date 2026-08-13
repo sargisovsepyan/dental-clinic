@@ -8,7 +8,8 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "seed:admin": "node src/seeds/createAdmin.js",
-    "migrate": "node src/scripts/migrate.js"
+    "migrate": "node src/scripts/migrate.js",
+    "reconcile:appointment-quota": "node src/scripts/reconcileAppointmentQuota.js"
   },
   "keywords": [],
   "author": "",

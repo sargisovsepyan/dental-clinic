@@ -1,9 +1,11 @@
 import Migration from '../modules/migrations/migration.model.js';
 
 import * as localizedContent from './20260814_001_localized_content.js';
+import * as phoneDailyQuota from './20260814_002_phone_daily_quota.js';
 
 const migrations = [
   localizedContent,
+  phoneDailyQuota,
 ];
 
 const runMigrations = async ({

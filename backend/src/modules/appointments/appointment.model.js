@@ -239,6 +239,12 @@ const appointmentSchema =
         select: false,
       },
 
+      quotaReservationId: {
+        type: mongoose.Schema.Types.ObjectId,
+        default: null,
+        select: false,
+      },
+
 
       status: {
         type: String,
