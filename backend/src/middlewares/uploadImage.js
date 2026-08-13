@@ -4,6 +4,8 @@ import {
   fileTypeFromBuffer,
 } from 'file-type';
 
+import path from 'node:path';
+
 import ApiError from '../utils/ApiError.js';
 
 
@@ -18,6 +20,16 @@ const ALLOWED_TYPES =
     'image/webp',
     'image/heic',
     'image/heif',
+  ]);
+
+
+const ALLOWED_EXTENSIONS =
+  new Map([
+    ['image/jpeg', new Set(['.jpg', '.jpeg'])],
+    ['image/png', new Set(['.png'])],
+    ['image/webp', new Set(['.webp'])],
+    ['image/heic', new Set(['.heic'])],
+    ['image/heif', new Set(['.heif'])],
   ]);
 
 
@@ -184,6 +196,35 @@ const validateFileSignature =
       throw new ApiError(
         415,
         'Unsupported image format'
+      );
+    }
+
+
+    const submittedMime =
+      String(file.mimetype || '')
+        .toLowerCase();
+
+    const extension =
+      path.extname(
+        file.originalname || ''
+      ).toLowerCase();
+
+    const validExtensions =
+      ALLOWED_EXTENSIONS.get(
+        detected.mime
+      );
+
+
+    if (
+      submittedMime !==
+        detected.mime ||
+      !validExtensions?.has(
+        extension
+      )
+    ) {
+      throw new ApiError(
+        415,
+        'Image file type does not match its content'
       );
     }
 

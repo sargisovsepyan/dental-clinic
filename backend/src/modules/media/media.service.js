@@ -118,6 +118,13 @@ const removeDentistPhoto =
     ) {
       await deleteCloudinaryImage(
         previous.publicId
+      ).catch(
+        (error) => {
+          console.error(
+            'OLD_DENTIST_IMAGE_DELETE_FAILED',
+            error.message
+          );
+        }
       );
     }
 
@@ -232,6 +239,13 @@ const removeServiceImage =
     ) {
       await deleteCloudinaryImage(
         previous.publicId
+      ).catch(
+        (error) => {
+          console.error(
+            'OLD_SERVICE_IMAGE_DELETE_FAILED',
+            error.message
+          );
+        }
       );
     }
 
@@ -339,7 +353,8 @@ const updateGalleryImage =
           id,
           data,
           {
-            new: true,
+            returnDocument:
+              'after',
             runValidators: true,
           }
         );
