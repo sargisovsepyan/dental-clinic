@@ -2,6 +2,29 @@
 
 import imageAssetSchema from './imageAsset.schema.js';
 
+import {
+  createTranslationsSchema,
+  requirePrimaryContent,
+} from '../../i18n/localization.js';
+
+const galleryTranslationSchema = new mongoose.Schema(
+  {
+    altText: {
+      type: String,
+      trim: true,
+      minlength: 1,
+      maxlength: 200,
+    },
+    caption: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: '',
+    },
+  },
+  { _id: false }
+);
+
 
 const mediaAssetSchema =
   new mongoose.Schema(
@@ -38,6 +61,13 @@ const mediaAssetSchema =
         default: '',
       },
 
+      translations: {
+        type: createTranslationsSchema(
+          galleryTranslationSchema
+        ),
+        default: () => ({}),
+      },
+
       sortOrder: {
         type: Number,
         min: 0,
@@ -68,6 +98,14 @@ mediaAssetSchema.index({
   type: 1,
   isActive: 1,
   sortOrder: 1,
+});
+
+mediaAssetSchema.pre('validate', function () {
+  requirePrimaryContent(
+    this,
+    ['altText'],
+    'Published gallery image'
+  );
 });
 
 

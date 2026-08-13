@@ -1,6 +1,22 @@
 ﻿import Joi from 'joi';
 
 
+import {
+  createJoiTranslations,
+  createMultipartTranslations,
+} from '../../i18n/localization.js';
+
+const caseTranslation = Joi.object({
+  title: Joi.string()
+    .trim()
+    .min(2)
+    .max(200),
+  description: Joi.string()
+    .trim()
+    .max(2000)
+    .allow(''),
+}).min(1);
+
 const mongoId =
   Joi.string()
     .hex()
@@ -14,8 +30,12 @@ const createCaseSchema = {
         Joi.string()
           .trim()
           .min(2)
-          .max(200)
-          .required(),
+          .max(200),
+
+      translations:
+        createMultipartTranslations(
+          caseTranslation
+        ),
 
       description:
         Joi.string()
@@ -45,6 +65,10 @@ const createCaseSchema = {
           .max(10000)
           .default(0),
 
+      isActive:
+        Joi.boolean()
+          .default(true),
+
       consentConfirmed:
         Joi.boolean()
           .valid(true)
@@ -67,6 +91,11 @@ const updateCaseSchema = {
           .trim()
           .min(2)
           .max(200),
+
+      translations:
+        createJoiTranslations(
+          caseTranslation
+        ),
 
       description:
         Joi.string()

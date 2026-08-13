@@ -1,5 +1,28 @@
 ﻿import Joi from 'joi';
 
+import {
+  createJoiTranslations,
+} from '../../i18n/localization.js';
+
+const clinicTranslation = Joi.object({
+  clinicName: Joi.string()
+    .trim()
+    .min(2)
+    .max(150),
+  tagline: Joi.string()
+    .trim()
+    .max(250)
+    .allow(''),
+  description: Joi.string()
+    .trim()
+    .max(5000)
+    .allow(''),
+  address: Joi.string()
+    .trim()
+    .max(300)
+    .allow(''),
+}).min(1);
+
 const time = Joi.string()
   .pattern(/^([01]\d|2[0-3]):[0-5]\d$/);
 
@@ -113,6 +136,11 @@ const updateClinicSchema = {
         .trim()
         .min(2)
         .max(150),
+
+    translations:
+      createJoiTranslations(
+        clinicTranslation
+      ),
 
     tagline:
       Joi.string()

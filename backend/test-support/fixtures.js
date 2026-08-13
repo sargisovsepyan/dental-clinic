@@ -32,6 +32,14 @@ export const seedCore = async ({
   const clinic = await Clinic.create({
     key: 'default',
     timezone: 'Asia/Yerevan',
+    translations: {
+      hy: {
+        clinicName: 'Ատամնաբուժական կլինիկա',
+      },
+      en: {
+        clinicName: 'Dental Clinic',
+      },
+    },
     weeklySchedule: fullWeek('isOpen', clinicShifts),
     bookingSettings: {
       isBookingEnabled: true,
@@ -49,6 +57,14 @@ export const seedCore = async ({
   const category = await ServiceCategory.create({
     name: 'Preventive Care',
     slug: 'preventive-care',
+    translations: {
+      hy: {
+        name: 'Կանխարգելիչ խնամք',
+      },
+      en: {
+        name: 'Preventive Care',
+      },
+    },
   });
 
   const service = await Service.create({
@@ -58,10 +74,26 @@ export const seedCore = async ({
     priceType: 'fixed',
     priceFrom: 20000,
     durationMinutes,
+    translations: {
+      hy: {
+        name: 'Պրոֆեսիոնալ մաքրում',
+      },
+      en: {
+        name: 'Professional Cleaning',
+      },
+    },
   });
 
   const dentistPayload = {
     title: 'DDS',
+    translations: {
+      hy: {
+        title: 'Ատամնաբույժ',
+      },
+      en: {
+        title: 'DDS',
+      },
+    },
     services: [service._id],
     weeklySchedule: fullWeek('isWorking', dentistShifts),
     bookingEnabled: true,

@@ -7,6 +7,9 @@ import Service from '../services/service.model.js';
 
 import ApiError from '../../utils/ApiError.js';
 import buildSlug from '../../utils/buildSlug.js';
+import {
+  mergeTranslations,
+} from '../../i18n/localization.js';
 
 
 const timeToMinutes = (time) => {
@@ -178,8 +181,23 @@ const createDentist = async (
       data.weeklySchedule
     );
 
+  const primary =
+    data.translations?.hy;
+
   return Dentist.create({
     ...data,
+    title:
+      data.title ??
+      primary?.title ??
+      '',
+    bio:
+      data.bio ??
+      primary?.bio ??
+      '',
+    specializations:
+      data.specializations ??
+      primary?.specializations ??
+      [],
     slug,
     weeklySchedule,
   });
@@ -220,7 +238,7 @@ const getPublicDentists = async (
         isActive: true,
       },
       select:
-        'name slug durationMinutes priceType priceFrom priceTo currency bookingEnabled',
+        'name slug translations durationMinutes priceType priceFrom priceTo currency bookingEnabled',
     })
     .sort({
       sortOrder: 1,
@@ -235,7 +253,7 @@ const getAdminDentists = async () => {
   return Dentist.find()
     .populate(
       'services',
-      'name slug isActive bookingEnabled'
+      'name slug translations isActive bookingEnabled'
     )
     .sort({
       sortOrder: 1,
@@ -260,7 +278,7 @@ const getDentistBySlug = async (
           isActive: true,
         },
         select:
-          'name slug shortDescription durationMinutes priceType priceFrom priceTo currency bookingEnabled',
+          'name slug translations shortDescription durationMinutes priceType priceFrom priceTo currency bookingEnabled',
       })
       .lean();
 
@@ -302,6 +320,16 @@ const updateDentist = async (
       );
   }
 
+  if (data.translations) {
+    dentist.translations =
+      mergeTranslations(
+        dentist.translations,
+        data.translations
+      );
+
+    delete data.translations;
+  }
+
   Object.assign(
     dentist,
     data
@@ -311,7 +339,7 @@ const updateDentist = async (
 
   return dentist.populate(
     'services',
-    'name slug isActive bookingEnabled'
+    'name slug translations isActive bookingEnabled'
   );
 };
 
@@ -347,16 +375,7 @@ const restoreDentist = async (
   id
 ) => {
   const dentist =
-    await Dentist.findByIdAndUpdate(
-      id,
-      {
-        isActive: true,
-      },
-      {
-        returnDocument: 'after',
-        runValidators: true,
-      }
-    );
+    await Dentist.findById(id);
 
   if (!dentist) {
     throw new ApiError(
@@ -364,6 +383,9 @@ const restoreDentist = async (
       'Dentist not found'
     );
   }
+
+  dentist.isActive = true;
+  await dentist.save();
 
   return dentist;
 };

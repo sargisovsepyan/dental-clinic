@@ -192,6 +192,11 @@ const createAppointment = async (
         availability
           .dentist
           .title || '',
+
+      translations:
+        availability
+          .dentist
+          .translations || {},
     },
 
 
@@ -205,6 +210,11 @@ const createAppointment = async (
         availability
           .service
           .durationMinutes,
+
+      translations:
+        availability
+          .service
+          .translations || {},
     },
 
 
@@ -315,11 +325,11 @@ const createAppointment = async (
         )
         .populate(
           'dentist',
-          'firstName lastName slug title'
+          'firstName lastName slug title translations'
         )
         .populate(
           'service',
-          'name slug'
+          'name slug translations'
         )
         .lean();
     }
@@ -438,11 +448,11 @@ const getAppointments = async (
     Appointment.find(filter)
       .populate(
         'dentist',
-        'firstName lastName slug title'
+        'firstName lastName slug title translations'
       )
       .populate(
         'service',
-        'name slug'
+        'name slug translations'
       )
       .sort({
         startAt: 1,
@@ -481,11 +491,11 @@ const getAppointmentById =
         .findById(id)
         .populate(
           'dentist',
-          'firstName lastName slug title'
+          'firstName lastName slug title translations'
         )
         .populate(
           'service',
-          'name slug'
+          'name slug translations'
         )
         .lean();
 
@@ -833,6 +843,11 @@ const rescheduleAppointment = async (
         availability
           .dentist
           .title || '',
+
+      translations:
+        availability
+          .dentist
+          .translations || {},
     },
 
 
@@ -846,6 +861,11 @@ const rescheduleAppointment = async (
         availability
           .service
           .durationMinutes,
+
+      translations:
+        availability
+          .service
+          .translations || {},
     },
 
 

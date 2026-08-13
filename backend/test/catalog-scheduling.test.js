@@ -30,14 +30,26 @@ test('category CRUD enforces unique slugs, active public visibility, disable con
   const created = await request(app)
     .post('/api/v1/service-categories')
     .set(admin())
-    .send({ name: 'Surgery' });
+    .send({
+      name: 'Surgery',
+      translations: {
+        hy: { name: 'Վիրաբուժություն' },
+        en: { name: 'Surgery' },
+      },
+    });
   assert.equal(created.status, 201);
   assert.equal(created.body.data.category.slug, 'surgery');
 
   const duplicate = await request(app)
     .post('/api/v1/service-categories')
     .set(admin())
-    .send({ name: 'Another name', slug: 'surgery' });
+    .send({
+      name: 'Another name',
+      slug: 'surgery',
+      translations: {
+        hy: { name: 'Այլ անուն' },
+      },
+    });
   assert.equal(duplicate.status, 409);
 
   const blocked = await request(app)
@@ -62,6 +74,10 @@ test('service creation validates category, pricing combinations, duration, and d
     slug: 'implant-consultation',
     category: String(core.category._id),
     durationMinutes: 30,
+    translations: {
+      hy: { name: 'Իմպլանտի խորհրդատվություն' },
+      en: { name: 'Implant Consultation' },
+    },
   };
   const invalidCategory = await request(app)
     .post('/api/v1/services')
@@ -103,6 +119,10 @@ test('dentist creation validates service relations, duplicate weekdays, shift or
     firstName: 'Mariam',
     lastName: 'Petrosyan',
     services: [String(core.service._id)],
+    translations: {
+      hy: { title: 'Ատամնաբույժ' },
+      en: { title: 'Dentist' },
+    },
     weeklySchedule: [{
       dayOfWeek: 1,
       isWorking: true,

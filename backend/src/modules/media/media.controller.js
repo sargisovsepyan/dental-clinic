@@ -125,6 +125,12 @@ const createGalleryImage =
 
           sortOrder:
             req.body.sortOrder,
+
+          translations:
+            req.body.translations,
+
+          isActive:
+            req.body.isActive,
         });
 
 

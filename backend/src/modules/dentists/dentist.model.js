@@ -2,6 +2,37 @@
 
 import imageAssetSchema from '../media/imageAsset.schema.js';
 
+import {
+  createTranslationsSchema,
+  requirePrimaryContent,
+} from '../../i18n/localization.js';
+
+const dentistTranslationSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      trim: true,
+      minlength: 2,
+      maxlength: 150,
+    },
+    bio: {
+      type: String,
+      trim: true,
+      maxlength: 5000,
+      default: '',
+    },
+    specializations: {
+      type: [{
+        type: String,
+        trim: true,
+        maxlength: 100,
+      }],
+      default: [],
+    },
+  },
+  { _id: false }
+);
+
 const shiftSchema = new mongoose.Schema(
   {
     start: {
@@ -97,6 +128,13 @@ const dentistSchema = new mongoose.Schema(
       default: '',
     },
 
+    translations: {
+      type: createTranslationsSchema(
+        dentistTranslationSchema
+      ),
+      default: () => ({}),
+    },
+
     experienceYears: {
       type: Number,
       min: 0,
@@ -184,6 +222,14 @@ dentistSchema.index({
   services: 1,
   isActive: 1,
   bookingEnabled: 1,
+});
+
+dentistSchema.pre('validate', function () {
+  requirePrimaryContent(
+    this,
+    ['title'],
+    'Published dentist'
+  );
 });
 
 

@@ -178,4 +178,5 @@ test('clinic singleton initialization is atomic and honors the configured timezo
   const clinics = await Promise.all(Array.from({ length: 6 }, () => clinicService.getClinic()));
   assert.equal(await Clinic.countDocuments({ key: 'default' }), 1);
   assert.ok(clinics.every((clinic) => clinic.timezone === 'Asia/Yerevan'));
+  assert.ok(clinics.every((clinic) => clinic.translations.hy.clinicName));
 });

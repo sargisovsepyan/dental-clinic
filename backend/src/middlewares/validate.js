@@ -1,5 +1,9 @@
 ﻿import ApiError from '../utils/ApiError.js';
 
+import {
+  assertSupportedTranslationKeys,
+} from '../i18n/localization.js';
+
 const validate = (schema) => {
   return (req, res, next) => {
     const targets = ['body', 'params', 'query'];
@@ -7,6 +11,15 @@ const validate = (schema) => {
     for (const target of targets) {
       if (!schema[target]) {
         continue;
+      }
+
+      try {
+        assertSupportedTranslationKeys(
+          req[target]?.translations
+        );
+      }
+      catch (error) {
+        return next(error);
       }
 
       const { error, value } = schema[target].validate(

@@ -3,10 +3,19 @@ import Service from '../services/service.model.js';
 
 import ApiError from '../../utils/ApiError.js';
 import buildSlug from '../../utils/buildSlug.js';
+import {
+  mergeTranslations,
+} from '../../i18n/localization.js';
 
 const createCategory = async (data) => {
+  const primary =
+    data.translations?.hy;
+
+  const name =
+    data.name || primary?.name;
+
   const slug =
-    data.slug || buildSlug(data.name);
+    data.slug || buildSlug(name);
 
   const duplicate =
     await ServiceCategory.findOne({
@@ -22,6 +31,11 @@ const createCategory = async (data) => {
 
   return ServiceCategory.create({
     ...data,
+    name,
+    description:
+      data.description ??
+      primary?.description ??
+      '',
     slug,
   });
 };
@@ -69,19 +83,12 @@ const updateCategory = async (
   id,
   data
 ) => {
-  if (data.name && !data.slug) {
-    data.slug = buildSlug(data.name);
-  }
+  const shouldRegenerateSlug =
+    data.name !== undefined &&
+    data.slug === undefined;
 
   const category =
-    await ServiceCategory.findByIdAndUpdate(
-      id,
-      data,
-      {
-        returnDocument: 'after',
-        runValidators: true,
-      }
-    );
+    await ServiceCategory.findById(id);
 
   if (!category) {
     throw new ApiError(
@@ -89,6 +96,23 @@ const updateCategory = async (
       'Service category not found'
     );
   }
+
+  if (data.translations) {
+    category.translations =
+      mergeTranslations(
+        category.translations,
+        data.translations
+      );
+
+    delete data.translations;
+  }
+
+  if (shouldRegenerateSlug) {
+    data.slug = buildSlug(data.name);
+  }
+
+  Object.assign(category, data);
+  await category.save();
 
   return category;
 };
@@ -126,15 +150,7 @@ const deleteCategory = async (id) => {
 
 const restoreCategory = async (id) => {
   const category =
-    await ServiceCategory.findByIdAndUpdate(
-      id,
-      {
-        isActive: true,
-      },
-      {
-        returnDocument: 'after',
-      }
-    );
+    await ServiceCategory.findById(id);
 
   if (!category) {
     throw new ApiError(
@@ -142,6 +158,9 @@ const restoreCategory = async (id) => {
       'Service category not found'
     );
   }
+
+  category.isActive = true;
+  await category.save();
 
   return category;
 };

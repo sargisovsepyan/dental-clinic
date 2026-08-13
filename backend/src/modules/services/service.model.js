@@ -2,6 +2,35 @@
 
 import imageAssetSchema from '../media/imageAsset.schema.js';
 
+import {
+  createTranslationsSchema,
+  requirePrimaryContent,
+} from '../../i18n/localization.js';
+
+const serviceTranslationSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      trim: true,
+      minlength: 2,
+      maxlength: 150,
+    },
+    shortDescription: {
+      type: String,
+      trim: true,
+      maxlength: 300,
+      default: '',
+    },
+    description: {
+      type: String,
+      trim: true,
+      maxlength: 5000,
+      default: '',
+    },
+  },
+  { _id: false }
+);
+
 const serviceSchema = new mongoose.Schema(
   {
     name: {
@@ -40,6 +69,13 @@ const serviceSchema = new mongoose.Schema(
       trim: true,
       maxlength: 5000,
       default: '',
+    },
+
+    translations: {
+      type: createTranslationsSchema(
+        serviceTranslationSchema
+      ),
+      default: () => ({}),
     },
 
     priceType: {
@@ -128,6 +164,14 @@ serviceSchema.index({
 serviceSchema.index({
   isFeatured: 1,
   isActive: 1,
+});
+
+serviceSchema.pre('validate', function () {
+  requirePrimaryContent(
+    this,
+    ['name'],
+    'Published service'
+  );
 });
 
 const Service = mongoose.model(

@@ -5,6 +5,9 @@ import ClinicClosure from './clinicClosure.model.js';
 
 import ApiError from '../../utils/ApiError.js';
 import env from '../../config/env.js';
+import {
+  mergeTranslations,
+} from '../../i18n/localization.js';
 
 
 const timeToMinutes = (time) => {
@@ -172,6 +175,14 @@ const ensureClinic = async () => {
         key: 'default',
         timezone:
           env.CLINIC_TIMEZONE,
+        clinicName:
+          'Ատամնաբուժական կլինիկա',
+        translations: {
+          hy: {
+            clinicName:
+              'Ատամնաբուժական կլինիկա',
+          },
+        },
       },
     },
     {
@@ -233,11 +244,21 @@ const updateClinic = async (
     };
   }
 
+  if (data.translations) {
+    clinic.translations =
+      mergeTranslations(
+        clinic.translations,
+        data.translations
+      );
+
+  }
+
   const protectedFields =
     new Set([
       'weeklySchedule',
       'bookingSettings',
       'socialLinks',
+      'translations',
       'key',
       'timezone',
     ]);

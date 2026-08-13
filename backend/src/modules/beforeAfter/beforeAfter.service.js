@@ -10,6 +10,9 @@ import {
   uploadImageBuffer,
   deleteCloudinaryImage,
 } from '../../utils/cloudinaryImage.js';
+import {
+  mergeTranslations,
+} from '../../i18n/localization.js';
 
 
 const validateRelations =
@@ -79,11 +82,11 @@ const populateCase =
     return query
       .populate(
         'service',
-        'name slug'
+        'name slug translations'
       )
       .populate(
         'dentist',
-        'firstName lastName slug title photo'
+        'firstName lastName slug title translations photo'
       );
   };
 
@@ -167,14 +170,22 @@ const createCase =
 
 
     try {
+      const primary =
+        data.translations?.hy;
+
       createdCase =
         await BeforeAfterCase.create({
           title:
-            data.title,
+            data.title ||
+            primary?.title,
 
           description:
-            data.description ||
+            data.description ??
+            primary?.description ??
             '',
+
+          translations:
+            data.translations || {},
 
           service:
             data.serviceId ||
@@ -198,6 +209,10 @@ const createCase =
           sortOrder:
             data.sortOrder ??
             0,
+
+          isActive:
+            data.isActive ??
+            true,
 
           createdBy:
             userId,
@@ -458,6 +473,16 @@ const updateCase =
     ) {
       item.title =
         data.title;
+    }
+
+
+    if (data.translations) {
+      item.translations =
+        mergeTranslations(
+          item.translations,
+          data.translations
+        );
+
     }
 
 

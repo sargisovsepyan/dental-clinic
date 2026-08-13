@@ -1,14 +1,37 @@
 ﻿import Joi from 'joi';
 
+import {
+  createJoiTranslations,
+} from '../../i18n/localization.js';
+
 const mongoId = Joi.string()
   .hex()
   .length(24);
+
+const serviceTranslation = Joi.object({
+  name: Joi.string()
+    .trim()
+    .min(2)
+    .max(150),
+  shortDescription: Joi.string()
+    .trim()
+    .max(300)
+    .allow(''),
+  description: Joi.string()
+    .trim()
+    .max(5000)
+    .allow(''),
+}).min(1);
 
 const serviceBody = {
   name: Joi.string()
     .trim()
     .min(2)
     .max(150),
+
+  translations: createJoiTranslations(
+    serviceTranslation
+  ),
 
   slug: Joi.string()
     .trim()
@@ -71,8 +94,6 @@ const createServiceSchema = {
   body: Joi.object({
     ...serviceBody,
 
-    name: serviceBody.name.required(),
-
     category:
       serviceBody.category.required(),
 
@@ -85,7 +106,7 @@ const createServiceSchema = {
       serviceBody.durationMinutes.default(
         60
       ),
-  }),
+  }).or('name', 'translations'),
 };
 
 const updateServiceSchema = {

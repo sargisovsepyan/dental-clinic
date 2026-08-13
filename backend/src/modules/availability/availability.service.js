@@ -319,6 +319,9 @@ const createEmptyResult = ({
 
     slug:
       dentist.slug,
+
+    translations:
+      dentist.translations || {},
   },
 
   service: {
@@ -326,6 +329,9 @@ const createEmptyResult = ({
 
     name:
       service.name,
+
+    translations:
+      service.translations || {},
 
     durationMinutes:
       service.durationMinutes,
@@ -745,6 +751,9 @@ const getAvailability = async ({
 
       title:
         dentist.title,
+
+      translations:
+        dentist.translations || {},
     },
 
     service: {
@@ -753,6 +762,9 @@ const getAvailability = async ({
 
       name:
         service.name,
+
+      translations:
+        service.translations || {},
 
       durationMinutes:
         service.durationMinutes,

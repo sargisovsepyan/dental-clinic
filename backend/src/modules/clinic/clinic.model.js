@@ -1,5 +1,40 @@
 ﻿import mongoose from 'mongoose';
 
+import {
+  createTranslationsSchema,
+  requirePrimaryContent,
+} from '../../i18n/localization.js';
+
+const clinicTranslationSchema = new mongoose.Schema(
+  {
+    clinicName: {
+      type: String,
+      trim: true,
+      minlength: 2,
+      maxlength: 150,
+    },
+    tagline: {
+      type: String,
+      trim: true,
+      maxlength: 250,
+      default: '',
+    },
+    description: {
+      type: String,
+      trim: true,
+      maxlength: 5000,
+      default: '',
+    },
+    address: {
+      type: String,
+      trim: true,
+      maxlength: 300,
+      default: '',
+    },
+  },
+  { _id: false }
+);
+
 const shiftSchema = new mongoose.Schema(
   {
     start: {
@@ -213,6 +248,13 @@ const clinicSchema = new mongoose.Schema(
       default: '',
     },
 
+    translations: {
+      type: createTranslationsSchema(
+        clinicTranslationSchema
+      ),
+      default: () => ({}),
+    },
+
     mapUrl: {
       type: String,
       trim: true,
@@ -332,6 +374,14 @@ const clinicSchema = new mongoose.Schema(
     versionKey: false,
   }
 );
+
+clinicSchema.pre('validate', function () {
+  requirePrimaryContent(
+    this,
+    ['clinicName'],
+    'Published clinic settings'
+  );
+});
 
 
 const Clinic = mongoose.model(

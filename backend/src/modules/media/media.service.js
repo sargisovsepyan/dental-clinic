@@ -10,6 +10,9 @@ import {
   uploadImageBuffer,
   deleteCloudinaryImage,
 } from '../../utils/cloudinaryImage.js';
+import {
+  mergeTranslations,
+} from '../../i18n/localization.js';
 
 
 const replaceDentistPhoto =
@@ -261,6 +264,8 @@ const createGalleryImage =
     altText = '',
     caption = '',
     sortOrder = 0,
+    translations = {},
+    isActive = true,
   }) => {
     const uploaded =
       await uploadImageBuffer(
@@ -277,6 +282,9 @@ const createGalleryImage =
 
 
     try {
+      const primary =
+        translations.hy;
+
       return await MediaAsset.create({
         type:
           'clinic_gallery',
@@ -284,11 +292,21 @@ const createGalleryImage =
         image:
           uploaded,
 
-        altText,
+        altText:
+          altText ||
+          primary?.altText ||
+          '',
 
-        caption,
+        caption:
+          caption ||
+          primary?.caption ||
+          '',
+
+        translations,
 
         sortOrder,
+
+        isActive,
 
         createdBy:
           userId,
@@ -348,16 +366,7 @@ const updateGalleryImage =
     data
   ) => {
     const asset =
-      await MediaAsset
-        .findByIdAndUpdate(
-          id,
-          data,
-          {
-            returnDocument:
-              'after',
-            runValidators: true,
-          }
-        );
+      await MediaAsset.findById(id);
 
 
     if (!asset) {
@@ -366,6 +375,19 @@ const updateGalleryImage =
         'Gallery image not found'
       );
     }
+
+    if (data.translations) {
+      asset.translations =
+        mergeTranslations(
+          asset.translations,
+          data.translations
+        );
+
+      delete data.translations;
+    }
+
+    Object.assign(asset, data);
+    await asset.save();
 
 
     return asset;

@@ -3,6 +3,9 @@ import ServiceCategory from '../serviceCategories/serviceCategory.model.js';
 
 import ApiError from '../../utils/ApiError.js';
 import buildSlug from '../../utils/buildSlug.js';
+import {
+  mergeTranslations,
+} from '../../i18n/localization.js';
 
 const validatePrice = (service) => {
   const {
@@ -79,11 +82,26 @@ const createService = async (data) => {
     data.category
   );
 
+  const primary =
+    data.translations?.hy;
+
   const payload = {
     ...data,
+    name:
+      data.name || primary?.name,
+    shortDescription:
+      data.shortDescription ??
+      primary?.shortDescription ??
+      '',
+    description:
+      data.description ??
+      primary?.description ??
+      '',
     slug:
       data.slug ||
-      buildSlug(data.name),
+      buildSlug(
+        data.name || primary?.name
+      ),
   };
 
   validatePrice(payload);
@@ -141,7 +159,7 @@ const getPublicServices = async (
   return Service.find(filter)
     .populate(
       'category',
-      'name slug'
+      'name slug translations'
     )
     .sort({
       sortOrder: 1,
@@ -154,7 +172,7 @@ const getAdminServices = async () => {
   return Service.find()
     .populate(
       'category',
-      'name slug isActive'
+      'name slug translations isActive'
     )
     .sort({
       sortOrder: 1,
@@ -173,7 +191,7 @@ const getServiceBySlug = async (
     })
       .populate(
         'category',
-        'name slug'
+        'name slug translations'
       )
       .lean();
 
@@ -191,6 +209,10 @@ const updateService = async (
   id,
   data
 ) => {
+  const shouldRegenerateSlug =
+    data.name !== undefined &&
+    data.slug === undefined;
+
   const current =
     await Service.findById(id);
 
@@ -212,7 +234,16 @@ const updateService = async (
     ...data,
   };
 
-  if (data.name && !data.slug) {
+  if (data.translations) {
+    data.translations =
+      mergeTranslations(
+        current.translations,
+        data.translations
+      );
+
+  }
+
+  if (shouldRegenerateSlug) {
     merged.slug =
       buildSlug(data.name);
 
@@ -228,20 +259,13 @@ const updateService = async (
   data.priceTo =
     merged.priceTo;
 
-  const updated =
-    await Service.findByIdAndUpdate(
-      id,
-      data,
-      {
-        returnDocument: 'after',
-        runValidators: true,
-      }
-    ).populate(
-      'category',
-      'name slug'
-    );
+  Object.assign(current, data);
+  await current.save();
 
-  return updated;
+  return current.populate(
+    'category',
+    'name slug translations'
+  );
 };
 
 const deleteService = async (id) => {

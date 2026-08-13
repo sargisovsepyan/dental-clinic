@@ -100,6 +100,15 @@ after(async () => {
 
 const admin = () => ({ Authorization: `Bearer ${staff.adminToken}` });
 
+const localizedCase = (title) => ({
+  title,
+  translations: {
+    hy: { title: `Հայերեն ${title}` },
+    en: { title },
+  },
+  consentConfirmed: true,
+});
+
 test('media upload requires admin and rejects fake, invalid, unsupported, and oversized files', async () => {
   assert.equal(
     (await request(app).post('/api/v1/media/gallery').attach('image', png, 'image.png')).status,
@@ -147,6 +156,20 @@ test('media upload rejects MIME and extension values that disagree with magic by
   assert.equal(uploadCalls.length, 0);
 });
 
+test('multipart localized media rejects unsupported locale keys before Cloudinary', async () => {
+  const response = await request(app)
+    .post('/api/v1/media/gallery')
+    .set(admin())
+    .field('translations', JSON.stringify({
+      hy: { altText: 'Վավեր' },
+      fr: { altText: 'Interdit' },
+    }))
+    .attach('image', png, 'image.png');
+
+  assert.equal(response.status, 400);
+  assert.equal(uploadCalls.length, 0);
+});
+
 test('valid gallery upload uses the expected folder and public/admin listings minimize data', async () => {
   uploadQueue.push(image('gallery-one'));
   const created = await request(app)
@@ -154,6 +177,16 @@ test('valid gallery upload uses the expected folder and public/admin listings mi
     .set(admin())
     .field('altText', 'Clinic reception')
     .field('caption', 'Welcome area')
+    .field('translations', JSON.stringify({
+      hy: {
+        altText: 'Կլինիկայի ընդունարան',
+        caption: 'Սպասասրահ',
+      },
+      en: {
+        altText: 'Clinic reception',
+        caption: 'Welcome area',
+      },
+    }))
     .field('sortOrder', '2')
     .attach('image', png, 'reception.png');
   assert.equal(created.status, 201);
@@ -163,6 +196,19 @@ test('valid gallery upload uses the expected folder and public/admin listings mi
   const publicList = await request(app).get('/api/v1/media/gallery');
   assert.equal(publicList.body.data.images[0].createdBy, undefined);
   assert.equal(publicList.body.data.images[0].altText, 'Clinic reception');
+  assert.equal(publicList.body.data.images[0].translations.hy.altText, 'Կլինիկայի ընդունարան');
+
+  const localizedUpdate = await request(app)
+    .patch(`/api/v1/media/gallery/${created.body.data.image._id}`)
+    .set(admin())
+    .send({
+      translations: {
+        ru: { caption: 'Зона ожидания' },
+      },
+    });
+  assert.equal(localizedUpdate.status, 200);
+  assert.equal(localizedUpdate.body.data.image.translations.hy.altText, 'Կլինիկայի ընդունարան');
+  assert.equal(localizedUpdate.body.data.image.translations.ru.caption, 'Зона ожидания');
   const adminList = await request(app).get('/api/v1/media/gallery/admin').set(admin());
   assert.equal(adminList.body.data.images[0].createdBy.email, 'admin@example.com');
 });
@@ -170,7 +216,13 @@ test('valid gallery upload uses the expected folder and public/admin listings mi
 test('gallery database failure cleans up the newly uploaded asset', async () => {
   uploadQueue.push(image('gallery-rollback'));
   await assert.rejects(
-    mediaService.createGalleryImage({ file: { buffer: png }, userId: null }),
+    mediaService.createGalleryImage({
+      file: { buffer: png },
+      userId: null,
+      translations: {
+        hy: { altText: 'Պատկեր' },
+      },
+    }),
     (error) => error.name === 'ValidationError',
   );
   assert.deepEqual(destroyCalls.map(({ publicId }) => publicId), ['gallery-rollback']);
@@ -226,6 +278,9 @@ test('gallery soft delete hides publicly without Cloudinary deletion and restore
     file: { buffer: png },
     userId: staff.admin._id,
     altText: 'Restorable',
+    translations: {
+      hy: { altText: 'Վերականգնվող' },
+    },
   });
   await mediaService.deleteGalleryImage(asset._id);
   assert.equal((await mediaService.getPublicGallery()).length, 0);
@@ -240,6 +295,9 @@ test('before/after HTTP creation requires both files and explicit consent', asyn
     .post('/api/v1/before-after')
     .set(admin())
     .field('title', 'Case')
+    .field('translations', JSON.stringify({
+      hy: { title: 'Դեպք' },
+    }))
     .field('consentConfirmed', 'true')
     .attach('beforeImage', png, 'before.png');
   assert.equal(missingAfter.status, 400);
@@ -248,6 +306,9 @@ test('before/after HTTP creation requires both files and explicit consent', asyn
     .post('/api/v1/before-after')
     .set(admin())
     .field('title', 'Case')
+    .field('translations', JSON.stringify({
+      hy: { title: 'Դեպք' },
+    }))
     .attach('beforeImage', png, 'before.png')
     .attach('afterImage', png, 'after.png');
   assert.equal(missingConsent.status, 400);
@@ -257,12 +318,13 @@ test('before/after HTTP creation requires both files and explicit consent', asyn
 test('before/after creation uploads both folders and rolls back when the second upload fails', async () => {
   uploadQueue.push(image('before-success'), image('after-success'));
   const created = await beforeAfterService.createCase({
-    data: { title: 'Successful case', consentConfirmed: true },
+    data: localizedCase('Successful case'),
     beforeFile: { buffer: png },
     afterFile: { buffer: png },
     userId: staff.admin._id,
   });
   assert.ok(created._id);
+  assert.equal(created.translations.hy.title, 'Հայերեն Successful case');
   assert.deepEqual(
     uploadCalls.map(({ options }) => options.folder),
     ['dental-clinic/before-after/before', 'dental-clinic/before-after/after'],
@@ -271,7 +333,7 @@ test('before/after creation uploads both folders and rolls back when the second 
   uploadQueue.push(image('before-orphan-candidate'), new Error('second upload failed'));
   await assert.rejects(
     beforeAfterService.createCase({
-      data: { title: 'Failed case', consentConfirmed: true },
+      data: localizedCase('Failed case'),
       beforeFile: { buffer: png },
       afterFile: { buffer: png },
       userId: staff.admin._id,
@@ -286,7 +348,7 @@ test('before/after database creation failure deletes both uploaded assets', asyn
   uploadQueue.push(image('before-db-fail'), image('after-db-fail'));
   await assert.rejects(
     beforeAfterService.createCase({
-      data: { title: 'Database failure', consentConfirmed: true },
+      data: localizedCase('Database failure'),
       beforeFile: { buffer: png },
       afterFile: { buffer: png },
       userId: null,
@@ -302,7 +364,7 @@ test('before/after database creation failure deletes both uploaded assets', asyn
 test('before/after replacement preserves old image on failure and deletes old after success', async () => {
   uploadQueue.push(image('before-old'), image('after-old'));
   const item = await beforeAfterService.createCase({
-    data: { title: 'Replace case', consentConfirmed: true },
+    data: localizedCase('Replace case'),
     beforeFile: { buffer: png },
     afterFile: { buffer: png },
     userId: staff.admin._id,
@@ -325,7 +387,7 @@ test('before/after replacement preserves old image on failure and deletes old af
 test('before/after soft delete retains both assets and restore returns public visibility', async () => {
   uploadQueue.push(image('before-soft'), image('after-soft'));
   const item = await beforeAfterService.createCase({
-    data: { title: 'Soft delete case', consentConfirmed: true },
+    data: localizedCase('Soft delete case'),
     beforeFile: { buffer: png },
     afterFile: { buffer: png },
     userId: staff.admin._id,
@@ -342,9 +404,8 @@ test('invalid before/after relations fail before any upload', async () => {
   await assert.rejects(
     beforeAfterService.createCase({
       data: {
-        title: 'Bad relation',
+        ...localizedCase('Bad relation'),
         serviceId: new mongoose.Types.ObjectId(),
-        consentConfirmed: true,
       },
       beforeFile: { buffer: png },
       afterFile: { buffer: png },

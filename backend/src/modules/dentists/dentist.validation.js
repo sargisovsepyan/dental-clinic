@@ -1,8 +1,36 @@
 ﻿import Joi from 'joi';
 
+import {
+  createJoiTranslations,
+} from '../../i18n/localization.js';
+
 const mongoId = Joi.string()
   .hex()
   .length(24);
+
+const dentistTranslation = Joi.object({
+  title: Joi.string()
+    .trim()
+    .min(2)
+    .max(150),
+  bio: Joi.string()
+    .trim()
+    .max(5000)
+    .allow(''),
+  specializations: Joi.array()
+    .items(
+      Joi.string()
+        .trim()
+        .min(2)
+        .max(100)
+    )
+    .max(20)
+    .unique(),
+}).min(1);
+
+const translations = createJoiTranslations(
+  dentistTranslation
+);
 
 const time = Joi.string()
   .pattern(/^([01]\d|2[0-3]):[0-5]\d$/);
@@ -53,6 +81,8 @@ const createDentistSchema = {
       .max(150)
       .allow('')
       .default(''),
+
+    translations,
 
     specializations: Joi.array()
       .items(
@@ -113,6 +143,9 @@ const createDentistSchema = {
     bookingEnabled: Joi.boolean()
       .default(true),
 
+    isActive: Joi.boolean()
+      .default(true),
+
     sortOrder: Joi.number()
       .integer()
       .min(0)
@@ -147,6 +180,8 @@ const updateDentistSchema = {
       .trim()
       .max(150)
       .allow(''),
+
+    translations,
 
     specializations: Joi.array()
       .items(

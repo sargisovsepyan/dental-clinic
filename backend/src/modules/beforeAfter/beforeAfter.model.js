@@ -2,6 +2,29 @@
 
 import imageAssetSchema from '../media/imageAsset.schema.js';
 
+import {
+  createTranslationsSchema,
+  requirePrimaryContent,
+} from '../../i18n/localization.js';
+
+const caseTranslationSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      trim: true,
+      minlength: 2,
+      maxlength: 200,
+    },
+    description: {
+      type: String,
+      trim: true,
+      maxlength: 2000,
+      default: '',
+    },
+  },
+  { _id: false }
+);
+
 
 const beforeAfterCaseSchema =
   new mongoose.Schema(
@@ -19,6 +42,13 @@ const beforeAfterCaseSchema =
         trim: true,
         maxlength: 2000,
         default: '',
+      },
+
+      translations: {
+        type: createTranslationsSchema(
+          caseTranslationSchema
+        ),
+        default: () => ({}),
       },
 
       service: {
@@ -103,6 +133,14 @@ beforeAfterCaseSchema.index({
   isFeatured: -1,
   sortOrder: 1,
   createdAt: -1,
+});
+
+beforeAfterCaseSchema.pre('validate', function () {
+  requirePrimaryContent(
+    this,
+    ['title'],
+    'Published before/after case'
+  );
 });
 
 

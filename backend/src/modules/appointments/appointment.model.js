@@ -1,6 +1,34 @@
 ﻿import mongoose from 'mongoose';
 
 
+import {
+  createTranslationsSchema,
+} from '../../i18n/localization.js';
+
+const snapshotNameTranslationSchema =
+  new mongoose.Schema(
+    {
+      name: {
+        type: String,
+        trim: true,
+        maxlength: 150,
+      },
+    },
+    { _id: false }
+  );
+
+const snapshotTitleTranslationSchema =
+  new mongoose.Schema(
+    {
+      title: {
+        type: String,
+        trim: true,
+        maxlength: 150,
+      },
+    },
+    { _id: false }
+  );
+
 const priceSnapshotSchema =
   new mongoose.Schema(
     {
@@ -53,6 +81,13 @@ const serviceSnapshotSchema =
         required: true,
         min: 1,
       },
+
+      translations: {
+        type: createTranslationsSchema(
+          snapshotNameTranslationSchema
+        ),
+        default: () => ({}),
+      },
     },
     {
       _id: false,
@@ -76,6 +111,13 @@ const dentistSnapshotSchema =
       title: {
         type: String,
         default: '',
+      },
+
+      translations: {
+        type: createTranslationsSchema(
+          snapshotTitleTranslationSchema
+        ),
+        default: () => ({}),
       },
     },
     {

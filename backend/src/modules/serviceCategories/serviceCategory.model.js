@@ -1,5 +1,28 @@
 ﻿import mongoose from 'mongoose';
 
+import {
+  createTranslationsSchema,
+  requirePrimaryContent,
+} from '../../i18n/localization.js';
+
+const categoryTranslationSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      trim: true,
+      minlength: 2,
+      maxlength: 100,
+    },
+    description: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: '',
+    },
+  },
+  { _id: false }
+);
+
 const serviceCategorySchema = new mongoose.Schema(
   {
     name: {
@@ -24,6 +47,13 @@ const serviceCategorySchema = new mongoose.Schema(
       trim: true,
       maxlength: 500,
       default: '',
+    },
+
+    translations: {
+      type: createTranslationsSchema(
+        categoryTranslationSchema
+      ),
+      default: () => ({}),
     },
 
     imageUrl: {
@@ -54,6 +84,14 @@ const serviceCategorySchema = new mongoose.Schema(
 serviceCategorySchema.index({
   isActive: 1,
   sortOrder: 1,
+});
+
+serviceCategorySchema.pre('validate', function () {
+  requirePrimaryContent(
+    this,
+    ['name'],
+    'Published service category'
+  );
 });
 
 const ServiceCategory = mongoose.model(

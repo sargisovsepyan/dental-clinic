@@ -1,6 +1,22 @@
 ﻿import Joi from 'joi';
 
 
+import {
+  createJoiTranslations,
+  createMultipartTranslations,
+} from '../../i18n/localization.js';
+
+const galleryTranslation = Joi.object({
+  altText: Joi.string()
+    .trim()
+    .min(1)
+    .max(200),
+  caption: Joi.string()
+    .trim()
+    .max(500)
+    .allow(''),
+}).min(1);
+
 const mongoId =
   Joi.string()
     .hex()
@@ -33,12 +49,21 @@ const createGallerySchema = {
           .allow('')
           .default(''),
 
+      translations:
+        createMultipartTranslations(
+          galleryTranslation
+        ),
+
       sortOrder:
         Joi.number()
           .integer()
           .min(0)
           .max(10000)
           .default(0),
+
+      isActive:
+        Joi.boolean()
+          .default(true),
     }),
 };
 
@@ -63,6 +88,11 @@ const updateGallerySchema = {
           .trim()
           .max(500)
           .allow(''),
+
+      translations:
+        createJoiTranslations(
+          galleryTranslation
+        ),
 
       sortOrder:
         Joi.number()
