@@ -92,9 +92,31 @@ const bookingLimiter =
   });
 
 
+
+const mediaUploadLimiter =
+  rateLimit({
+    windowMs:
+      15 * 60 * 1000,
+
+    limit: 30,
+
+    standardHeaders:
+      'draft-8',
+
+    legacyHeaders: false,
+
+    handler:
+      createHandler(
+        'Too many media uploads. Please try again later.'
+      ),
+  });
+
+
 export {
   apiLimiter,
   authLimiter,
   refreshLimiter,
   bookingLimiter,
+  mediaUploadLimiter,
 };
+

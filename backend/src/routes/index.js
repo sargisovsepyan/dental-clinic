@@ -16,6 +16,8 @@ import appointmentRoutes from '../modules/appointments/appointment.routes.js';
 
 import auditRoutes from '../modules/audit/audit.routes.js';
 
+import mediaRoutes from '../modules/media/media.routes.js';
+
 
 const router =
   express.Router();
@@ -61,5 +63,11 @@ router.use(
   auditRoutes
 );
 
+router.use(
+  '/media',
+  mediaRoutes
+);
+
 
 export default router;
+

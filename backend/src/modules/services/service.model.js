@@ -1,5 +1,7 @@
 ﻿import mongoose from 'mongoose';
 
+import imageAssetSchema from '../media/imageAsset.schema.js';
+
 const serviceSchema = new mongoose.Schema(
   {
     name: {
@@ -82,6 +84,11 @@ const serviceSchema = new mongoose.Schema(
       default: '',
     },
 
+    image: {
+      type: imageAssetSchema,
+      default: null,
+    },
+
     isFeatured: {
       type: Boolean,
       default: false,
@@ -129,3 +136,4 @@ const Service = mongoose.model(
 );
 
 export default Service;
+

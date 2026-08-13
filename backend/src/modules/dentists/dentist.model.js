@@ -1,5 +1,7 @@
 ﻿import mongoose from 'mongoose';
 
+import imageAssetSchema from '../media/imageAsset.schema.js';
+
 const shiftSchema = new mongoose.Schema(
   {
     start: {
@@ -108,6 +110,11 @@ const dentistSchema = new mongoose.Schema(
       default: '',
     },
 
+    photo: {
+      type: imageAssetSchema,
+      default: null,
+    },
+
     languages: {
       type: [{
         type: String,
@@ -186,3 +193,4 @@ const Dentist = mongoose.model(
 );
 
 export default Dentist;
+

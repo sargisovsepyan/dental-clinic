@@ -1,64 +1,122 @@
-import 'dotenv/config';
+﻿import 'dotenv/config';
 import Joi from 'joi';
 
+
 const envSchema = Joi.object({
-    NODE_ENV: Joi.string()
-        .valid('development', 'test', 'production')
-        .default('development'),
+  NODE_ENV:
+    Joi.string()
+      .valid(
+        'development',
+        'test',
+        'production'
+      )
+      .default('development'),
 
-    PORT: Joi.number()
-        .integer()
-        .min(1)
-        .max(65535)
-        .default(5000),
+  PORT:
+    Joi.number()
+      .integer()
+      .min(1)
+      .max(65535)
+      .default(5000),
 
-    MONGO_URI: Joi.string()
-        .required(),
+  MONGO_URI:
+    Joi.string()
+      .required(),
 
-    JWT_SECRET: Joi.string()
-        .min(32)
-        .required(),
+  JWT_SECRET:
+    Joi.string()
+      .min(32)
+      .required(),
 
-    JWT_EXPIRES_IN: Joi.string()
-        .default('15m'),
+  JWT_EXPIRES_IN:
+    Joi.string()
+      .default('15m'),
 
-    REFRESH_TOKEN_TTL_DAYS: Joi.number()
-        .integer()
-        .min(1)
-        .max(30)
-        .default(7),
+  REFRESH_TOKEN_TTL_DAYS:
+    Joi.number()
+      .integer()
+      .min(1)
+      .max(30)
+      .default(7),
 
-    CLIENT_URL: Joi.string()
-        .required(),
+  CLIENT_URL:
+    Joi.string()
+      .required(),
 
-    CLINIC_TIMEZONE: Joi.string()
-        .default('Asia/Yerevan'),
+  CLINIC_TIMEZONE:
+    Joi.string()
+      .default('Asia/Yerevan'),
+
+  CLOUDINARY_CLOUD_NAME:
+    Joi.string()
+      .allow('')
+      .default(''),
+
+  CLOUDINARY_API_KEY:
+    Joi.string()
+      .allow('')
+      .default(''),
+
+  CLOUDINARY_API_SECRET:
+    Joi.string()
+      .allow('')
+      .default(''),
 })
-    .unknown(true);
+  .unknown(true);
 
-const { value, error } = envSchema.validate(process.env, {
+
+const {
+  value,
+  error,
+} = envSchema.validate(
+  process.env,
+  {
     abortEarly: false,
-});
+  }
+);
+
 
 if (error) {
-    throw new Error(
-        `Environment validation error: ${error.message}`
-    );
+  throw new Error(
+    `Environment validation error: ${error.message}`
+  );
 }
 
+
 const env = {
-    NODE_ENV: value.NODE_ENV,
-    PORT: value.PORT,
-    MONGO_URI: value.MONGO_URI,
+  NODE_ENV:
+    value.NODE_ENV,
 
-    JWT_SECRET: value.JWT_SECRET,
-    JWT_EXPIRES_IN: value.JWT_EXPIRES_IN,
+  PORT:
+    value.PORT,
 
-    REFRESH_TOKEN_TTL_DAYS:
-        value.REFRESH_TOKEN_TTL_DAYS,
+  MONGO_URI:
+    value.MONGO_URI,
 
-    CLIENT_URL: value.CLIENT_URL,
-    CLINIC_TIMEZONE: value.CLINIC_TIMEZONE,
+  JWT_SECRET:
+    value.JWT_SECRET,
+
+  JWT_EXPIRES_IN:
+    value.JWT_EXPIRES_IN,
+
+  REFRESH_TOKEN_TTL_DAYS:
+    value.REFRESH_TOKEN_TTL_DAYS,
+
+  CLIENT_URL:
+    value.CLIENT_URL,
+
+  CLINIC_TIMEZONE:
+    value.CLINIC_TIMEZONE,
+
+  CLOUDINARY_CLOUD_NAME:
+    value.CLOUDINARY_CLOUD_NAME,
+
+  CLOUDINARY_API_KEY:
+    value.CLOUDINARY_API_KEY,
+
+  CLOUDINARY_API_SECRET:
+    value.CLOUDINARY_API_SECRET,
 };
+
 
 export default env;
