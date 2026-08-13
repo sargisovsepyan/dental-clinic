@@ -629,11 +629,266 @@ const cancelAppointment = async (
 };
 
 
+
+const createAdminAppointment = async (
+  data,
+  userId
+) => {
+  const appointment =
+    await createAppointment({
+      ...data,
+    });
+
+
+  await Appointment.updateOne(
+    {
+      _id: appointment._id,
+    },
+
+    {
+      $set: {
+        source:
+          data.source ||
+          'phone',
+
+        createdBy:
+          userId,
+
+        internalNote:
+          data.internalNote ||
+          '',
+
+        privacyConsentMethod:
+          data.consentMethod,
+      },
+    }
+  );
+
+
+  return getAppointmentById(
+    appointment._id
+  );
+};
+
+
+const rescheduleAppointment = async (
+  id,
+  data
+) => {
+  const appointment =
+    await Appointment
+      .findById(id)
+      .select('+lockKeys');
+
+
+  if (!appointment) {
+    throw new ApiError(
+      404,
+      'Appointment not found'
+    );
+  }
+
+
+  if (
+    [
+      'cancelled',
+      'completed',
+      'no_show',
+    ].includes(
+      appointment.status
+    )
+  ) {
+    throw new ApiError(
+      409,
+      `Cannot reschedule a ${appointment.status} appointment`
+    );
+  }
+
+
+  const dentistId =
+    data.dentistId ||
+    appointment.dentist;
+
+
+  const serviceId =
+    data.serviceId ||
+    appointment.service;
+
+
+  const availability =
+    await availabilityService
+      .getAvailability({
+        dentistId,
+        serviceId,
+        date:
+          data.date,
+
+        excludeAppointmentId:
+          appointment._id,
+      });
+
+
+  const selectedSlot =
+    availability.slots.find(
+      (slot) =>
+        slot.start ===
+        data.startTime
+    );
+
+
+  if (!selectedSlot) {
+    throw new ApiError(
+      409,
+      'Selected time is not available'
+    );
+  }
+
+
+  const startMinute =
+    timeToMinutes(
+      selectedSlot.start
+    );
+
+
+  const endMinute =
+    timeToMinutes(
+      selectedSlot.end
+    ) +
+    availability.rules
+      .bufferMinutes;
+
+
+  appointment.dentist =
+    availability.dentist.id;
+
+  appointment.service =
+    availability.service.id;
+
+
+  appointment.dentistSnapshot = {
+    firstName:
+      availability
+        .dentist
+        .firstName,
+
+    lastName:
+      availability
+        .dentist
+        .lastName,
+
+    title:
+      availability
+        .dentist
+        .title || '',
+  };
+
+
+  appointment.serviceSnapshot = {
+    name:
+      availability
+        .service
+        .name,
+
+    durationMinutes:
+      availability
+        .service
+        .durationMinutes,
+  };
+
+
+  appointment.priceSnapshot = {
+    priceType:
+      availability
+        .service
+        .priceType,
+
+    priceFrom:
+      availability
+        .service
+        .priceFrom,
+
+    priceTo:
+      availability
+        .service
+        .priceTo,
+
+    currency:
+      availability
+        .service
+        .currency,
+  };
+
+
+  appointment.date =
+    data.date;
+
+  appointment.startTime =
+    selectedSlot.start;
+
+  appointment.endTime =
+    selectedSlot.end;
+
+  appointment.startAt =
+    new Date(
+      selectedSlot.startAt
+    );
+
+  appointment.endAt =
+    new Date(
+      selectedSlot.endAt
+    );
+
+  appointment.bufferMinutes =
+    availability.rules
+      .bufferMinutes;
+
+
+  appointment.lockKeys =
+    buildLockKeys(
+      data.date,
+      startMinute,
+      endMinute
+    );
+
+
+  try {
+    await appointment.save();
+  }
+  catch (error) {
+    const duplicate =
+      error?.code === 11000 ||
+      String(
+        error?.message || ''
+      ).includes(
+        'E11000'
+      );
+
+
+    if (duplicate) {
+      throw new ApiError(
+        409,
+        'Selected time was just booked by another patient'
+      );
+    }
+
+    throw error;
+  }
+
+
+  return getAppointmentById(
+    appointment._id
+  );
+};
+
+
 export {
   createAppointment,
+  createAdminAppointment,
+  rescheduleAppointment,
   getAppointments,
   getAppointmentById,
   updateStatus,
   cancelAppointment,
 };
+
 

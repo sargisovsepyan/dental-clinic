@@ -250,6 +250,16 @@ const appointmentSchema =
         required: true,
       },
 
+      privacyConsentMethod: {
+        type: String,
+        enum: [
+          'website',
+          'phone',
+          'in_person',
+        ],
+        default: 'website',
+      },
+
 
       createdBy: {
         type: mongoose.Schema.Types.ObjectId,
@@ -321,3 +331,4 @@ const Appointment = mongoose.model(
 
 
 export default Appointment;
+

@@ -148,10 +148,66 @@ const cancelAppointment = async (
 };
 
 
+
+const createAdminAppointment =
+  async (
+    req,
+    res
+  ) => {
+    const appointment =
+      await appointmentService
+        .createAdminAppointment(
+          req.body,
+          req.user.id
+        );
+
+
+    res.status(201).json({
+      success: true,
+
+      message:
+        'Appointment created successfully',
+
+      data: {
+        appointment,
+      },
+    });
+  };
+
+
+const rescheduleAppointment =
+  async (
+    req,
+    res
+  ) => {
+    const appointment =
+      await appointmentService
+        .rescheduleAppointment(
+          req.params.id,
+          req.body
+        );
+
+
+    res.status(200).json({
+      success: true,
+
+      message:
+        'Appointment rescheduled successfully',
+
+      data: {
+        appointment,
+      },
+    });
+  };
+
+
 export {
   createAppointment,
+  createAdminAppointment,
+  rescheduleAppointment,
   getAppointments,
   getAppointment,
   updateStatus,
   cancelAppointment,
 };
+

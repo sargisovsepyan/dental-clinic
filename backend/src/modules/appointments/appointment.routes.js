@@ -3,6 +3,8 @@
 
 import {
   createAppointment,
+  createAdminAppointment,
+  rescheduleAppointment,
   getAppointments,
   getAppointment,
   updateStatus,
@@ -12,9 +14,11 @@ import {
 
 import {
   createAppointmentSchema,
+  createAdminAppointmentSchema,
   appointmentIdSchema,
   updateStatusSchema,
   cancelAppointmentSchema,
+  rescheduleAppointmentSchema,
   listAppointmentsSchema,
 } from './appointment.validation.js';
 
@@ -48,6 +52,22 @@ router.post(
 );
 
 
+router.post(
+  '/admin',
+  auth,
+  authorize(
+    'admin',
+    'receptionist'
+  ),
+  validate(
+    createAdminAppointmentSchema
+  ),
+  asyncHandler(
+    createAdminAppointment
+  )
+);
+
+
 router.get(
   '/',
   auth,
@@ -64,18 +84,18 @@ router.get(
 );
 
 
-router.get(
-  '/:id',
+router.patch(
+  '/:id/reschedule',
   auth,
   authorize(
     'admin',
     'receptionist'
   ),
   validate(
-    appointmentIdSchema
+    rescheduleAppointmentSchema
   ),
   asyncHandler(
-    getAppointment
+    rescheduleAppointment
   )
 );
 
@@ -108,6 +128,22 @@ router.post(
   ),
   asyncHandler(
     cancelAppointment
+  )
+);
+
+
+router.get(
+  '/:id',
+  auth,
+  authorize(
+    'admin',
+    'receptionist'
+  ),
+  validate(
+    appointmentIdSchema
+  ),
+  asyncHandler(
+    getAppointment
   )
 );
 

@@ -6,62 +6,102 @@ const mongoId = Joi.string()
   .length(24);
 
 
+const patientFields = {
+  patientName:
+    Joi.string()
+      .trim()
+      .min(2)
+      .max(120)
+      .required(),
+
+  patientPhone:
+    Joi.string()
+      .trim()
+      .min(8)
+      .max(30)
+      .required(),
+
+  patientEmail:
+    Joi.string()
+      .trim()
+      .lowercase()
+      .email()
+      .max(254)
+      .allow('')
+      .default(''),
+
+  dentistId:
+    mongoId.required(),
+
+  serviceId:
+    mongoId.required(),
+
+  date:
+    Joi.string()
+      .pattern(
+        /^\d{4}-\d{2}-\d{2}$/
+      )
+      .required(),
+
+  startTime:
+    Joi.string()
+      .pattern(
+        /^([01]\d|2[0-3]):[0-5]\d$/
+      )
+      .required(),
+
+  patientComment:
+    Joi.string()
+      .trim()
+      .max(1000)
+      .allow('')
+      .default(''),
+};
+
+
 const createAppointmentSchema = {
   body: Joi.object({
-    patientName:
-      Joi.string()
-        .trim()
-        .min(2)
-        .max(120)
-        .required(),
-
-    patientPhone:
-      Joi.string()
-        .trim()
-        .min(8)
-        .max(30)
-        .required(),
-
-    patientEmail:
-      Joi.string()
-        .trim()
-        .lowercase()
-        .email()
-        .max(254)
-        .allow('')
-        .default(''),
-
-    dentistId:
-      mongoId.required(),
-
-    serviceId:
-      mongoId.required(),
-
-    date:
-      Joi.string()
-        .pattern(
-          /^\d{4}-\d{2}-\d{2}$/
-        )
-        .required(),
-
-    startTime:
-      Joi.string()
-        .pattern(
-          /^([01]\d|2[0-3]):[0-5]\d$/
-        )
-        .required(),
-
-    patientComment:
-      Joi.string()
-        .trim()
-        .max(1000)
-        .allow('')
-        .default(''),
+    ...patientFields,
 
     privacyAccepted:
       Joi.boolean()
         .valid(true)
         .required(),
+  }),
+};
+
+
+const createAdminAppointmentSchema = {
+  body: Joi.object({
+    ...patientFields,
+
+    source:
+      Joi.string()
+        .valid(
+          'phone',
+          'admin'
+        )
+        .default('phone'),
+
+    consentMethod:
+      Joi.string()
+        .valid(
+          'phone',
+          'in_person'
+        )
+        .required(),
+
+    privacyAccepted:
+      Joi.boolean()
+        .valid(true)
+        .required(),
+
+    internalNote:
+      Joi.string()
+        .trim()
+        .max(2000)
+        .allow('')
+        .default(''),
   }),
 };
 
@@ -114,6 +154,43 @@ const cancelAppointmentSchema = {
         .min(2)
         .max(500)
         .required(),
+  }),
+};
+
+
+const rescheduleAppointmentSchema = {
+  params: Joi.object({
+    id:
+      mongoId.required(),
+  }),
+
+  body: Joi.object({
+    date:
+      Joi.string()
+        .pattern(
+          /^\d{4}-\d{2}-\d{2}$/
+        )
+        .required(),
+
+    startTime:
+      Joi.string()
+        .pattern(
+          /^([01]\d|2[0-3]):[0-5]\d$/
+        )
+        .required(),
+
+    dentistId:
+      mongoId,
+
+    serviceId:
+      mongoId,
+
+    reason:
+      Joi.string()
+        .trim()
+        .max(500)
+        .allow('')
+        .default(''),
   }),
 };
 
@@ -179,8 +256,10 @@ const listAppointmentsSchema = {
 
 export {
   createAppointmentSchema,
+  createAdminAppointmentSchema,
   appointmentIdSchema,
   updateStatusSchema,
   cancelAppointmentSchema,
+  rescheduleAppointmentSchema,
   listAppointmentsSchema,
 };

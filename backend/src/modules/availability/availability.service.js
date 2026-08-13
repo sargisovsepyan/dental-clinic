@@ -200,7 +200,8 @@ const getDentistSchedule = async (
 
 const buildOccupiedSet = async (
   dentistId,
-  date
+  date,
+  excludeAppointmentId = null
 ) => {
   const appointments =
     await Appointment.find({
@@ -344,6 +345,7 @@ const getAvailability = async ({
   dentistId,
   serviceId,
   date,
+  excludeAppointmentId = null,
 }) => {
   const clinic =
     await clinicService.getClinic();
@@ -574,7 +576,8 @@ const getAvailability = async ({
   const occupiedMinutes =
     await buildOccupiedSet(
       dentist._id,
-      date
+      date,
+      excludeAppointmentId
     );
 
 
@@ -787,3 +790,4 @@ const getAvailability = async ({
 export {
   getAvailability,
 };
+
