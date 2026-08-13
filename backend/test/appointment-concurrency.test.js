@@ -149,3 +149,28 @@ test('rescheduling to the current slot succeeds because availability excludes th
   assert.equal(response.status, 200);
   assert.equal(response.body.data.appointment.startTime, '12:00');
 });
+
+test('concurrent reschedules reject one stale write instead of silently losing an update', async () => {
+  const original = await createDirect('10:00', '801');
+  const path = `/api/v1/appointments/${original._id}/reschedule`;
+
+  const responses = await Promise.all([
+    authPatch(path, {
+      date: core.date,
+      startTime: '14:00',
+    }),
+    authPatch(path, {
+      date: core.date,
+      startTime: '16:00',
+    }),
+  ]);
+
+  assert.deepEqual(
+    responses.map(({ status }) => status).sort(),
+    [200, 409],
+  );
+
+  const winner = responses.find(({ status }) => status === 200);
+  const stored = await Appointment.findById(original._id).lean();
+  assert.equal(stored.startTime, winner.body.data.appointment.startTime);
+});

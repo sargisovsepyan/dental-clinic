@@ -587,6 +587,8 @@ const updateStatus = async (
           _id: id,
           status:
             appointment.status,
+          updatedAt:
+            appointment.updatedAt,
         },
         {
           $set: update,
@@ -661,6 +663,8 @@ const cancelAppointment = async (
           _id: appointment._id,
           status:
             appointment.status,
+          updatedAt:
+            appointment.updatedAt,
         },
         {
           $set: {
@@ -909,6 +913,8 @@ const rescheduleAppointment = async (
               appointment._id,
             status:
               appointment.status,
+            updatedAt:
+              appointment.updatedAt,
           },
           {
             $set: update,
