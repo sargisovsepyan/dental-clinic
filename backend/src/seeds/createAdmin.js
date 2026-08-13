@@ -3,6 +3,9 @@ import mongoose from 'mongoose';
 
 import connectDB from '../config/db.js';
 import User from '../modules/users/user.model.js';
+import {
+  validateNewPassword,
+} from '../security/passwordPolicy.js';
 
 const createAdmin = async () => {
   try {
@@ -23,9 +26,12 @@ const createAdmin = async () => {
       );
     }
 
-    if (password.length < 12) {
+    const passwordError =
+      validateNewPassword(password);
+
+    if (passwordError) {
       throw new Error(
-        'ADMIN_PASSWORD must contain at least 12 characters'
+        `Invalid ADMIN_PASSWORD: ${passwordError}`
       );
     }
 

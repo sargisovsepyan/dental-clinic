@@ -9,7 +9,11 @@ process.env.JWT_SECRET = 'test-only-secret-that-is-at-least-thirty-two-character
 process.env.JWT_EXPIRES_IN = '15m';
 process.env.CLIENT_URL = 'http://localhost:5173';
 
-const { connectTestDatabase, clearTestDatabase, disconnectTestDatabase } = await import('../test-support/database.js');
+const {
+  connectReplTestDatabase: connectTestDatabase,
+  clearReplTestDatabase: clearTestDatabase,
+  disconnectReplTestDatabase: disconnectTestDatabase,
+} = await import('../test-support/replDatabase.js');
 const { seedStaff } = await import('../test-support/fixtures.js');
 const { default: app } = await import('../src/app.js');
 const { default: User } = await import('../src/modules/users/user.model.js');
@@ -28,7 +32,13 @@ before(async () => {
 beforeEach(async () => {
   await Session.deleteMany({});
   await AuditLog.deleteMany({});
-  await User.updateMany({}, { $set: { isActive: true } });
+  await User.updateMany({}, {
+    $set: {
+      isActive: true,
+      isSetupComplete: true,
+      authVersion: 0,
+    },
+  });
 });
 
 after(disconnectTestDatabase);
@@ -79,12 +89,20 @@ test('login rejects an incorrect password and missing credentials', async () => 
   assert.equal((await request(app).post('/api/v1/auth/login').send({})).status, 400);
 });
 
-test('new staff records reject passwords shorter than twelve characters', async () => {
+test('new staff records accept six characters and reject five', async () => {
+  const accepted = await User.create({
+    name: 'Six Character User',
+    email: 'six-character@example.com',
+    password: '123456',
+    role: 'receptionist',
+  });
+  assert.ok(accepted._id);
+
   await assert.rejects(
     User.create({
       name: 'Weak Password User',
       email: 'weak-password@example.com',
-      password: 'short123',
+      password: '12345',
       role: 'receptionist',
     }),
     (error) => error.name === 'ValidationError',
@@ -126,15 +144,24 @@ test('RBAC permits admin and rejects receptionist and dentist on admin-only rout
   assert.equal(dentistResponse.status, 403);
 });
 
-test('refresh succeeds, rotates the cookie, and rejects the old refresh token', async () => {
+test('refresh rotates once and replay revokes the entire user session family', async () => {
   const loginResponse = await login();
+  const oldAccess = loginResponse.body.data.accessToken;
   const oldCookie = cookiePair(loginResponse);
   const refreshResponse = await request(app).post('/api/v1/auth/refresh').set('Cookie', oldCookie);
   assert.equal(refreshResponse.status, 200);
   const newCookie = cookiePair(refreshResponse);
   assert.notEqual(newCookie, oldCookie);
   assert.equal((await request(app).post('/api/v1/auth/refresh').set('Cookie', oldCookie)).status, 401);
-  assert.equal((await request(app).post('/api/v1/auth/refresh').set('Cookie', newCookie)).status, 200);
+  assert.equal((await request(app).post('/api/v1/auth/refresh').set('Cookie', newCookie)).status, 401);
+  assert.equal((await Session.countDocuments({ revokedAt: { $ne: null } })) > 0, true);
+  assert.equal(
+    (await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${oldAccess}`)).status,
+    401,
+  );
+  assert.ok(await findAudit('auth.refresh.reuse_detected'));
 });
 
 test('concurrent HTTP refresh replay permits exactly one rotation', async () => {
@@ -144,6 +171,13 @@ test('concurrent HTTP refresh replay permits exactly one rotation', async () => 
     request(app).post('/api/v1/auth/refresh').set('Cookie', currentCookie),
   ]);
   assert.deepEqual(responses.map(({ status }) => status).sort(), [200, 401]);
+  const winner = responses.find(({ status }) => status === 200);
+  assert.equal(
+    (await request(app)
+      .post('/api/v1/auth/refresh')
+      .set('Cookie', cookiePair(winner))).status,
+    401,
+  );
 });
 
 test('logout revokes the current session, clears the cookie, and prevents refresh', async () => {

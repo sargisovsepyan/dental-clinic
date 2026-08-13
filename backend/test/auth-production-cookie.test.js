@@ -11,6 +11,7 @@ const { MongoMemoryServer } = await import('mongodb-memory-server');
 const { default: mongoose } = await import('mongoose');
 const { default: app } = await import('../src/app.js');
 const { default: User } = await import('../src/modules/users/user.model.js');
+const { default: AuditLog } = await import('../src/modules/audit/audit.model.js');
 
 let mongo;
 
@@ -41,4 +42,16 @@ test('production refresh cookie is Secure, HttpOnly, Strict, and path-scoped', a
   assert.match(setCookie, /HttpOnly/i);
   assert.match(setCookie, /SameSite=Strict/i);
   assert.match(setCookie, /Path=\/api\/v1\/auth/i);
+
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (await AuditLog.exists({
+      action: 'auth.login.success',
+    })) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(await AuditLog.exists({
+    action: 'auth.login.success',
+  }));
 });

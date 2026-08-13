@@ -1,6 +1,10 @@
 ﻿import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
 
+import {
+  validateNewPassword,
+} from '../../security/passwordPolicy.js';
+
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -21,9 +25,20 @@ const userSchema = new mongoose.Schema(
 
     password: {
       type: String,
-      required: true,
-      minlength: 12,
+      required() {
+        return this.isSetupComplete;
+      },
       select: false,
+      validate: {
+        validator(value) {
+          return (
+            !this.isModified('password') ||
+            !validateNewPassword(value)
+          );
+        },
+        message: ({ value }) =>
+          validateNewPassword(value),
+      },
     },
 
     role: {
@@ -37,6 +52,37 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
       index: true,
+    },
+
+    isSetupComplete: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
+
+    authVersion: {
+      type: Number,
+      default: 0,
+      min: 0,
+      select: false,
+    },
+
+    invitedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      immutable: true,
+    },
+
+    deactivatedAt: {
+      type: Date,
+      default: null,
+    },
+
+    deactivatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
     },
   },
   {

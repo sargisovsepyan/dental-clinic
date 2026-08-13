@@ -57,11 +57,15 @@ const auth = asyncHandler(
         const user =
             await User.findById(
                 decoded.sub
-            );
+            ).select('+authVersion');
 
         if (
             !user ||
-            !user.isActive
+            !user.isActive ||
+            user.isSetupComplete === false ||
+            !Number.isInteger(decoded.ver) ||
+            decoded.ver !==
+                (user.authVersion ?? 0)
         ) {
             throw new ApiError(
                 401,

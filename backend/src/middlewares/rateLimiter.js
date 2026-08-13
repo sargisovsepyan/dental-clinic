@@ -93,6 +93,28 @@ const bookingLimiter =
 
 
 
+const passwordRecoveryLimiter =
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 5,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    handler: createHandler(
+      'Too many recovery attempts. Please try again later.'
+    ),
+  });
+
+const passwordSetupLimiter =
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    handler: createHandler(
+      'Too many password setup attempts. Please try again later.'
+    ),
+  });
+
 const mediaUploadLimiter =
   rateLimit({
     windowMs:
@@ -118,5 +140,7 @@ export {
   refreshLimiter,
   bookingLimiter,
   mediaUploadLimiter,
+  passwordRecoveryLimiter,
+  passwordSetupLimiter,
 };
 

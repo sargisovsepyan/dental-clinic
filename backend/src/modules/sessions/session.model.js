@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
 
+import crypto from 'crypto';
+
 const sessionSchema = new mongoose.Schema(
     {
         user: {
@@ -13,6 +15,24 @@ const sessionSchema = new mongoose.Schema(
             type: String,
             required: true,
             unique: true,
+        },
+
+        familyId: {
+            type: String,
+            required: true,
+            default: crypto.randomUUID,
+            immutable: true,
+            index: true,
+        },
+
+        consumedTokenHashes: {
+            type: [{
+                type: String,
+                minlength: 64,
+                maxlength: 64,
+            }],
+            default: [],
+            select: false,
         },
 
         expiresAt: {
@@ -46,6 +66,10 @@ sessionSchema.index({
     user: 1,
     revokedAt: 1,
     createdAt: -1,
+});
+
+sessionSchema.index({
+    consumedTokenHashes: 1,
 });
 
 const Session = mongoose.model(

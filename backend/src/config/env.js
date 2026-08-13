@@ -73,6 +73,47 @@ const envSchema = Joi.object({
     Joi.string()
       .required(),
 
+  FRONTEND_URL:
+    Joi.string()
+      .uri({ scheme: ['http', 'https'] })
+      .default(Joi.ref('CLIENT_URL')),
+
+  INVITE_TOKEN_TTL_MINUTES:
+    Joi.number()
+      .integer()
+      .min(5)
+      .max(10080)
+      .default(1440),
+
+  RESET_TOKEN_TTL_MINUTES:
+    Joi.number()
+      .integer()
+      .min(5)
+      .max(1440)
+      .default(30),
+
+  SMTP_HOST:
+    Joi.string().allow('').default(''),
+
+  SMTP_PORT:
+    Joi.number()
+      .integer()
+      .min(1)
+      .max(65535)
+      .default(587),
+
+  SMTP_SECURE:
+    Joi.boolean().default(false),
+
+  SMTP_USER:
+    Joi.string().allow('').default(''),
+
+  SMTP_PASSWORD:
+    Joi.string().allow('').default(''),
+
+  MAIL_FROM:
+    Joi.string().allow('').default(''),
+
   CLINIC_TIMEZONE:
     timeZone
       .default('Asia/Yerevan'),
@@ -138,6 +179,22 @@ const env = {
 
   CLIENT_URL:
     value.CLIENT_URL,
+
+  FRONTEND_URL:
+    value.FRONTEND_URL,
+
+  INVITE_TOKEN_TTL_MINUTES:
+    value.INVITE_TOKEN_TTL_MINUTES,
+
+  RESET_TOKEN_TTL_MINUTES:
+    value.RESET_TOKEN_TTL_MINUTES,
+
+  SMTP_HOST: value.SMTP_HOST,
+  SMTP_PORT: value.SMTP_PORT,
+  SMTP_SECURE: value.SMTP_SECURE,
+  SMTP_USER: value.SMTP_USER,
+  SMTP_PASSWORD: value.SMTP_PASSWORD,
+  MAIL_FROM: value.MAIL_FROM,
 
   CLINIC_TIMEZONE:
     value.CLINIC_TIMEZONE,

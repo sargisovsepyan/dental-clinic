@@ -19,6 +19,7 @@ import auditRoutes from '../modules/audit/audit.routes.js';
 import mediaRoutes from '../modules/media/media.routes.js';
 
 import beforeAfterRoutes from '../modules/beforeAfter/beforeAfter.routes.js';
+import staffRoutes from '../modules/staff/staff.routes.js';
 
 
 const router =
@@ -73,6 +74,11 @@ router.use(
 router.use(
   '/before-after',
   beforeAfterRoutes
+);
+
+router.use(
+  '/staff',
+  staffRoutes
 );
 
 

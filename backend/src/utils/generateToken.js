@@ -7,6 +7,7 @@ const generateToken = (user) => {
         {
             sub: user._id.toString(),
             role: user.role,
+            ver: user.authVersion ?? 0,
         },
         env.JWT_SECRET,
         {
