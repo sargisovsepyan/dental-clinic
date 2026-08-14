@@ -1,171 +1,92 @@
 # Backend API contract
 
-This document describes the routes currently implemented in code. The base URL is `/api/v1`.
+This is the human-readable frontend contract for the implemented API. The validated, schema-level source of truth is [openapi.yaml](./openapi.yaml). Both describe `/api/v1`; an incompatible public change requires an explicit versioning decision rather than an undocumented edit.
 
-## Conventions
+## Common conventions
 
-- JSON success responses use `{ "success": true, "data": ... }` and may include `message`.
-- Errors use `{ "success": false, "message": string }`. Non-production responses may also contain `stack`; production responses never expose a stack, and unexpected 5xx messages are replaced with `Internal server error`.
-- Staff endpoints require `Authorization: Bearer <access-token>`. Roles are `admin`, `receptionist`, and `dentist`; each table states the roles actually authorized.
-- Login and refresh set an HttpOnly `refresh_token` cookie scoped to `/api/v1/auth`. It is `Secure` in production and always `SameSite=Strict`.
-- Dates are `YYYY-MM-DD` in the clinic timezone. Clock times are `HH:mm`. Stored/returned absolute timestamps are ISO UTC dates.
-- Object IDs are 24-character hexadecimal MongoDB IDs. Invalid validated IDs return `400`.
-- Joi validation strips unknown body, query, and parameter fields. It does not reject them.
-- All `/api/*` traffic is globally rate limited. Login, refresh, public booking, and media upload routes have additional limits.
-- Typical errors are `400` validation, `401` unauthenticated/invalid session, `403` wrong role, `404` missing resource, `409` state/uniqueness/booking conflict, and `429` rate limit. Media routes can also return `413`, `415`, or `503`.
+- Success responses use `{ "success": true, "data": ... }` and may include `message`.
+- Errors use `{ "success": false, "message": string }`. Production never returns a stack or an unexpected internal 5xx message.
+- Dates are `YYYY-MM-DD` in the configured clinic IANA timezone; local clock values are `HH:mm`; absolute timestamps are ISO UTC.
+- Invalid input is `400`, missing/invalid authentication `401`, insufficient role `403`, missing resource `404`, state/uniqueness conflict `409`, oversized body `413`, unsupported media `415`, limit exhaustion `429`, and unavailable required service `503`.
+- Body/query/parameter validation strips unknown properties. Object IDs are 24 hexadecimal characters.
+- Public collection responses never expose appointment contact data, internal notes, staff security state, consent evidence, or cleanup internals.
 
-## Shared input shapes
+## Localized public content
 
-`shift` is `{ start: "HH:mm", end: "HH:mm" }`. A clinic weekly day is `{ dayOfWeek: 1..7, isOpen: boolean, shifts: shift[] }`; a dentist weekly day uses `isWorking` instead. Duplicate weekdays, invalid ordering, and overlapping shifts are rejected.
-
-`categoryCreate`:
-
-```json
-{ "name": "string, required", "slug": "optional", "description": "", "imageUrl": "", "sortOrder": 0 }
-```
-
-`serviceCreate` fields are `name` and `category` (required), plus `slug`, `shortDescription`, `description`, `priceType` (`fixed|from|range|on_request`), `priceFrom`, `priceTo`, `currency` (`AMD`), `durationMinutes` (15-480), `imageUrl`, `isFeatured`, `bookingEnabled`, `isActive`, and `sortOrder`. Price combinations are validated against `priceType`.
-
-`dentistCreate` requires `firstName` and `lastName`; optional fields are `slug`, `title`, `specializations[]`, `bio`, `experienceYears`, `photoUrl`, `languages[]`, `services[]`, `weeklySchedule[]`, `isFeatured`, `bookingEnabled`, and `sortOrder`.
-
-`patientBooking`:
+Editorial entities return an explicit `translations` object whose only permitted locale keys are `hy`, `ru`, and `en`:
 
 ```json
 {
-  "patientName": "required",
-  "patientPhone": "required",
-  "patientEmail": "optional unless clinic setting requireEmail=true",
-  "dentistId": "required ObjectId",
-  "serviceId": "required ObjectId",
-  "date": "YYYY-MM-DD",
-  "startTime": "HH:mm",
-  "patientComment": "optional, max 1000",
-  "privacyAccepted": true
+  "translations": {
+    "hy": { "name": "...", "description": "..." },
+    "ru": { "name": "...", "description": "..." },
+    "en": { "name": "...", "description": "..." }
+  }
 }
 ```
 
-## System and authentication
+Armenian is the required primary locale for active/public content. Russian and English are optional. The API does not silently substitute values: the frontend selects the requested locale and may explicitly fall back to `hy`. Partial locale updates merge into the existing object and do not remove other locales. Slugs, IDs, prices, currency, duration, booking state, dates, schedules, patient data, and consent state remain language-neutral.
 
-| Method and path | Authentication / roles | Body, query, or params | Success result | Important statuses |
-|---|---|---|---|---|
-| `GET /health` | Public | None | `200`; top-level `message`, `environment`, `timestamp`. This is liveness, not Mongo readiness. | `200` |
-| `POST /auth/login` | Public; login limiter | Body `{ email, password }` (password accepted at 6-128 for compatibility with existing accounts) | `200`; `{ data: { accessToken, user: { id, name, email, role } } }`; rotates/sets refresh cookie. | `200`, `400`, `401`, `429` |
-| `POST /auth/refresh` | Refresh cookie; refresh limiter | No body; current `refresh_token` cookie required | `200`; new `{ accessToken, user }` and atomically rotated refresh cookie. | `200`, `401`, `429` |
-| `POST /auth/logout` | Refresh cookie optional | No body | `200`; current session is revoked when present and cookie is cleared. | `200` |
-| `GET /auth/me` | Bearer; any active staff role | None | `200`; `{ data: { user: { id, name, email, role } } }` | `200`, `401` |
+Localized fields are:
 
-There are no staff creation, password-change, password-reset, session-listing, or logout-all endpoints.
+- service category: `name`, `description`
+- service: `name`, `shortDescription`, `description`
+- dentist: `title`, `bio`, `specializations`
+- clinic: `clinicName`, `tagline`, `description`, `address`
+- gallery: `altText`, `caption`
+- before/after: `title`, `description`
 
-## Service categories
+Legacy single-language fields remain during the explicit migration/deprecation window. They are not an implicit fallback contract.
 
-| Method and path | Authentication / roles | Body, query, or params | Success result | Important statuses |
-|---|---|---|---|---|
-| `GET /service-categories` | Public | None | `200`; `{ data: { categories } }`, active only | `200` |
-| `GET /service-categories/admin/all` | Bearer; admin | None | `200`; `{ data: { categories } }`, including inactive | `200`, `401`, `403` |
-| `POST /service-categories` | Bearer; admin | Body `categoryCreate` | `201`; `{ data: { category } }` | `201`, `400`, `401`, `403`, `409` |
-| `PATCH /service-categories/:id/restore` | Bearer; admin | Param `id` | `200`; `{ data: { category } }` | `200`, `400`, `401`, `403`, `404` |
-| `PATCH /service-categories/:id` | Bearer; admin | Param `id`; non-empty partial `categoryCreate`, plus `isActive` | `200`; `{ data: { category } }` | `200`, `400`, `401`, `403`, `404`, `409` |
-| `DELETE /service-categories/:id` | Bearer; admin | Param `id` | `200`; soft-disables category | `200`, `400`, `401`, `403`, `404`, `409` when active services still reference it |
-| `GET /service-categories/:slug` | Public | Param `slug` | `200`; `{ data: { category } }`, active only | `200`, `404` |
+## Authentication and staff lifecycle
 
-## Services
+- `POST /auth/login` returns an HS256 bearer access token and sets the random refresh token in an HttpOnly cookie scoped to `/api/v1/auth`.
+- `POST /auth/refresh` atomically consumes the current refresh token, rotates it once, and returns a new access token. Replay of a consumed token revokes all user sessions and increments `authVersion`, invalidating bearer tokens.
+- `POST /auth/logout` revokes the presented refresh session and clears the cookie.
+- `GET /auth/me` validates the JWT and reloads current user role, activation, setup state, and `authVersion` from MongoDB.
+- `POST /auth/change-password` verifies the current password, changes it, revokes all sessions, increments `authVersion`, and requires a new login.
+- `POST /auth/forgot-password` always returns the same public response for known and unknown email addresses.
+- `POST /auth/reset-password` and `POST /auth/setup-password` atomically consume a hashed, expiring, single-use token.
+- The minimum new password length is exactly 6 Unicode characters. Five is rejected. New passwords over 72 UTF-8 bytes are rejected to avoid bcrypt truncation; login remains compatible with existing longer hashes. Passwords are never trimmed.
+- Production login/refresh/recovery/setup endpoints use shared Redis-backed limits. Cookie-authenticated login, refresh, and logout require an exact trusted `Origin` in production.
 
-| Method and path | Authentication / roles | Body, query, or params | Success result | Important statuses |
-|---|---|---|---|---|
-| `GET /services` | Public | Query `category` (category slug), `featured`, `bookingEnabled` | `200`; `{ data: { services } }`, active services in active categories | `200`, `400` |
-| `GET /services/admin/all` | Bearer; admin | None | `200`; `{ data: { services } }`, including inactive | `200`, `401`, `403` |
-| `POST /services` | Bearer; admin | Body `serviceCreate` | `201`; `{ data: { service } }` | `201`, `400`, `401`, `403`, `404` category, `409` slug |
-| `PATCH /services/:id/restore` | Bearer; admin | Param `id` | `200`; `{ data: { service } }`; category must be active | `200`, `400`, `401`, `403`, `404`, `409` |
-| `PATCH /services/:id` | Bearer; admin | Param `id`; non-empty partial `serviceCreate` | `200`; `{ data: { service } }` | `200`, `400`, `401`, `403`, `404`, `409` |
-| `DELETE /services/:id` | Bearer; admin | Param `id` | `200`; soft-disables service | `200`, `400`, `401`, `403`, `404` |
-| `GET /services/:slug` | Public | Param `slug` | `200`; `{ data: { service } }`, active service in active category | `200`, `404` |
+Staff roles are `admin`, `receptionist`, and `dentist`. `/staff`, catalog mutations, media mutations, consent governance, audit logs, and cleanup operations are admin-only. Appointments are accessible to administrators and receptionists. Dentist-role users have no patient appointment or administrative access. Staff are invited, deactivated/reactivated, role-managed, or session-revoked; they are not hard-deleted. The last-active-admin rule is transactionally serialized.
 
-## Dentists and dentist exceptions
+## Route groups
 
-| Method and path | Authentication / roles | Body, query, or params | Success result | Important statuses |
-|---|---|---|---|---|
-| `GET /dentists` | Public | Query `service` (ObjectId), `featured`, `bookingEnabled` | `200`; `{ data: { dentists } }`, active only; populated services are active only | `200`, `400` |
-| `GET /dentists/admin/all` | Bearer; admin | None | `200`; `{ data: { dentists } }`, including inactive | `200`, `401`, `403` |
-| `POST /dentists` | Bearer; admin | Body `dentistCreate` | `201`; `{ data: { dentist } }` | `201`, `400`, `401`, `403`, `404` service, `409` slug |
-| `PATCH /dentists/:id/restore` | Bearer; admin | Param `id` | `200`; `{ data: { dentist } }` | `200`, `400`, `401`, `403`, `404` |
-| `PATCH /dentists/:id` | Bearer; admin | Param `id`; non-empty partial `dentistCreate`, plus `isActive` | `200`; `{ data: { dentist } }` | `200`, `400`, `401`, `403`, `404`, `409` |
-| `DELETE /dentists/:id` | Bearer; admin | Param `id` | `200`; sets `isActive=false` and `bookingEnabled=false` | `200`, `400`, `401`, `403`, `404` |
-| `GET /dentists/:slug` | Public | Param `slug` | `200`; `{ data: { dentist } }`, active only and with active populated services only | `200`, `404` |
-| `GET /dentists/:id/schedule-exceptions` | Bearer; admin | Param `id`; optional query `from`, `to` dates | `200`; `{ data: { exceptions } }` | `200`, `400`, `401`, `403`, `404` |
-| `PUT /dentists/:id/schedule-exceptions/:date` | Bearer; admin | Params `id`, `date`; body `{ isWorking, shifts?: shift[], note?: string }` | `200`; `{ data: { exception } }`, upserted | `200`, `400`, `401`, `403`, `404` |
-| `DELETE /dentists/:id/schedule-exceptions/:date` | Bearer; admin | Params `id`, `date` | `200`; removes exception | `200`, `400`, `401`, `403`, `404` |
+The full request/response/status definitions are in OpenAPI. Implemented route groups are:
 
-## Clinic and clinic exceptions
+| Area | Public routes | Protected routes |
+|---|---|---|
+| System | `/health`, `/health/live`, `/health/ready` | none |
+| Auth | login, refresh, logout, forgot/reset/setup password | me, change password |
+| Staff | none | list/detail, invite, role, deactivate/reactivate, revoke sessions (admin) |
+| Categories | active list and slug detail | create/update/disable/restore/all (admin) |
+| Services | active list and slug detail | create/update/disable/restore/all (admin) |
+| Dentists | active list and slug detail | create/update/disable/restore/all and schedule exceptions (admin) |
+| Clinic | public settings | settings and closures (admin) |
+| Availability | query by dentist, service, and date | none |
+| Appointments | create booking | create/list/detail/reschedule/status/cancel (admin or receptionist) |
+| Gallery/media | active gallery | uploads, replacements/removal, gallery administration, cleanup jobs (admin) |
+| Before/after | published list/detail | create/update/images/disable/restore/withdraw/purge/all (admin) |
+| Audit | none | filtered paginated audit logs (admin) |
 
-`PATCH /clinic` accepts a non-empty subset of `clinicName`, `tagline`, `description`, `phone`, `secondaryPhone`, `email`, `address`, `mapUrl`, `latitude`, `longitude`, `socialLinks`, `weeklySchedule`, and `bookingSettings`. Booking settings include `isBookingEnabled`, `slotIntervalMinutes`, `minBookingNoticeMinutes`, `maxBookingDaysAhead`, `bufferMinutes`, `allowSameDayBooking`, `requireEmail`, `autoConfirmAppointments`, `cancellationNoticeHours`, and `maxAppointmentsPerPhonePerDay`. The timezone is configured by environment and is not mutable through the API.
+## Booking guarantees
 
-| Method and path | Authentication / roles | Body, query, or params | Success result | Important statuses |
-|---|---|---|---|---|
-| `GET /clinic` | Public | None | `200`; `{ data: { clinic } }`; atomically creates singleton if absent | `200` |
-| `PATCH /clinic` | Bearer; admin | Non-empty partial clinic body described above | `200`; `{ data: { clinic } }` | `200`, `400`, `401`, `403` |
-| `GET /clinic/closures` | Bearer; admin | Optional query `from`, `to` dates | `200`; `{ data: { closures } }` | `200`, `400`, `401`, `403` |
-| `PUT /clinic/closures/:date` | Bearer; admin | Param `date`; body `{ isOpen, shifts?: shift[], note?: string }` | `200`; `{ data: { closure } }`, upserted | `200`, `400`, `401`, `403` |
-| `DELETE /clinic/closures/:date` | Bearer; admin | Param `date` | `200`; removes exception | `200`, `400`, `401`, `403`, `404` |
+Availability is advisory; MongoDB is authoritative. Each appointment owns every local minute from start through treatment duration and trailing buffer in `lockKeys`. The unique multikey index `{ dentist: 1, lockKeys: 1 }` prevents exact and partial overlap across processes. Reschedule changes locks with compare-and-set behavior; a failed reschedule retains the original lock. Cancellation atomically replaces booking locks with a record-specific released sentinel.
 
-## Availability
+The normalized-phone/local-date quota is a separate atomic reservation document keyed by an HMAC of the phone number and date. Concurrent bookings cannot exceed the configured limit. Cancellation releases quota. Cross-date reschedule reserves the target quota before the appointment compare-and-set and releases the source only after success. Failure can temporarily under-allow if cleanup fails, never over-allow; `npm run reconcile:appointment-quota` repairs stale/missing reservations.
 
-| Method and path | Authentication / roles | Body, query, or params | Success result | Important statuses |
-|---|---|---|---|---|
-| `GET /availability` | Public | Required query `dentistId`, `serviceId`, `date` | `200`; `{ data: { availability: { date, timezone, dentist, service, rules, schedule, slots[] } } }`; slot items contain local start/end and UTC `startAt`/`endAt` | `200`, `400`, `404`, `409` for inactive/unbookable/mismatched resources or disabled booking |
+Appointment states are `pending`, `confirmed`, `checked_in`, `in_progress`, `completed`, `cancelled`, and `no_show`. The normal path is `pending -> confirmed -> checked_in -> in_progress -> completed`; `pending` or `confirmed` may become `no_show`; cancellation uses its dedicated route; terminal states reject further transition/reschedule.
 
-Availability intersects clinic and dentist weekly shifts, clinic/dentist date exceptions, service duration, slot interval, notice, horizon, same-day policy, existing locks, and buffer. A slot is returned only when its appointment duration and trailing buffer both fit.
+## Media and consent
 
-## Appointments
+Uploads are admin-only, memory-buffered, limited to 5 MiB per image, and require the submitted MIME and filename extension to match detected JPEG/PNG/WebP/HEIC/HEIF magic bytes. Tests cannot use the live Cloudinary adapter.
 
-| Method and path | Authentication / roles | Body, query, or params | Success result | Important statuses |
-|---|---|---|---|---|
-| `POST /appointments` | Public; booking limiter | Body `patientBooking` | `201`; minimized `{ data: { appointment: { id, confirmationCode, patientName, date, startTime, endTime, status, dentist, service, price } } }` | `201`, `400`, `404`, `409` unavailable/race, `429` |
-| `POST /appointments/admin` | Bearer; admin or receptionist | `patientBooking` plus required `consentMethod` (`phone|in_person`), optional `source` (`phone|admin`) and `internalNote` | `201`; `{ data: { appointment } }` with full staff projection | `201`, `400`, `401`, `403`, `404`, `409` |
-| `GET /appointments` | Bearer; admin or receptionist | Query `date`, `from`, `to`, `dentistId`, `serviceId`, `status`, `phone`, `page` (default 1), `limit` (1-100, default 25) | `200`; `{ data: { appointments, pagination: { page, limit, total, pages } } }` | `200`, `400`, `401`, `403` |
-| `GET /appointments/:id` | Bearer; admin or receptionist | Param `id` | `200`; `{ data: { appointment } }` | `200`, `400`, `401`, `403`, `404` |
-| `PATCH /appointments/:id/reschedule` | Bearer; admin or receptionist | Param `id`; body `{ date, startTime, dentistId?, serviceId?, reason? }` | `200`; `{ data: { appointment } }`; stale or occupied target returns conflict without losing old lock | `200`, `400`, `401`, `403`, `404`, `409` |
-| `PATCH /appointments/:id/status` | Bearer; admin or receptionist | Param `id`; body `{ status, internalNote? }`; status is `confirmed|checked_in|in_progress|completed|no_show` | `200`; `{ data: { appointment } }` | `200`, `400`, `401`, `403`, `404`, `409` invalid/stale transition |
-| `POST /appointments/:id/cancel` | Bearer; admin or receptionist | Param `id`; body `{ reason }` (2-500 characters) | `200`; `{ data: { appointment } }`; status and lock release are atomic | `200`, `400`, `401`, `403`, `404`, `409` |
+Replacement/removal uses an expected-current-image compare-and-set. The losing side of a race receives `409`; its upload is durable cleanup debt and is processed only when unreferenced. Old-image deletion starts only after the DB reference changes. Cleanup jobs are bounded, retryable, single-claim, reference-checked, and operator-visible.
 
-Normal status flow is `pending -> confirmed -> checked_in -> in_progress -> completed`. `pending` or `confirmed` can become `no_show`. Cancellation uses the dedicated cancel route. `completed`, `cancelled`, and `no_show` are terminal. Appointment snapshots retain historical dentist, service, duration, and price information even if catalog records later change.
+Public before/after content requires active, server-versioned consent and published state. Withdrawal hides it immediately and blocks ordinary restore. Permanent purge is admin-only, requires exact confirmation and prior withdrawal, tombstones the record, clears the opaque external consent reference, and queues both assets for durable deletion.
 
-## Media
+## Frontend freeze
 
-All media mutations are admin-only. Uploads are multipart, memory-buffered, limited to 5 MiB per image, and accept JPEG (`.jpg`/`.jpeg`), PNG (`.png`), WebP (`.webp`), HEIC (`.heic`), and HEIF (`.heif`). Submitted MIME and extension must match detected magic bytes. Cloudinary must be configured or uploads return `503`.
-
-| Method and path | Authentication / roles | Body, query, or params | Success result | Important statuses |
-|---|---|---|---|---|
-| `GET /media/gallery` | Public | None | `200`; `{ data: { images } }`, active only and no `createdBy` | `200` |
-| `GET /media/gallery/admin` | Bearer; admin | None | `200`; `{ data: { images } }`, including inactive and populated creator | `200`, `401`, `403` |
-| `POST /media/gallery` | Bearer; admin; media limiter | Multipart `image`; fields `altText?`, `caption?`, `sortOrder?` | `201`; `{ data: { image } }` | `201`, `400`, `401`, `403`, `413`, `415`, `429`, `503` |
-| `PATCH /media/gallery/:id/restore` | Bearer; admin | Param `id` | `200`; `{ data: { image } }` | `200`, `400`, `401`, `403`, `404` |
-| `PATCH /media/gallery/:id` | Bearer; admin | Param `id`; non-empty body subset `altText`, `caption`, `sortOrder`, `isActive` | `200`; `{ data: { image } }` | `200`, `400`, `401`, `403`, `404` |
-| `DELETE /media/gallery/:id` | Bearer; admin | Param `id` | `200`; soft-disables; does not purge Cloudinary | `200`, `400`, `401`, `403`, `404` |
-| `PUT /media/dentists/:id/photo` | Bearer; admin; media limiter | Param dentist `id`; multipart `image` | `200`; `{ data: { dentist } }`; old asset deleted only after DB replacement | `200`, `400`, `401`, `403`, `404`, `413`, `415`, `429`, `503` |
-| `DELETE /media/dentists/:id/photo` | Bearer; admin | Param dentist `id` | `200`; clears DB reference, then best-effort storage cleanup | `200`, `400`, `401`, `403`, `404` |
-| `PUT /media/services/:id/image` | Bearer; admin; media limiter | Param service `id`; multipart `image` | `200`; `{ data: { service } }`; old asset deleted only after DB replacement | `200`, `400`, `401`, `403`, `404`, `413`, `415`, `429`, `503` |
-| `DELETE /media/services/:id/image` | Bearer; admin | Param service `id` | `200`; clears DB reference, then best-effort storage cleanup | `200`, `400`, `401`, `403`, `404` |
-
-## Before/after cases
-
-| Method and path | Authentication / roles | Body, query, or params | Success result | Important statuses |
-|---|---|---|---|---|
-| `GET /before-after` | Public | Query `serviceId`, `dentistId`, `featured`, `page` (default 1), `limit` (1-100, default 24) | `200`; `{ data: { cases, pagination } }`, active only and no creator | `200`, `400` |
-| `GET /before-after/admin/all` | Bearer; admin | Same query as public list | `200`; `{ data: { cases, pagination } }`, includes inactive and creator | `200`, `400`, `401`, `403` |
-| `POST /before-after` | Bearer; admin; media limiter | Multipart `beforeImage` and `afterImage`; fields `title`, `description?`, `serviceId?`, `dentistId?`, `isFeatured?`, `sortOrder?`, and required `consentConfirmed=true` | `201`; `{ data: { case } }` | `201`, `400`, `401`, `403`, `404`, `409`, `413`, `415`, `429`, `503` |
-| `PATCH /before-after/:id/restore` | Bearer; admin | Param `id` | `200`; `{ data: { case } }` | `200`, `400`, `401`, `403`, `404` |
-| `PUT /before-after/:id/before-image` | Bearer; admin; media limiter | Param `id`; multipart `image` | `200`; `{ data: { case } }` | `200`, `400`, `401`, `403`, `404`, `413`, `415`, `429`, `503` |
-| `PUT /before-after/:id/after-image` | Bearer; admin; media limiter | Param `id`; multipart `image` | `200`; `{ data: { case } }` | `200`, `400`, `401`, `403`, `404`, `413`, `415`, `429`, `503` |
-| `PATCH /before-after/:id` | Bearer; admin | Param `id`; non-empty body subset `title`, `description`, `serviceId`, `dentistId`, `isFeatured`, `sortOrder` | `200`; `{ data: { case } }` | `200`, `400`, `401`, `403`, `404`, `409` inactive relation |
-| `DELETE /before-after/:id` | Bearer; admin | Param `id` | `200`; soft-disables and retains both Cloudinary assets | `200`, `400`, `401`, `403`, `404` |
-| `GET /before-after/:id` | Public | Param `id` | `200`; `{ data: { case } }`, active only and no creator | `200`, `400`, `404` |
-
-Creation uploads the before image first and the after image second. A failed second upload removes the first asset; a failed DB insert removes both. Replacement preserves the old DB reference until the new upload and DB save succeed.
-
-## Audit logs
-
-| Method and path | Authentication / roles | Body, query, or params | Success result | Important statuses |
-|---|---|---|---|---|
-| `GET /audit-logs` | Bearer; admin | Query `action`, `entityType`, `entityId`, `actorId`, ISO `from`, ISO `to`, `page` (default 1), `limit` (1-100, default 50) | `200`; `{ data: { logs, pagination } }`; actor is populated with name/email/role | `200`, `400`, `401`, `403` |
-
-Audit events contain request ID, actor, action, entity type/id, method, path, IP, user agent, bounded metadata, and timestamps. Sensitive metadata keys are recursively removed. Audit data is operational metadata and must still be access-controlled and retained according to clinic policy.
+The public schema, locale policy, authentication/cookie behavior, booking inputs, availability slots, appointment statuses, and media/consent flows are frozen sufficiently for frontend implementation. New optional fields or endpoints may be added compatibly. No known breaking public schema decision is deferred. Deployment origins/cookie domain are environment choices, not API-shape changes.

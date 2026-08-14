@@ -596,12 +596,12 @@ paths:
       operationId: replaceDentistPhoto
       security: [{ bearerAuth: [] }]
       requestBody: { $ref: '#/components/requestBodies/ImageUpload' }
-      responses: { '200': { $ref: '#/components/responses/Success' }, '415': { $ref: '#/components/responses/Error' } }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' }, '415': { $ref: '#/components/responses/Error' } }
     delete:
       tags: [Media]
       operationId: removeDentistPhoto
       security: [{ bearerAuth: [] }]
-      responses: { '200': { $ref: '#/components/responses/Success' } }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
   /media/services/{id}/image:
     parameters: [{ $ref: '#/components/parameters/Id' }]
     put:
@@ -609,12 +609,12 @@ paths:
       operationId: replaceServiceImage
       security: [{ bearerAuth: [] }]
       requestBody: { $ref: '#/components/requestBodies/ImageUpload' }
-      responses: { '200': { $ref: '#/components/responses/Success' }, '415': { $ref: '#/components/responses/Error' } }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' }, '415': { $ref: '#/components/responses/Error' } }
     delete:
       tags: [Media]
       operationId: removeServiceImage
       security: [{ bearerAuth: [] }]
-      responses: { '200': { $ref: '#/components/responses/Success' } }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
   /media/cleanup-jobs:
     get:
       tags: [Media]

@@ -15,7 +15,9 @@
     "production:indexes": "node src/scripts/ensureIndexes.js",
     "check:syntax": "node src/scripts/checkSyntax.js",
     "check:secrets": "node src/scripts/checkTrackedSecrets.js",
-    "openapi:lint": "redocly lint ../docs/openapi.yaml --config ../redocly.yaml"
+    "openapi:lint": "redocly lint ../docs/openapi.yaml --config ../redocly.yaml",
+    "test:coverage": "node --experimental-test-coverage --test --test-concurrency=1",
+    "verify": "npm run check:syntax && npm run check:secrets && npm run openapi:lint && npm test"
   },
   "keywords": [],
   "author": "",
