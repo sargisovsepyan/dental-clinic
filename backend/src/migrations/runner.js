@@ -12,6 +12,10 @@ const migrations = [
   beforeAfterConsent,
 ];
 
+const migrationManifest = Object.freeze(
+  migrations.map(({ version, description }) => ({ version, description }))
+);
+
 const runMigrations = async ({
   dryRun = true,
   legacyLocale,
@@ -59,4 +63,5 @@ const runMigrations = async ({
 
 export {
   runMigrations,
+  migrationManifest,
 };

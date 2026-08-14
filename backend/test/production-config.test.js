@@ -24,7 +24,7 @@ const productionEnvironment = (overrides = {}) => ({
   NODE_ENV: 'production',
   PORT: '5000',
   MONGO_URI:
-    'mongodb+srv://app:database-password@cluster.example/dental_clinic',
+    'mongodb+srv://cluster.example/dental_clinic',
   JWT_SECRET: 'j'.repeat(48),
   APPOINTMENT_QUOTA_SECRET: 'q'.repeat(48),
   RATE_LIMIT_KEY_SECRET: 'r'.repeat(48),
@@ -38,7 +38,7 @@ const productionEnvironment = (overrides = {}) => ({
   REFRESH_COOKIE_SAME_SITE: 'strict',
   API_REPLICA_COUNT: '3',
   RATE_LIMIT_STORE: 'redis',
-  REDIS_URL: 'rediss://:redis-password@redis.example.test:6380/0',
+  REDIS_URL: 'rediss://redis.example.test:6380/0',
   SMTP_HOST: 'smtp.example.test',
   SMTP_PORT: '465',
   SMTP_SECURE: 'true',

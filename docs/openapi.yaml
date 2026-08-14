@@ -1,0 +1,1078 @@
+openapi: 3.1.0
+info:
+  title: Dental Clinic Backend API
+  version: 1.0.0
+  description: >-
+    Implemented backend contract. Dates and clock times are interpreted in the
+    configured clinic timezone. Production cookie-authenticated operations also
+    require an exact allowed Origin header.
+servers:
+  - url: /api/v1
+security: []
+tags:
+  - name: System
+    description: Process liveness and dependency readiness.
+  - name: Auth
+    description: Staff authentication, rotating sessions, and password lifecycle.
+  - name: Staff
+    description: Administrator-controlled staff lifecycle and session revocation.
+  - name: Catalog
+    description: Public and administrative clinic editorial content.
+  - name: Scheduling
+    description: Clinic hours, dentist schedules, and public availability.
+  - name: Appointments
+    description: Public booking and authorized appointment administration.
+  - name: Media
+    description: Governed image upload, replacement, gallery, and cleanup operations.
+  - name: BeforeAfter
+    description: Before/after publication and consent-governance operations.
+  - name: Audit
+    description: Administrator-only business audit-log access.
+paths:
+  /health:
+    get:
+      tags: [System]
+      operationId: getLiveness
+      summary: Process liveness
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /health/live:
+    get:
+      tags: [System]
+      operationId: getExplicitLiveness
+      summary: Process liveness
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /health/ready:
+    get:
+      tags: [System]
+      operationId: getReadiness
+      summary: Mongo and required Redis readiness
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '503': { $ref: '#/components/responses/Error' }
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Authenticate staff and set refresh cookie
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/AuthSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshAccess
+      summary: Atomically rotate refresh token
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      responses:
+        '200': { $ref: '#/components/responses/AuthSuccess' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Revoke current refresh session and clear cookie
+      security: [{ cookieAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Origin'
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+  /auth/me:
+    get:
+      tags: [Auth]
+      operationId: getCurrentUser
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Error' }
+  /auth/change-password:
+    post:
+      tags: [Auth]
+      operationId: changePassword
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangePasswordRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      operationId: forgotPassword
+      summary: Return an enumeration-safe accepted response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmailRequest' }
+      responses:
+        '202': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      operationId: resetPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TokenPasswordRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /auth/setup-password:
+    post:
+      tags: [Auth]
+      operationId: setupInvitedPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TokenPasswordRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /staff:
+    get:
+      tags: [Staff]
+      operationId: listStaff
+      description: Admin only.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - name: role
+          in: query
+          schema: { $ref: '#/components/schemas/Role' }
+        - name: isActive
+          in: query
+          schema: { type: boolean }
+        - name: setupComplete
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /staff/invite:
+    post:
+      tags: [Staff]
+      operationId: inviteStaff
+      description: Admin only. Sends a one-time setup link through the configured mail adapter.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StaffInviteRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /staff/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Staff]
+      operationId: getStaff
+      description: Admin only.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /staff/{id}/role:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [Staff]
+      operationId: updateStaffRole
+      description: Admin only; last-admin and self-lockout invariants apply.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [role]
+              properties: { role: { $ref: '#/components/schemas/Role' } }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+  /staff/{id}/deactivate:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Staff]
+      operationId: deactivateStaff
+      description: Admin only; invalidates all authorization immediately.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+  /staff/{id}/reactivate:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Staff]
+      operationId: reactivateStaff
+      description: Admin only.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+  /staff/{id}/revoke-sessions:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Staff]
+      operationId: revokeStaffSessions
+      description: Admin only; increments authorization version.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+  /service-categories:
+    get:
+      tags: [Catalog]
+      operationId: listServiceCategories
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+    post:
+      tags: [Catalog]
+      operationId: createServiceCategory
+      description: Admin only.
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      responses: { '201': { $ref: '#/components/responses/Success' }, '400': { $ref: '#/components/responses/Error' }, '409': { $ref: '#/components/responses/Error' } }
+  /service-categories/admin/all:
+    get:
+      tags: [Catalog]
+      operationId: listAllServiceCategories
+      description: Admin only.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /service-categories/{identifier}:
+    parameters: [{ $ref: '#/components/parameters/Identifier' }]
+    get:
+      tags: [Catalog]
+      operationId: getServiceCategory
+      description: The GET operation interprets the identifier as a canonical slug.
+      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+    patch:
+      tags: [Catalog]
+      operationId: updateServiceCategory
+      description: Admin only; interprets the identifier as a MongoDB ObjectId.
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+    delete:
+      tags: [Catalog]
+      operationId: disableServiceCategory
+      description: Admin only; interprets the identifier as a MongoDB ObjectId and soft-disables the category.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+  /service-categories/{id}/restore:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [Catalog]
+      operationId: restoreServiceCategory
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /services:
+    get:
+      tags: [Catalog]
+      operationId: listServices
+      parameters:
+        - { name: category, in: query, schema: { type: string } }
+        - { name: featured, in: query, schema: { type: boolean } }
+        - { name: bookingEnabled, in: query, schema: { type: boolean } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+    post:
+      tags: [Catalog]
+      operationId: createService
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      responses: { '201': { $ref: '#/components/responses/Success' }, '400': { $ref: '#/components/responses/Error' } }
+  /services/admin/all:
+    get:
+      tags: [Catalog]
+      operationId: listAllServices
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /services/{identifier}:
+    parameters: [{ $ref: '#/components/parameters/Identifier' }]
+    get:
+      tags: [Catalog]
+      operationId: getService
+      description: The GET operation interprets the identifier as a canonical slug.
+      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+    patch:
+      tags: [Catalog]
+      operationId: updateService
+      description: Admin only; interprets the identifier as a MongoDB ObjectId.
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+    delete:
+      tags: [Catalog]
+      operationId: disableService
+      description: Admin only; interprets the identifier as a MongoDB ObjectId.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /services/{id}/restore:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [Catalog]
+      operationId: restoreService
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+  /dentists:
+    get:
+      tags: [Catalog]
+      operationId: listDentists
+      parameters:
+        - { name: service, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
+        - { name: featured, in: query, schema: { type: boolean } }
+        - { name: bookingEnabled, in: query, schema: { type: boolean } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+    post:
+      tags: [Catalog]
+      operationId: createDentist
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      responses: { '201': { $ref: '#/components/responses/Success' }, '400': { $ref: '#/components/responses/Error' } }
+  /dentists/admin/all:
+    get:
+      tags: [Catalog]
+      operationId: listAllDentists
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /dentists/{identifier}:
+    parameters: [{ $ref: '#/components/parameters/Identifier' }]
+    get:
+      tags: [Catalog]
+      operationId: getDentist
+      description: The GET operation interprets the identifier as a canonical slug.
+      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+    patch:
+      tags: [Catalog]
+      operationId: updateDentist
+      description: Admin only; interprets the identifier as a MongoDB ObjectId.
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+    delete:
+      tags: [Catalog]
+      operationId: disableDentist
+      description: Admin only; interprets the identifier as a MongoDB ObjectId.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /dentists/{id}/restore:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [Catalog]
+      operationId: restoreDentist
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /dentists/{id}/schedule-exceptions:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Scheduling]
+      operationId: listDentistScheduleExceptions
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/FromDate' }
+        - { $ref: '#/components/parameters/ToDate' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /dentists/{id}/schedule-exceptions/{date}:
+    parameters:
+      - { $ref: '#/components/parameters/Id' }
+      - { $ref: '#/components/parameters/DatePath' }
+    put:
+      tags: [Scheduling]
+      operationId: upsertDentistScheduleException
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/DentistScheduleException' }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '400': { $ref: '#/components/responses/Error' } }
+    delete:
+      tags: [Scheduling]
+      operationId: deleteDentistScheduleException
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+  /clinic:
+    get:
+      tags: [Catalog]
+      operationId: getClinic
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+    patch:
+      tags: [Catalog]
+      operationId: updateClinic
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '400': { $ref: '#/components/responses/Error' } }
+  /clinic/closures:
+    get:
+      tags: [Scheduling]
+      operationId: listClinicClosures
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/FromDate' }
+        - { $ref: '#/components/parameters/ToDate' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /clinic/closures/{date}:
+    parameters: [{ $ref: '#/components/parameters/DatePath' }]
+    put:
+      tags: [Scheduling]
+      operationId: upsertClinicClosure
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/ClinicScheduleException' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+    delete:
+      tags: [Scheduling]
+      operationId: deleteClinicClosure
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+  /availability:
+    get:
+      tags: [Scheduling]
+      operationId: getAvailability
+      parameters:
+        - { name: dentistId, in: query, required: true, schema: { $ref: '#/components/schemas/ObjectId' } }
+        - { name: serviceId, in: query, required: true, schema: { $ref: '#/components/schemas/ObjectId' } }
+        - { name: date, in: query, required: true, schema: { $ref: '#/components/schemas/LocalDate' } }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /appointments:
+    get:
+      tags: [Appointments]
+      operationId: listAppointments
+      description: Admin or receptionist.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { name: date, in: query, schema: { $ref: '#/components/schemas/LocalDate' } }
+        - { name: dentistId, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
+        - { name: serviceId, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/AppointmentStatus' } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+    post:
+      tags: [Appointments]
+      operationId: createPublicAppointment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PublicBookingRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /appointments/admin:
+    post:
+      tags: [Appointments]
+      operationId: createAdminAppointment
+      description: Admin or receptionist.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminBookingRequest' }
+      responses: { '201': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+  /appointments/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Appointments]
+      operationId: getAppointment
+      description: Admin or receptionist.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+  /appointments/{id}/reschedule:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [Appointments]
+      operationId: rescheduleAppointment
+      description: Admin or receptionist. Old lock remains on any failure.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RescheduleRequest' }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+  /appointments/{id}/status:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [Appointments]
+      operationId: updateAppointmentStatus
+      description: Admin or receptionist; validated state transitions only.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AppointmentStatusRequest' }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+  /appointments/{id}/cancel:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Appointments]
+      operationId: cancelAppointment
+      description: Admin or receptionist; releases booking and quota locks.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties: { reason: { type: string, minLength: 2, maxLength: 500 } }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+  /media/gallery:
+    get:
+      tags: [Media]
+      operationId: listGallery
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+    post:
+      tags: [Media]
+      operationId: createGalleryImage
+      description: Admin only. Maximum image size is 5 MiB and magic bytes are verified.
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/GalleryUpload' }
+      responses: { '201': { $ref: '#/components/responses/Success' }, '415': { $ref: '#/components/responses/Error' }, '503': { $ref: '#/components/responses/Error' } }
+  /media/gallery/admin:
+    get:
+      tags: [Media]
+      operationId: listAllGallery
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /media/gallery/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [Media]
+      operationId: updateGalleryImage
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+    delete:
+      tags: [Media]
+      operationId: disableGalleryImage
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /media/gallery/{id}/restore:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [Media]
+      operationId: restoreGalleryImage
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /media/dentists/{id}/photo:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    put:
+      tags: [Media]
+      operationId: replaceDentistPhoto
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/ImageUpload' }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '415': { $ref: '#/components/responses/Error' } }
+    delete:
+      tags: [Media]
+      operationId: removeDentistPhoto
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /media/services/{id}/image:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    put:
+      tags: [Media]
+      operationId: replaceServiceImage
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/ImageUpload' }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '415': { $ref: '#/components/responses/Error' } }
+    delete:
+      tags: [Media]
+      operationId: removeServiceImage
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /media/cleanup-jobs:
+    get:
+      tags: [Media]
+      operationId: listMediaCleanupJobs
+      description: Admin-only operational cleanup debt listing.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - name: status
+          in: query
+          schema: { type: string, enum: [held, pending, processing, completed, failed, cancelled] }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /media/cleanup-jobs/{id}/retry:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Media]
+      operationId: retryMediaCleanup
+      description: Admin only.
+      security: [{ bearerAuth: [] }]
+      responses: { '202': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+  /before-after:
+    get:
+      tags: [BeforeAfter]
+      operationId: listBeforeAfterCases
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { name: serviceId, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
+        - { name: dentistId, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
+        - { name: featured, in: query, schema: { type: boolean } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+    post:
+      tags: [BeforeAfter]
+      operationId: createBeforeAfterCase
+      description: Admin only. Consent version is server-controlled.
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/BeforeAfterUpload' }
+      responses: { '201': { $ref: '#/components/responses/Success' }, '400': { $ref: '#/components/responses/Error' }, '415': { $ref: '#/components/responses/Error' } }
+  /before-after/admin/all:
+    get:
+      tags: [BeforeAfter]
+      operationId: listAllBeforeAfterCases
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /before-after/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [BeforeAfter]
+      operationId: getBeforeAfterCase
+      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+    patch:
+      tags: [BeforeAfter]
+      operationId: updateBeforeAfterCase
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+    delete:
+      tags: [BeforeAfter]
+      operationId: disableBeforeAfterCase
+      description: Soft disable; does not withdraw consent or purge media.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+  /before-after/{id}/restore:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    patch:
+      tags: [BeforeAfter]
+      operationId: restoreBeforeAfterCase
+      description: Refuses withdrawn or purged cases.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+  /before-after/{id}/consent/withdraw:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [BeforeAfter]
+      operationId: withdrawBeforeAfterConsent
+      description: Admin only; immediately removes the case from public queries.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties: { reason: { type: string, minLength: 3, maxLength: 500 } }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+  /before-after/{id}/purge:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [BeforeAfter]
+      operationId: purgeBeforeAfterMedia
+      description: Admin-only permanent media purge after consent withdrawal; retains tombstone.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PurgeRequest' }
+      responses: { '202': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+  /before-after/{id}/before-image:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    put:
+      tags: [BeforeAfter]
+      operationId: replaceBeforeImage
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/ImageUpload' }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+  /before-after/{id}/after-image:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    put:
+      tags: [BeforeAfter]
+      operationId: replaceAfterImage
+      security: [{ bearerAuth: [] }]
+      requestBody: { $ref: '#/components/requestBodies/ImageUpload' }
+      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+  /audit-logs:
+    get:
+      tags: [Audit]
+      operationId: listAuditLogs
+      description: Admin only.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { name: action, in: query, schema: { type: string, maxLength: 120 } }
+        - { name: entityType, in: query, schema: { type: string, maxLength: 80 } }
+        - { name: entityId, in: query, schema: { type: string, maxLength: 150 } }
+        - { name: actorId, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
+      responses: { '200': { $ref: '#/components/responses/Success' } }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/ObjectId' }
+    Identifier:
+      name: identifier
+      in: path
+      required: true
+      description: Canonical slug for GET; MongoDB ObjectId for administrative PATCH or DELETE.
+      schema: { type: string, minLength: 1, maxLength: 180 }
+    DatePath:
+      name: date
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/LocalDate' }
+    FromDate:
+      name: from
+      in: query
+      schema: { $ref: '#/components/schemas/LocalDate' }
+    ToDate:
+      name: to
+      in: query
+      schema: { $ref: '#/components/schemas/LocalDate' }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100 }
+    Origin:
+      name: Origin
+      in: header
+      required: true
+      schema: { type: string, format: uri }
+  requestBodies:
+    LocalizedCatalog:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            description: Endpoint-specific fields plus explicit hy, ru, and en translations.
+            properties:
+              translations: { $ref: '#/components/schemas/Translations' }
+            additionalProperties: true
+    ClinicScheduleException:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [isOpen]
+            properties:
+              isOpen: { type: boolean }
+              shifts:
+                type: array
+                items: { $ref: '#/components/schemas/Shift' }
+              note: { type: string, maxLength: 300 }
+    DentistScheduleException:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [isWorking]
+            properties:
+              isWorking: { type: boolean }
+              shifts:
+                type: array
+                items: { $ref: '#/components/schemas/Shift' }
+              note: { type: string, maxLength: 300 }
+    ImageUpload:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [image]
+            properties:
+              image: { type: string, format: binary }
+    GalleryUpload:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [image]
+            properties:
+              image: { type: string, format: binary }
+              altText: { type: string, maxLength: 200 }
+              caption: { type: string, maxLength: 500 }
+              sortOrder: { type: integer, minimum: 0, maximum: 10000 }
+              isActive: { type: boolean }
+              translations:
+                type: string
+                description: JSON object keyed by hy, ru, and en.
+    BeforeAfterUpload:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [beforeImage, afterImage, consentConfirmed, consentMethod, translations]
+            properties:
+              beforeImage: { type: string, format: binary }
+              afterImage: { type: string, format: binary }
+              title: { type: string, minLength: 2, maxLength: 200 }
+              translations:
+                type: string
+                description: JSON object keyed by hy, ru, and en; Armenian title required when published.
+              description: { type: string, maxLength: 2000 }
+              serviceId: { $ref: '#/components/schemas/ObjectId' }
+              dentistId: { $ref: '#/components/schemas/ObjectId' }
+              consentConfirmed: { type: boolean, const: true }
+              consentMethod: { type: string, enum: [written, digital, verbal, external] }
+              externalConsentReference:
+                type: string
+                minLength: 3
+                maxLength: 120
+                description: Required when consentMethod is external; opaque and never public.
+              isActive: { type: boolean, default: true }
+              isFeatured: { type: boolean, default: false }
+              sortOrder: { type: integer, minimum: 0, maximum: 10000 }
+  responses:
+    Success:
+      description: Successful request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+    AuthSuccess:
+      description: Authenticated; refresh cookie may be set
+      headers:
+        Set-Cookie:
+          schema: { type: string }
+          description: HttpOnly refresh_token scoped to /api/v1/auth; Secure in production.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - { $ref: '#/components/schemas/SuccessEnvelope' }
+              - type: object
+                properties:
+                  data:
+                    type: object
+                    required: [accessToken, user]
+                    properties:
+                      accessToken: { type: string }
+                      user: { $ref: '#/components/schemas/StaffUser' }
+    Error:
+      description: Error response
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  schemas:
+    ObjectId:
+      type: string
+      pattern: '^[0-9a-fA-F]{24}$'
+    LocalDate:
+      type: string
+      pattern: '^\d{4}-\d{2}-\d{2}$'
+      examples: ['2026-08-20']
+    LocalTime:
+      type: string
+      pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+      examples: ['09:30']
+    Role:
+      type: string
+      enum: [admin, receptionist, dentist]
+    AppointmentStatus:
+      type: string
+      enum: [pending, confirmed, checked_in, in_progress, completed, cancelled, no_show]
+    SuccessEnvelope:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { type: object, additionalProperties: true }
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [success, message]
+      properties:
+        success: { type: boolean, const: false }
+        message: { type: string }
+    StaffUser:
+      type: object
+      additionalProperties: false
+      required: [id, name, email, role, isActive, isSetupComplete]
+      properties:
+        id: { $ref: '#/components/schemas/ObjectId' }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/Role' }
+        isActive: { type: boolean }
+        isSetupComplete: { type: boolean }
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 1, maxLength: 1024, writeOnly: true }
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string, minLength: 1, maxLength: 1024, writeOnly: true }
+        newPassword:
+          type: string
+          minLength: 6
+          maxLength: 72
+          writeOnly: true
+          description: At least six Unicode characters and at most 72 UTF-8 bytes.
+    EmailRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties: { email: { type: string, format: email, maxLength: 254 } }
+    TokenPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [token, password]
+      properties:
+        token: { type: string, minLength: 40, maxLength: 200, writeOnly: true }
+        password:
+          type: string
+          minLength: 6
+          maxLength: 72
+          writeOnly: true
+          description: Maximum is enforced in UTF-8 bytes.
+    StaffInviteRequest:
+      type: object
+      additionalProperties: false
+      required: [name, email, role]
+      properties:
+        name: { type: string, minLength: 2, maxLength: 100 }
+        email: { type: string, format: email, maxLength: 254 }
+        role: { $ref: '#/components/schemas/Role' }
+    TranslationText:
+      type: object
+      additionalProperties: true
+    Translations:
+      type: object
+      additionalProperties: false
+      properties:
+        hy: { $ref: '#/components/schemas/TranslationText' }
+        ru: { $ref: '#/components/schemas/TranslationText' }
+        en: { $ref: '#/components/schemas/TranslationText' }
+    Shift:
+      type: object
+      additionalProperties: false
+      required: [start, end]
+      properties:
+        start: { $ref: '#/components/schemas/LocalTime' }
+        end: { $ref: '#/components/schemas/LocalTime' }
+    PatientBookingFields:
+      type: object
+      required: [patientName, patientPhone, dentistId, serviceId, date, startTime, privacyAccepted]
+      properties:
+        patientName: { type: string, minLength: 2, maxLength: 120 }
+        patientPhone: { type: string, minLength: 8, maxLength: 30 }
+        patientEmail: { type: string, format: email, maxLength: 254 }
+        dentistId: { $ref: '#/components/schemas/ObjectId' }
+        serviceId: { $ref: '#/components/schemas/ObjectId' }
+        date: { $ref: '#/components/schemas/LocalDate' }
+        startTime: { $ref: '#/components/schemas/LocalTime' }
+        patientComment: { type: string, maxLength: 1000 }
+        privacyAccepted: { type: boolean, const: true }
+    PublicBookingRequest:
+      allOf:
+        - { $ref: '#/components/schemas/PatientBookingFields' }
+      unevaluatedProperties: false
+    AdminBookingRequest:
+      allOf:
+        - { $ref: '#/components/schemas/PatientBookingFields' }
+        - type: object
+          required: [consentMethod]
+          properties:
+            consentMethod: { type: string, enum: [phone, in_person] }
+            source: { type: string, enum: [phone, admin], default: phone }
+            internalNote: { type: string, maxLength: 2000 }
+      unevaluatedProperties: false
+    RescheduleRequest:
+      type: object
+      additionalProperties: false
+      required: [date, startTime]
+      properties:
+        date: { $ref: '#/components/schemas/LocalDate' }
+        startTime: { $ref: '#/components/schemas/LocalTime' }
+        dentistId: { $ref: '#/components/schemas/ObjectId' }
+        serviceId: { $ref: '#/components/schemas/ObjectId' }
+        reason: { type: string, maxLength: 500 }
+    AppointmentStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [confirmed, checked_in, in_progress, completed, no_show] }
+        internalNote: { type: string, maxLength: 2000 }
+    PurgeRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmation, reason]
+      properties:
+        confirmation: { type: string, const: 'PERMANENTLY PURGE BEFORE AFTER MEDIA' }
+        reason: { type: string, minLength: 3, maxLength: 500 }

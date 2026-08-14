@@ -1,0 +1,9 @@
+apis:
+  backend:
+    root: ./docs/openapi.yaml
+extends:
+  - minimal
+rules:
+  no-unresolved-refs: error
+  no-identical-paths: error
+  operation-summary: off
