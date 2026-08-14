@@ -3,6 +3,7 @@ import {
   assertCloudinaryConfigured,
 } from '../config/cloudinary.js';
 import env from '../config/env.js';
+import crypto from 'node:crypto';
 
 
 let testAdapter = null;
@@ -14,9 +15,12 @@ const setCloudinaryAdapterForTests = (adapter) => {
   }
   if (
     typeof adapter?.upload !== 'function' ||
-    typeof adapter?.delete !== 'function'
+    typeof adapter?.delete !== 'function' ||
+    typeof adapter?.allocatePublicId !== 'function'
   ) {
-    throw new TypeError('Cloudinary test adapter must implement upload and delete');
+    throw new TypeError(
+      'Cloudinary test adapter must implement allocatePublicId, upload, and delete'
+    );
   }
   testAdapter = adapter;
 };
@@ -28,13 +32,14 @@ const resetCloudinaryAdapterForTests = () => {
 
 
 const liveAdapter = {
-  upload: (buffer, { folder, tags = [] }) => {
+  allocatePublicId: (folder) => `${folder}/${crypto.randomUUID()}`,
+  upload: (buffer, { folder, publicId, tags = [] }) => {
     assertCloudinaryConfigured();
     return new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
           resource_type: 'image',
-          folder,
+          ...(publicId ? { public_id: publicId } : { folder }),
           tags,
           use_filename: false,
           unique_filename: true,
@@ -81,6 +86,10 @@ const getAdapter = () => {
 };
 
 
+const allocateCloudinaryPublicId = (folder) =>
+  getAdapter().allocatePublicId(folder);
+
+
 const uploadImageBuffer = (buffer, options) =>
   getAdapter().upload(buffer, options);
 
@@ -94,6 +103,7 @@ const deleteCloudinaryImage = async (publicId) => {
 
 
 export {
+  allocateCloudinaryPublicId,
   uploadImageBuffer,
   deleteCloudinaryImage,
   setCloudinaryAdapterForTests,

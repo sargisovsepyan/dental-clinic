@@ -73,8 +73,15 @@ const installCloudinaryStub = () => {
   uploadCalls = [];
   destroyCalls = [];
   destroyFailure = null;
+  let failedAllocation = 0;
 
   setCloudinaryAdapterForTests({
+    allocatePublicId(folder) {
+      const next = uploadQueue[0];
+      return next && !(next instanceof Error)
+        ? next.publicId
+        : `${folder}/failed-${failedAllocation += 1}`;
+    },
     async upload(buffer, options) {
       uploadCalls.push({ options, bytes: buffer.length });
       const next = uploadQueue.shift();
@@ -84,6 +91,7 @@ const installCloudinaryStub = () => {
       if (next instanceof Error) {
         throw next;
       }
+      assert.equal(next.publicId, options.publicId);
       return next;
     },
     async delete(publicId) {
@@ -271,10 +279,14 @@ test('concurrent dentist replacements keep one winner and clean the losing uploa
   let uploadCount = 0;
   destroyCalls = [];
   setCloudinaryAdapterForTests({
-    async upload() {
+    allocatePublicId() {
       uploadCount += 1;
-      const publicId = `dentist-race-new-${uploadCount}`;
-      if (uploadCount === 2) {
+      return `dentist-race-new-${uploadCount}`;
+    },
+    async upload(_buffer, options) {
+      const { publicId } = options;
+      uploadCalls.push({ publicId });
+      if (uploadCalls.length === 2) {
         bothUploadsStarted.resolve();
       }
       await releaseUploads.promise;
@@ -339,6 +351,9 @@ test('concurrent service removal defeats a stale replacement and cleans its uplo
   const releaseUpload = deferred();
   destroyCalls = [];
   setCloudinaryAdapterForTests({
+    allocatePublicId() {
+      return 'service-race-stale-upload';
+    },
     async upload() {
       uploadStarted.resolve();
       await releaseUpload.promise;
@@ -570,6 +585,43 @@ test('before/after database creation failure deletes both uploaded assets', asyn
   );
 });
 
+test('durable rollback intent exists before each before/after upload starts', async () => {
+  const plannedIds = ['before-preupload-intent', 'after-preupload-intent'];
+  const observed = [];
+  setCloudinaryAdapterForTests({
+    allocatePublicId() {
+      return plannedIds[observed.length];
+    },
+    async upload(_buffer, options) {
+      const job = await MediaCleanupJob.findOne({
+        publicId: options.publicId,
+      }).lean();
+      assert.equal(job.status, 'held');
+      observed.push(options.publicId);
+      return image(options.publicId);
+    },
+    async delete(publicId) {
+      destroyCalls.push({ publicId });
+    },
+  });
+
+  await beforeAfterService.createCase({
+    data: localizedCase('Pre-upload intent'),
+    beforeFile: { buffer: png },
+    afterFile: { buffer: png },
+    userId: staff.admin._id,
+  });
+
+  assert.deepEqual(observed, plannedIds);
+  assert.equal(
+    await MediaCleanupJob.countDocuments({
+      publicId: { $in: plannedIds },
+      status: 'cancelled',
+    }),
+    2
+  );
+});
+
 test('before/after replacement preserves old image on failure and deletes old after success', async () => {
   uploadQueue.push(image('before-old'), image('after-old'));
   const item = await beforeAfterService.createCase({
@@ -606,6 +658,9 @@ test('consent withdrawal and purge defeat an in-flight image replacement', async
   const releaseUpload = deferred();
   destroyCalls = [];
   setCloudinaryAdapterForTests({
+    allocatePublicId() {
+      return 'before-governance-late-upload';
+    },
     async upload() {
       uploadStarted.resolve();
       await releaseUpload.promise;

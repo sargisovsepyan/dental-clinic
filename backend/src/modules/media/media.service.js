@@ -7,34 +7,17 @@ import MediaAsset from './media.model.js';
 import ApiError from '../../utils/ApiError.js';
 
 import {
-  uploadImageBuffer,
-  deleteCloudinaryImage,
-} from '../../utils/cloudinaryImage.js';
-import {
   mergeTranslations,
 } from '../../i18n/localization.js';
 import logger from '../../observability/logger.js';
 import {
   enqueueMediaCleanup,
-  activateMediaCleanup,
   cancelMediaCleanup,
-  processMediaCleanupJob,
-  cleanupMediaAsset,
 } from './mediaCleanup.service.js';
-
-
-const finishHeldCleanup = async (job) => {
-  if (!job || job.status === 'completed') {
-    return job;
-  }
-  const activated = await activateMediaCleanup(job.publicId);
-  const pending = activated || job;
-  if (pending.status !== 'pending') {
-    return pending;
-  }
-  return processMediaCleanupJob(pending._id, { force: true });
-};
-
+import {
+  finishHeldCleanup,
+  uploadWithRollbackIntent,
+} from './mediaUpload.service.js';
 
 const expectedImageFilter = (field, image) => (
   image?.publicId
@@ -46,35 +29,6 @@ const expectedImageFilter = (field, image) => (
         ],
       }
 );
-
-
-const rollbackUploadedImage = async (uploaded, sourceType, sourceId = '') => {
-  if (!uploaded?.publicId) {
-    return;
-  }
-  try {
-    await cleanupMediaAsset({
-      publicId: uploaded.publicId,
-      reason: 'rollback',
-      sourceType,
-      sourceId,
-    });
-  }
-  catch (cleanupError) {
-    logger.error('media_rollback_queue_failed', {
-      sourceType,
-      sourceId: String(sourceId || ''),
-      error: cleanupError,
-    });
-    await deleteCloudinaryImage(uploaded.publicId).catch((error) => {
-      logger.error('media_rollback_delete_failed', {
-        sourceType,
-        sourceId: String(sourceId || ''),
-        error,
-      });
-    });
-  }
-};
 
 
 const replaceDentistPhoto =
@@ -100,34 +54,16 @@ const replaceDentistPhoto =
       dentist.photo;
 
 
-    const uploaded =
-      await uploadImageBuffer(
-        file.buffer,
-        {
-          folder:
-            'dental-clinic/dentists',
-
-          tags: [
-            'dentist',
-          ],
-        }
-      );
-
-
-    let uploadedRollback;
-    try {
-      uploadedRollback = await enqueueMediaCleanup({
-        publicId: uploaded.publicId,
-        reason: 'rollback',
+    const {
+      uploaded,
+      rollbackJob: uploadedRollback,
+    } = await uploadWithRollbackIntent({
+        buffer: file.buffer,
+        folder: 'dental-clinic/dentists',
+        tags: ['dentist'],
         sourceType: 'dentist',
         sourceId: dentist._id,
-        held: true,
       });
-    }
-    catch (error) {
-      await deleteCloudinaryImage(uploaded.publicId).catch(() => {});
-      throw error;
-    }
 
     let previousCleanup = null;
 
@@ -262,34 +198,16 @@ const replaceServiceImage =
       service.image;
 
 
-    const uploaded =
-      await uploadImageBuffer(
-        file.buffer,
-        {
-          folder:
-            'dental-clinic/services',
-
-          tags: [
-            'service',
-          ],
-        }
-      );
-
-
-    let uploadedRollback;
-    try {
-      uploadedRollback = await enqueueMediaCleanup({
-        publicId: uploaded.publicId,
-        reason: 'rollback',
+    const {
+      uploaded,
+      rollbackJob: uploadedRollback,
+    } = await uploadWithRollbackIntent({
+        buffer: file.buffer,
+        folder: 'dental-clinic/services',
+        tags: ['service'],
         sourceType: 'service',
         sourceId: service._id,
-        held: true,
       });
-    }
-    catch (error) {
-      await deleteCloudinaryImage(uploaded.publicId).catch(() => {});
-      throw error;
-    }
 
     let previousCleanup = null;
 
@@ -408,30 +326,19 @@ const createGalleryImage =
     translations = {},
     isActive = true,
   }) => {
-  const uploaded =
-      await uploadImageBuffer(
-        file.buffer,
-        {
-          folder:
-            'dental-clinic/clinic-gallery',
+  const {
+    uploaded,
+    rollbackJob,
+  } = await uploadWithRollbackIntent({
+    buffer: file.buffer,
+    folder: 'dental-clinic/clinic-gallery',
+    tags: ['clinic-gallery'],
+    sourceType: 'gallery',
+  });
 
-          tags: [
-            'clinic-gallery',
-          ],
-        }
-      );
-
-
-    let rollbackJob = null;
     let created = null;
 
     try {
-      rollbackJob = await enqueueMediaCleanup({
-        publicId: uploaded.publicId,
-        reason: 'rollback',
-        sourceType: 'gallery',
-        held: true,
-      });
       const primary =
         translations.hy;
 
@@ -463,12 +370,7 @@ const createGalleryImage =
       });
     }
     catch (error) {
-      if (rollbackJob) {
-        await finishHeldCleanup(rollbackJob);
-      }
-      else {
-        await rollbackUploadedImage(uploaded, 'gallery');
-      }
+      await finishHeldCleanup(rollbackJob);
 
       throw error;
     }

@@ -7,7 +7,6 @@ import Dentist from '../dentists/dentist.model.js';
 import ApiError from '../../utils/ApiError.js';
 
 import {
-  uploadImageBuffer,
   deleteCloudinaryImage,
 } from '../../utils/cloudinaryImage.js';
 import {
@@ -17,24 +16,13 @@ import logger from '../../observability/logger.js';
 import env from '../../config/env.js';
 import {
   enqueueMediaCleanup,
-  activateMediaCleanup,
   cancelMediaCleanup,
-  processMediaCleanupJob,
   cleanupMediaAsset,
 } from '../media/mediaCleanup.service.js';
-
-
-const finishHeldCleanup = async (job) => {
-  if (!job || job.status === 'completed') {
-    return job;
-  }
-  const activated = await activateMediaCleanup(job.publicId);
-  const pending = activated || job;
-  return pending.status === 'pending'
-    ? processMediaCleanupJob(pending._id, { force: true })
-    : pending;
-};
-
+import {
+  finishHeldCleanup,
+  uploadWithRollbackIntent,
+} from '../media/mediaUpload.service.js';
 
 const expectedImageFilter = (field, image) => (
   image?.publicId
@@ -176,48 +164,26 @@ const createCase =
 
 
     try {
-      beforeImage =
-        await uploadImageBuffer(
-          beforeFile.buffer,
-          {
-            folder:
-              'dental-clinic/before-after/before',
-
-            tags: [
-              'before-after',
-              'before',
-            ],
-          }
-        );
-
-      beforeRollback = await enqueueMediaCleanup({
-        publicId: beforeImage.publicId,
-        reason: 'rollback',
+      ({
+        uploaded: beforeImage,
+        rollbackJob: beforeRollback,
+      } = await uploadWithRollbackIntent({
+        buffer: beforeFile.buffer,
+        folder: 'dental-clinic/before-after/before',
+        tags: ['before-after', 'before'],
         sourceType: 'before_after',
-        held: true,
-      });
+      }));
 
 
-      afterImage =
-        await uploadImageBuffer(
-          afterFile.buffer,
-          {
-            folder:
-              'dental-clinic/before-after/after',
-
-            tags: [
-              'before-after',
-              'after',
-            ],
-          }
-        );
-
-      afterRollback = await enqueueMediaCleanup({
-        publicId: afterImage.publicId,
-        reason: 'rollback',
+      ({
+        uploaded: afterImage,
+        rollbackJob: afterRollback,
+      } = await uploadWithRollbackIntent({
+        buffer: afterFile.buffer,
+        folder: 'dental-clinic/before-after/after',
+        tags: ['before-after', 'after'],
         sourceType: 'before_after',
-        held: true,
-      });
+      }));
     }
     catch (error) {
       if (beforeRollback) {
@@ -705,34 +671,16 @@ const replaceCaseImage =
       item[field];
 
 
-    const uploaded =
-      await uploadImageBuffer(
-        file.buffer,
-        {
-          folder,
-
-          tags: [
-            'before-after',
-            imageType,
-          ],
-        }
-      );
-
-
-    let uploadedRollback;
-    try {
-      uploadedRollback = await enqueueMediaCleanup({
-        publicId: uploaded.publicId,
-        reason: 'rollback',
+    const {
+      uploaded,
+      rollbackJob: uploadedRollback,
+    } = await uploadWithRollbackIntent({
+        buffer: file.buffer,
+        folder,
+        tags: ['before-after', imageType],
         sourceType: 'before_after',
         sourceId: item._id,
-        held: true,
       });
-    }
-    catch (error) {
-      await deleteCloudinaryImage(uploaded.publicId).catch(() => {});
-      throw error;
-    }
 
     let previousCleanup = null;
 
