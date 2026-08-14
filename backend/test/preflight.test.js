@@ -179,7 +179,8 @@ test('data preflight detects over-limit, duplicate, and missing quota state', as
   await Appointment.collection.insertOne({
     _id: appointmentId,
     status: 'pending',
-    lockKeys: ['2026-08-16:600'],
+    date: '2026-08-16',
+    lockKeys: ['not-a-booking-lock'],
     confirmationCode: `PF-${appointmentId}`,
   });
 
@@ -187,6 +188,7 @@ test('data preflight detects over-limit, duplicate, and missing quota state', as
     const invariants = await verifyDataInvariants();
     assert.equal(invariants.overLimitQuotaRows, 1);
     assert.equal(invariants.duplicateQuotaReservationRows, 1);
+    assert.equal(invariants.invalidAppointmentLockShapeRows, 1);
     assert.equal(invariants.missingAppointmentQuotaReferences, 1);
   }
   finally {

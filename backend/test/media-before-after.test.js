@@ -973,6 +973,47 @@ test('consent migration is dry-run safe, explicit, and idempotent', async () => 
   assert.equal((await consentMigration.run({ dryRun: false })).migrated, 0);
 });
 
+test('consent migration refuses to invent missing legacy evidence', async () => {
+  const legacyId = new mongoose.Types.ObjectId();
+  const validLegacyId = new mongoose.Types.ObjectId();
+  await BeforeAfterCase.collection.insertOne({
+    _id: validLegacyId,
+    title: 'Valid legacy case',
+    translations: { hy: { title: 'Վավեր ժառանգական դեպք' } },
+    beforeImage: image('valid-legacy-before'),
+    afterImage: image('valid-legacy-after'),
+    consentConfirmedAt: new Date('2025-01-01T00:00:00Z'),
+    isActive: true,
+    createdBy: staff.admin._id,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  await BeforeAfterCase.collection.insertOne({
+    _id: legacyId,
+    title: 'Legacy case without evidence',
+    translations: { hy: { title: 'Ժառանգական դեպք' } },
+    beforeImage: image('legacy-no-evidence-before'),
+    afterImage: image('legacy-no-evidence-after'),
+    isActive: true,
+    createdBy: staff.admin._id,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  await assert.rejects(
+    consentMigration.run({ dryRun: false }),
+    /refuses to invent evidence/
+  );
+  const unchanged = await BeforeAfterCase.collection.findOne({ _id: legacyId });
+  assert.equal(unchanged.consentStatus, undefined);
+  assert.equal(unchanged.consentPolicyVersion, undefined);
+  const validUnchanged = await BeforeAfterCase.collection.findOne({
+    _id: validLegacyId,
+  });
+  assert.equal(validUnchanged.consentStatus, undefined);
+  assert.equal(validUnchanged.consentPolicyVersion, undefined);
+});
+
 test('invalid before/after relations fail before any upload', async () => {
   await assert.rejects(
     beforeAfterService.createCase({

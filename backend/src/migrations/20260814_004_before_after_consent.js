@@ -23,6 +23,25 @@ const run = async ({ dryRun = true }) => {
     legacyFilter
   );
 
+  const missingEvidence = await BeforeAfterCase.collection.findOne({
+    $and: [
+      legacyFilter,
+      {
+        $or: [
+          { createdBy: { $exists: false } },
+          { createdBy: null },
+          { consentConfirmedAt: { $exists: false } },
+          { consentConfirmedAt: null },
+        ],
+      },
+    ],
+  }, { projection: { _id: 1 } });
+  if (missingEvidence) {
+    throw new Error(
+      `Before/after case ${missingEvidence._id} lacks legacy consent evidence; migration refuses to invent evidence`
+    );
+  }
+
   let migrated = 0;
   if (!dryRun) {
     const cursor = BeforeAfterCase.collection
@@ -37,12 +56,7 @@ const run = async ({ dryRun = true }) => {
       .batchSize(250);
 
     for await (const item of cursor) {
-      if (!item.createdBy) {
-        throw new Error(
-          `Before/after case ${item._id} has no actor for consent migration`
-        );
-      }
-      const occurredAt = item.consentConfirmedAt || new Date();
+      const occurredAt = item.consentConfirmedAt;
       const result = await BeforeAfterCase.collection.updateOne(
         {
           _id: item._id,

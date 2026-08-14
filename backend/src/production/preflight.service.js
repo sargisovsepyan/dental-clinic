@@ -167,6 +167,7 @@ const verifyDataInvariants = async () => {
     overLimitQuotaRows,
     duplicateQuotaReservationRows,
     invalidAppointmentLocks,
+    invalidAppointmentLockShapeRows,
     missingAppointmentQuotaReferences,
     invalidConsentCases,
     quotaReconciliation,
@@ -198,10 +199,46 @@ const verifyDataInvariants = async () => {
       Appointment.countDocuments({
         status: { $ne: 'cancelled' },
         $or: [
-          { lockKeys: { $exists: false } },
+          { lockKeys: { $not: { $type: 'array' } } },
           { lockKeys: { $size: 0 } },
         ],
       }),
+      Appointment.aggregate([
+        {
+          $match: {
+            status: { $ne: 'cancelled' },
+            lockKeys: { $type: 'array' },
+          },
+        },
+        { $unwind: '$lockKeys' },
+        {
+          $match: {
+            $expr: {
+              $not: {
+                $regexMatch: {
+                  input: {
+                    $convert: {
+                      input: '$lockKeys',
+                      to: 'string',
+                      onError: '',
+                      onNull: '',
+                    },
+                  },
+                  regex: {
+                    $concat: [
+                      '^',
+                      { $convert: { input: '$date', to: 'string' } },
+                      ':(?:[0-9]|[1-9][0-9]{1,2}|1[0-3][0-9]{2}|14[0-3][0-9])$',
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+        { $group: { _id: '$_id' } },
+        { $count: 'count' },
+      ]).then(([result]) => result?.count || 0),
       Appointment.countDocuments({
         status: { $ne: 'cancelled' },
         $or: [
@@ -226,6 +263,7 @@ const verifyDataInvariants = async () => {
     overLimitQuotaRows,
     duplicateQuotaReservationRows,
     invalidAppointmentLocks,
+    invalidAppointmentLockShapeRows,
     missingAppointmentQuotaReferences,
     missingQuotaReservations: quotaReconciliation.missingReservations,
     staleOrphanQuotaReservations: quotaReconciliation.orphanReservations,
