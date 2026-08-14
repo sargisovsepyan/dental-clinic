@@ -11,6 +11,8 @@ import {
   replaceAfterImage,
   disableCase,
   restoreCase,
+  withdrawConsent,
+  purgeCaseMedia,
 } from './beforeAfter.controller.js';
 
 
@@ -19,6 +21,8 @@ import {
   updateCaseSchema,
   caseIdSchema,
   listCasesSchema,
+  withdrawConsentSchema,
+  purgeCaseSchema,
 } from './beforeAfter.validation.js';
 
 
@@ -130,9 +134,42 @@ router.patch(
 
       entityType:
         'before_after',
+
+      failureAction:
+        'before_after.restore.rejected',
     },
 
     restoreCase
+  )
+);
+
+
+router.post(
+  '/:id/consent/withdraw',
+  auth,
+  authorize('admin'),
+  validate(withdrawConsentSchema),
+  auditAction(
+    {
+      action: 'before_after.consent.withdraw',
+      entityType: 'before_after',
+    },
+    withdrawConsent
+  )
+);
+
+
+router.post(
+  '/:id/purge',
+  auth,
+  authorize('admin'),
+  validate(purgeCaseSchema),
+  auditAction(
+    {
+      action: 'before_after.media.purge',
+      entityType: 'before_after',
+    },
+    purgeCaseMedia
   )
 );
 

@@ -102,6 +102,21 @@ const replaceDentistPhoto =
       );
 
 
+    let uploadedRollback;
+    try {
+      uploadedRollback = await enqueueMediaCleanup({
+        publicId: uploaded.publicId,
+        reason: 'rollback',
+        sourceType: 'dentist',
+        sourceId: dentist._id,
+        held: true,
+      });
+    }
+    catch (error) {
+      await deleteCloudinaryImage(uploaded.publicId).catch(() => {});
+      throw error;
+    }
+
     let previousCleanup = null;
 
     try {
@@ -118,10 +133,15 @@ const replaceDentistPhoto =
         uploaded;
 
       await dentist.save();
+      await cancelMediaCleanup(uploaded.publicId).catch((error) => {
+        logger.warn('dentist_rollback_hold_cancel_failed', { error });
+      });
     }
     catch (error) {
-      await cancelMediaCleanup(previous?.publicId);
-      await rollbackUploadedImage(uploaded, 'dentist', dentist._id);
+      await Promise.allSettled([
+        cancelMediaCleanup(previous?.publicId),
+        finishHeldCleanup(uploadedRollback),
+      ]);
 
       throw error;
     }
@@ -231,6 +251,21 @@ const replaceServiceImage =
       );
 
 
+    let uploadedRollback;
+    try {
+      uploadedRollback = await enqueueMediaCleanup({
+        publicId: uploaded.publicId,
+        reason: 'rollback',
+        sourceType: 'service',
+        sourceId: service._id,
+        held: true,
+      });
+    }
+    catch (error) {
+      await deleteCloudinaryImage(uploaded.publicId).catch(() => {});
+      throw error;
+    }
+
     let previousCleanup = null;
 
     try {
@@ -247,10 +282,15 @@ const replaceServiceImage =
         uploaded;
 
       await service.save();
+      await cancelMediaCleanup(uploaded.publicId).catch((error) => {
+        logger.warn('service_rollback_hold_cancel_failed', { error });
+      });
     }
     catch (error) {
-      await cancelMediaCleanup(previous?.publicId);
-      await rollbackUploadedImage(uploaded, 'service', service._id);
+      await Promise.allSettled([
+        cancelMediaCleanup(previous?.publicId),
+        finishHeldCleanup(uploadedRollback),
+      ]);
 
       throw error;
     }

@@ -3,11 +3,13 @@ import Migration from '../modules/migrations/migration.model.js';
 import * as localizedContent from './20260814_001_localized_content.js';
 import * as phoneDailyQuota from './20260814_002_phone_daily_quota.js';
 import * as authSecurityFields from './20260814_003_auth_security_fields.js';
+import * as beforeAfterConsent from './20260814_004_before_after_consent.js';
 
 const migrations = [
   localizedContent,
   phoneDailyQuota,
   authSecurityFields,
+  beforeAfterConsent,
 ];
 
 const runMigrations = async ({

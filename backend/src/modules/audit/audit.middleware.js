@@ -74,6 +74,7 @@ const auditAction = (
     entityType,
     metadata,
     actorFromResponse = false,
+    failureAction = '',
   },
   handler
 ) => {
@@ -160,6 +161,19 @@ const auditAction = (
       });
     }
     catch (error) {
+      if (failureAction) {
+        await logAuditEvent({
+          req,
+          actorId: req.user?.id || null,
+          action: failureAction,
+          entityType,
+          entityId: findEntityId(req),
+          metadata: {
+            outcome: 'rejected',
+            errorCode: error.code || error.name || 'Error',
+          },
+        });
+      }
       next(error);
     }
     finally {

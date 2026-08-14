@@ -26,6 +26,51 @@ const caseTranslationSchema = new mongoose.Schema(
 );
 
 
+const consentHistorySchema = new mongoose.Schema(
+  {
+    action: {
+      type: String,
+      enum: ['confirmed', 'withdrawn', 'purged'],
+      required: true,
+    },
+    policyVersion: {
+      type: String,
+      trim: true,
+      maxlength: 40,
+      required: true,
+    },
+    method: {
+      type: String,
+      enum: [
+        'written',
+        'digital',
+        'verbal',
+        'external',
+        'legacy_migrated',
+        'governance_action',
+      ],
+      required: true,
+    },
+    actor: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    occurredAt: {
+      type: Date,
+      required: true,
+    },
+    reason: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: '',
+    },
+  },
+  { _id: false }
+);
+
+
 const beforeAfterCaseSchema =
   new mongoose.Schema(
     {
@@ -77,13 +122,40 @@ const beforeAfterCaseSchema =
         type:
           imageAssetSchema,
 
-        required: true,
+        default: null,
       },
 
       afterImage: {
         type:
           imageAssetSchema,
 
+        default: null,
+      },
+
+      publicationStatus: {
+        type: String,
+        enum: ['draft', 'published', 'withdrawn', 'purged'],
+        default: 'draft',
+        index: true,
+      },
+
+      consentStatus: {
+        type: String,
+        enum: ['active', 'withdrawn', 'purged'],
+        default: 'active',
+        index: true,
+      },
+
+      consentPolicyVersion: {
+        type: String,
+        required: true,
+        trim: true,
+        maxlength: 40,
+      },
+
+      consentMethod: {
+        type: String,
+        enum: ['written', 'digital', 'verbal', 'external', 'legacy_migrated'],
         required: true,
       },
 
@@ -91,6 +163,44 @@ const beforeAfterCaseSchema =
         type: Date,
         required: true,
         immutable: true,
+      },
+
+      consentRecordedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+        immutable: true,
+      },
+
+      externalConsentReference: {
+        type: String,
+        trim: true,
+        maxlength: 120,
+        default: '',
+        select: false,
+      },
+
+      withdrawnAt: { type: Date, default: null },
+      withdrawnBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null,
+      },
+      withdrawalReason: {
+        type: String,
+        trim: true,
+        maxlength: 500,
+        default: '',
+      },
+      purgedAt: { type: Date, default: null },
+      purgedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null,
+      },
+      consentHistory: {
+        type: [consentHistorySchema],
+        default: () => [],
       },
 
       isFeatured: {
@@ -135,12 +245,37 @@ beforeAfterCaseSchema.index({
   createdAt: -1,
 });
 
+beforeAfterCaseSchema.index({
+  publicationStatus: 1,
+  consentStatus: 1,
+  isActive: 1,
+});
+
 beforeAfterCaseSchema.pre('validate', function () {
   requirePrimaryContent(
     this,
     ['title'],
     'Published before/after case'
   );
+
+  if (this.publicationStatus !== 'purged') {
+    if (!this.beforeImage?.publicId || !this.afterImage?.publicId) {
+      this.invalidate(
+        'beforeImage',
+        'Non-purged before/after cases require both images'
+      );
+    }
+  }
+
+  if (
+    this.publicationStatus === 'published' &&
+    (this.consentStatus !== 'active' || !this.isActive)
+  ) {
+    this.invalidate(
+      'publicationStatus',
+      'Published cases require active consent and active publication'
+    );
+  }
 });
 
 

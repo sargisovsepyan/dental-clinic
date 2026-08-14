@@ -45,6 +45,7 @@ const productionEnvironment = (overrides = {}) => ({
   SMTP_USER: 'mailer',
   SMTP_PASSWORD: 'smtp-password',
   MAIL_FROM: 'clinic@example.test',
+  BEFORE_AFTER_CONSENT_VERSION: '2026-01',
   CLOUDINARY_CLOUD_NAME: 'clinic-cloud',
   CLOUDINARY_API_KEY: 'cloud-key',
   CLOUDINARY_API_SECRET: 'cloud-secret',

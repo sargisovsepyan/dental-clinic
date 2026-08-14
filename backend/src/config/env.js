@@ -77,6 +77,10 @@ const envSchema = Joi.object({
   RESET_TOKEN_TTL_MINUTES: Joi.number()
     .integer().min(5).max(1440).default(30),
 
+  BEFORE_AFTER_CONSENT_VERSION: Joi.string()
+    .pattern(/^[0-9]{4}-[0-9]{2}(?:\.[0-9]+)?$/)
+    .default('2026-01'),
+
   SMTP_HOST: Joi.string().allow('').default(''),
   SMTP_PORT: Joi.number().integer().min(1).max(65535).default(587),
   SMTP_SECURE: Joi.boolean().default(false),
@@ -344,6 +348,11 @@ const validateEnvironment = (rawEnvironment) => {
     if (!value.ERROR_MONITOR_WEBHOOK_URL) {
       throw new Error('Production error-monitoring webhook is required');
     }
+    if (!rawEnvironment.BEFORE_AFTER_CONSENT_VERSION) {
+      throw new Error(
+        'Production BEFORE_AFTER_CONSENT_VERSION must be explicitly configured'
+      );
+    }
   }
 
   return Object.freeze({
@@ -378,6 +387,7 @@ const validateEnvironment = (rawEnvironment) => {
       value.MEDIA_CLEANUP_STALE_LOCK_SECONDS,
     INVITE_TOKEN_TTL_MINUTES: value.INVITE_TOKEN_TTL_MINUTES,
     RESET_TOKEN_TTL_MINUTES: value.RESET_TOKEN_TTL_MINUTES,
+    BEFORE_AFTER_CONSENT_VERSION: value.BEFORE_AFTER_CONSENT_VERSION,
     SMTP_HOST: value.SMTP_HOST,
     SMTP_PORT: value.SMTP_PORT,
     SMTP_SECURE: value.SMTP_SECURE,

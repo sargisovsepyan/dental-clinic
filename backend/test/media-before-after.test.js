@@ -24,6 +24,7 @@ const { default: MediaAsset } = await import('../src/modules/media/media.model.j
 const { default: BeforeAfterCase } = await import('../src/modules/beforeAfter/beforeAfter.model.js');
 const { default: Dentist } = await import('../src/modules/dentists/dentist.model.js');
 const { default: Service } = await import('../src/modules/services/service.model.js');
+const { default: AuditLog } = await import('../src/modules/audit/audit.model.js');
 const { default: MediaCleanupJob } = await import(
   '../src/modules/media/mediaCleanup.model.js'
 );
@@ -33,6 +34,9 @@ const {
   recoverHeldCleanupJobs,
 } = await import('../src/modules/media/mediaCleanup.service.js');
 const { uploadImageBuffer } = await import('../src/utils/cloudinaryImage.js');
+const consentMigration = await import(
+  '../src/migrations/20260814_004_before_after_consent.js'
+);
 
 const png = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -104,6 +108,7 @@ const localizedCase = (title) => ({
     en: { title },
   },
   consentConfirmed: true,
+  consentMethod: 'written',
 });
 
 test('media upload requires admin and rejects fake, invalid, unsupported, and oversized files', async () => {
@@ -399,6 +404,7 @@ test('before/after HTTP creation requires both files and explicit consent', asyn
       hy: { title: 'Դեպք' },
     }))
     .field('consentConfirmed', 'true')
+    .field('consentMethod', 'written')
     .attach('beforeImage', png, 'before.png');
   assert.equal(missingAfter.status, 400);
 
@@ -498,6 +504,257 @@ test('before/after soft delete retains both assets and restore returns public vi
   await beforeAfterService.restoreCase(item._id);
   assert.equal((await beforeAfterService.getPublicCases({ page: 1, limit: 10 })).cases.length, 1);
   assert.equal(destroyCalls.length, 0);
+});
+
+test('consent evidence is server-versioned, minimized publicly, and withdrawal blocks restore', async () => {
+  uploadQueue.push(image('before-consent'), image('after-consent'));
+  const created = await request(app)
+    .post('/api/v1/before-after')
+    .set(admin())
+    .field('title', 'Governed case')
+    .field('translations', JSON.stringify({
+      hy: { title: 'Կառավարվող դեպք' },
+    }))
+    .field('consentConfirmed', 'true')
+    .field('consentMethod', 'external')
+    .field('externalConsentReference', 'CONSENT:2026/opaque-42')
+    .attach('beforeImage', png, 'before.png')
+    .attach('afterImage', png, 'after.png');
+  assert.equal(created.status, 201);
+  const caseId = created.body.data.case._id;
+
+  const stored = await BeforeAfterCase.findById(caseId)
+    .select('+externalConsentReference')
+    .lean();
+  assert.equal(stored.consentPolicyVersion, '2026-01');
+  assert.equal(stored.consentMethod, 'external');
+  assert.equal(stored.consentRecordedBy.toString(), staff.admin._id.toString());
+  assert.equal(stored.externalConsentReference, 'CONSENT:2026/opaque-42');
+  assert.equal(stored.consentHistory.length, 1);
+  assert.equal(stored.publicationStatus, 'published');
+
+  const publicCase = await request(app).get(`/api/v1/before-after/${caseId}`);
+  assert.equal(publicCase.status, 200);
+  const publicJson = JSON.stringify(publicCase.body);
+  assert.equal(publicJson.includes('CONSENT:2026/opaque-42'), false);
+  assert.equal(publicJson.includes('consentHistory'), false);
+  assert.equal(publicJson.includes('withdrawalReason'), false);
+
+  assert.equal(
+    (await request(app)
+      .post(`/api/v1/before-after/${caseId}/consent/withdraw`)
+      .set({ Authorization: `Bearer ${staff.receptionistToken}` })
+      .send({ reason: 'Consent holder requested withdrawal' })).status,
+    403
+  );
+  const withdrawn = await request(app)
+    .post(`/api/v1/before-after/${caseId}/consent/withdraw`)
+    .set(admin())
+    .send({ reason: 'Consent holder requested withdrawal' });
+  assert.equal(withdrawn.status, 200);
+  assert.equal(withdrawn.body.data.case.consentStatus, 'withdrawn');
+  assert.equal(
+    (await request(app).get(`/api/v1/before-after/${caseId}`)).status,
+    404
+  );
+
+  const restore = await request(app)
+    .patch(`/api/v1/before-after/${caseId}/restore`)
+    .set(admin());
+  assert.equal(restore.status, 409);
+  assert.ok(await AuditLog.exists({
+    action: 'before_after.restore.rejected',
+    entityId: caseId,
+  }));
+  assert.equal(destroyCalls.length, 0);
+});
+
+test('permanent purge requires withdrawal and confirmation, leaves a tombstone, and uses cleanup jobs', async () => {
+  uploadQueue.push(image('before-purge'), image('after-purge'));
+  const item = await beforeAfterService.createCase({
+    data: localizedCase('Purge case'),
+    beforeFile: { buffer: png },
+    afterFile: { buffer: png },
+    userId: staff.admin._id,
+  });
+
+  const beforeWithdrawal = await request(app)
+    .post(`/api/v1/before-after/${item._id}/purge`)
+    .set(admin())
+    .send({
+      confirmation: 'PERMANENTLY PURGE BEFORE AFTER MEDIA',
+      reason: 'Retention policy request',
+    });
+  assert.equal(beforeWithdrawal.status, 409);
+
+  await beforeAfterService.withdrawConsent(item._id, {
+    reason: 'Consent holder requested withdrawal',
+    userId: staff.admin._id,
+  });
+  const wrongConfirmation = await request(app)
+    .post(`/api/v1/before-after/${item._id}/purge`)
+    .set(admin())
+    .send({ confirmation: 'PURGE', reason: 'Retention policy request' });
+  assert.equal(wrongConfirmation.status, 400);
+
+  const purged = await request(app)
+    .post(`/api/v1/before-after/${item._id}/purge`)
+    .set(admin())
+    .send({
+      confirmation: 'PERMANENTLY PURGE BEFORE AFTER MEDIA',
+      reason: 'Retention policy request',
+    });
+  assert.equal(purged.status, 202);
+  const tombstone = await BeforeAfterCase.findById(item._id)
+    .select('+externalConsentReference')
+    .lean();
+  assert.equal(tombstone.beforeImage, null);
+  assert.equal(tombstone.afterImage, null);
+  assert.equal(tombstone.publicationStatus, 'purged');
+  assert.equal(tombstone.consentStatus, 'purged');
+  assert.ok(tombstone.purgedAt);
+  assert.equal(tombstone.externalConsentReference, '');
+  assert.equal(tombstone.consentHistory.at(-1).action, 'purged');
+  assert.deepEqual(
+    destroyCalls.map(({ publicId }) => publicId).sort(),
+    ['after-purge', 'before-purge']
+  );
+  assert.equal(
+    await MediaCleanupJob.countDocuments({
+      sourceId: item._id.toString(),
+      reason: 'consent_purge',
+      status: 'completed',
+    }),
+    2
+  );
+  assert.equal(
+    (await request(app)
+      .patch(`/api/v1/before-after/${item._id}/restore`)
+      .set(admin())).status,
+    409
+  );
+});
+
+test('failed purge deletion never republishes and remains durable cleanup debt', async () => {
+  uploadQueue.push(image('before-purge-debt'), image('after-purge-debt'));
+  const item = await beforeAfterService.createCase({
+    data: localizedCase('Purge debt'),
+    beforeFile: { buffer: png },
+    afterFile: { buffer: png },
+    userId: staff.admin._id,
+  });
+  await beforeAfterService.withdrawConsent(item._id, {
+    reason: 'Consent holder requested withdrawal',
+    userId: staff.admin._id,
+  });
+  destroyFailure = new Error('temporary Cloudinary failure');
+  const purged = await beforeAfterService.purgeCaseMedia(item._id, {
+    reason: 'Retention policy request',
+    userId: staff.admin._id,
+  });
+  assert.equal(purged.publicationStatus, 'purged');
+  assert.equal((await beforeAfterService.getPublicCases({})).cases.length, 0);
+  assert.equal(
+    await MediaCleanupJob.countDocuments({
+      sourceId: item._id.toString(),
+      reason: 'consent_purge',
+      status: 'pending',
+    }),
+    2
+  );
+});
+
+test('concurrent restore versus withdrawal always ends hidden with withdrawn consent', async () => {
+  uploadQueue.push(image('before-withdraw-race'), image('after-withdraw-race'));
+  const item = await beforeAfterService.createCase({
+    data: localizedCase('Withdrawal race'),
+    beforeFile: { buffer: png },
+    afterFile: { buffer: png },
+    userId: staff.admin._id,
+  });
+  await beforeAfterService.disableCase(item._id);
+
+  await Promise.allSettled([
+    beforeAfterService.restoreCase(item._id),
+    beforeAfterService.withdrawConsent(item._id, {
+      reason: 'Concurrent consent withdrawal',
+      userId: staff.admin._id,
+    }),
+  ]);
+
+  const final = await BeforeAfterCase.findById(item._id).lean();
+  assert.equal(final.consentStatus, 'withdrawn');
+  assert.equal(final.publicationStatus, 'withdrawn');
+  assert.equal(final.isActive, false);
+  assert.equal((await beforeAfterService.getPublicCases({})).cases.length, 0);
+});
+
+test('concurrent permanent purge is compare-and-set and deletes each asset once', async () => {
+  uploadQueue.push(image('before-purge-race'), image('after-purge-race'));
+  const item = await beforeAfterService.createCase({
+    data: localizedCase('Purge race'),
+    beforeFile: { buffer: png },
+    afterFile: { buffer: png },
+    userId: staff.admin._id,
+  });
+  await beforeAfterService.withdrawConsent(item._id, {
+    reason: 'Consent holder requested withdrawal',
+    userId: staff.admin._id,
+  });
+
+  const results = await Promise.allSettled([
+    beforeAfterService.purgeCaseMedia(item._id, {
+      reason: 'Concurrent purge request A',
+      userId: staff.admin._id,
+    }),
+    beforeAfterService.purgeCaseMedia(item._id, {
+      reason: 'Concurrent purge request B',
+      userId: staff.admin._id,
+    }),
+  ]);
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
+  assert.deepEqual(
+    destroyCalls.map(({ publicId }) => publicId).sort(),
+    ['after-purge-race', 'before-purge-race']
+  );
+  const final = await BeforeAfterCase.findById(item._id).lean();
+  assert.equal(final.publicationStatus, 'purged');
+  assert.equal(final.consentHistory.filter(({ action }) => action === 'purged').length, 1);
+});
+
+test('consent migration is dry-run safe, explicit, and idempotent', async () => {
+  const legacyId = new mongoose.Types.ObjectId();
+  await BeforeAfterCase.collection.insertOne({
+    _id: legacyId,
+    title: 'Legacy governed case',
+    translations: { hy: { title: 'Ժառանգված դեպք' } },
+    beforeImage: image('legacy-before'),
+    afterImage: image('legacy-after'),
+    consentConfirmedAt: new Date('2025-01-02T00:00:00Z'),
+    isActive: true,
+    isFeatured: false,
+    sortOrder: 0,
+    createdBy: staff.admin._id,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  const dryRun = await consentMigration.run({ dryRun: true });
+  assert.equal(dryRun.casesScanned, 1);
+  assert.equal(
+    (await BeforeAfterCase.collection.findOne({ _id: legacyId }))
+      .consentPolicyVersion,
+    undefined
+  );
+  const applied = await consentMigration.run({ dryRun: false });
+  assert.equal(applied.migrated, 1);
+  const migrated = await BeforeAfterCase.collection.findOne({ _id: legacyId });
+  assert.equal(migrated.consentPolicyVersion, '2026-01');
+  assert.equal(migrated.consentMethod, 'legacy_migrated');
+  assert.equal(migrated.consentRecordedBy.toString(), staff.admin._id.toString());
+  assert.equal(migrated.consentHistory.length, 1);
+  assert.equal((await consentMigration.run({ dryRun: false })).migrated, 0);
 });
 
 test('invalid before/after relations fail before any upload', async () => {

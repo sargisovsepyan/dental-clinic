@@ -73,6 +73,21 @@ const createCaseSchema = {
         Joi.boolean()
           .valid(true)
           .required(),
+
+      consentMethod:
+        Joi.string()
+          .valid('written', 'digital', 'verbal', 'external')
+          .required(),
+
+      externalConsentReference:
+        Joi.string()
+          .trim()
+          .pattern(/^[A-Za-z0-9][A-Za-z0-9._:/-]{2,119}$/)
+          .when('consentMethod', {
+            is: 'external',
+            then: Joi.required(),
+            otherwise: Joi.optional(),
+          }),
     }),
 };
 
@@ -161,9 +176,30 @@ const listCasesSchema = {
 };
 
 
+const withdrawConsentSchema = {
+  params: Joi.object({ id: mongoId.required() }),
+  body: Joi.object({
+    reason: Joi.string().trim().min(3).max(500).required(),
+  }),
+};
+
+
+const purgeCaseSchema = {
+  params: Joi.object({ id: mongoId.required() }),
+  body: Joi.object({
+    confirmation: Joi.string()
+      .valid('PERMANENTLY PURGE BEFORE AFTER MEDIA')
+      .required(),
+    reason: Joi.string().trim().min(3).max(500).required(),
+  }),
+};
+
+
 export {
   createCaseSchema,
   updateCaseSchema,
   caseIdSchema,
   listCasesSchema,
+  withdrawConsentSchema,
+  purgeCaseSchema,
 };

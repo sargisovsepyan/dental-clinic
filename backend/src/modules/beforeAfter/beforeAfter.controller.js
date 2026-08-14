@@ -224,6 +224,38 @@ const restoreCase =
   };
 
 
+const withdrawConsent = async (req, res) => {
+  const item = await beforeAfterService.withdrawConsent(
+    req.params.id,
+    {
+      reason: req.body.reason,
+      userId: req.user.id,
+    }
+  );
+  res.status(200).json({
+    success: true,
+    message: 'Publication consent withdrawn',
+    data: { case: item },
+  });
+};
+
+
+const purgeCaseMedia = async (req, res) => {
+  const item = await beforeAfterService.purgeCaseMedia(
+    req.params.id,
+    {
+      reason: req.body.reason,
+      userId: req.user.id,
+    }
+  );
+  res.status(202).json({
+    success: true,
+    message: 'Permanent media purge recorded and cleanup scheduled',
+    data: { case: item },
+  });
+};
+
+
 export {
   createCase,
   getCases,
@@ -234,4 +266,6 @@ export {
   replaceAfterImage,
   disableCase,
   restoreCase,
+  withdrawConsent,
+  purgeCaseMedia,
 };

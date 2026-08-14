@@ -14,6 +14,7 @@ import {
   mergeTranslations,
 } from '../../i18n/localization.js';
 import logger from '../../observability/logger.js';
+import env from '../../config/env.js';
 import {
   enqueueMediaCleanup,
   activateMediaCleanup,
@@ -261,6 +262,32 @@ const createCase =
           consentConfirmedAt:
             new Date(),
 
+          consentPolicyVersion:
+            env.BEFORE_AFTER_CONSENT_VERSION,
+
+          consentMethod:
+            data.consentMethod,
+
+          consentRecordedBy:
+            userId,
+
+          externalConsentReference:
+            data.externalConsentReference || '',
+
+          publicationStatus:
+            data.isActive === false ? 'draft' : 'published',
+
+          consentStatus:
+            'active',
+
+          consentHistory: [{
+            action: 'confirmed',
+            policyVersion: env.BEFORE_AFTER_CONSENT_VERSION,
+            method: data.consentMethod,
+            actor: userId,
+            occurredAt: new Date(),
+          }],
+
           isFeatured:
             data.isFeatured ??
             false,
@@ -307,6 +334,9 @@ const getPublicCases =
   ) => {
     const filter = {
       isActive: true,
+      publicationStatus: 'published',
+      consentStatus: 'active',
+      purgedAt: null,
     };
 
 
@@ -351,7 +381,16 @@ const getPublicCases =
           .find(filter)
       )
         .select(
-          '-createdBy'
+          [
+            '-createdBy',
+            '-consentRecordedBy',
+            '-withdrawnBy',
+            '-purgedBy',
+            '-withdrawalReason',
+            '-consentHistory',
+            '-consentMethod',
+            '-externalConsentReference',
+          ].join(' ')
         )
         .sort({
           isFeatured: -1,
@@ -395,10 +434,22 @@ const getPublicCaseById =
         BeforeAfterCase.findOne({
           _id: id,
           isActive: true,
+          publicationStatus: 'published',
+          consentStatus: 'active',
+          purgedAt: null,
         })
       )
         .select(
-          '-createdBy'
+          [
+            '-createdBy',
+            '-consentRecordedBy',
+            '-withdrawnBy',
+            '-purgedBy',
+            '-withdrawalReason',
+            '-consentHistory',
+            '-consentMethod',
+            '-externalConsentReference',
+          ].join(' ')
         )
         .lean();
 
@@ -409,7 +460,6 @@ const getPublicCaseById =
         'Before/after case not found'
       );
     }
-
 
     return item;
   };
@@ -461,6 +511,7 @@ const getAdminCases =
       populateCase(
         BeforeAfterCase
           .find(filter)
+          .select('+externalConsentReference')
       )
         .populate(
           'createdBy',
@@ -621,6 +672,10 @@ const replaceCaseImage =
       );
     }
 
+    if (item.consentStatus !== 'active' || item.purgedAt) {
+      throw new ApiError(409, 'Images cannot be changed after consent withdrawal');
+    }
+
 
     const field =
       imageType === 'before'
@@ -652,6 +707,21 @@ const replaceCaseImage =
       );
 
 
+    let uploadedRollback;
+    try {
+      uploadedRollback = await enqueueMediaCleanup({
+        publicId: uploaded.publicId,
+        reason: 'rollback',
+        sourceType: 'before_after',
+        sourceId: item._id,
+        held: true,
+      });
+    }
+    catch (error) {
+      await deleteCloudinaryImage(uploaded.publicId).catch(() => {});
+      throw error;
+    }
+
     let previousCleanup = null;
 
     try {
@@ -668,10 +738,18 @@ const replaceCaseImage =
         uploaded;
 
       await item.save();
+      await cancelMediaCleanup(uploaded.publicId).catch((error) => {
+        logger.warn('before_after_rollback_hold_cancel_failed', {
+          imageType,
+          error,
+        });
+      });
     }
     catch (error) {
-      await cancelMediaCleanup(previous?.publicId);
-      await rollbackUploadedImage(uploaded, item._id);
+      await Promise.allSettled([
+        cancelMediaCleanup(previous?.publicId),
+        finishHeldCleanup(uploadedRollback),
+      ]);
 
       throw error;
     }
@@ -709,13 +787,25 @@ const disableCase =
     }
 
 
-    item.isActive =
-      false;
+    const disabled = await BeforeAfterCase.findOneAndUpdate(
+      {
+        _id: id,
+        consentStatus: 'active',
+        purgedAt: null,
+      },
+      {
+        $set: {
+          isActive: false,
+          publicationStatus: 'draft',
+        },
+      },
+      { returnDocument: 'after', runValidators: true }
+    );
 
-    await item.save();
-
-
-    return item;
+    if (!disabled) {
+      throw new ApiError(409, 'Withdrawn or purged cases cannot be disabled');
+    }
+    return disabled;
   };
 
 
@@ -723,27 +813,178 @@ const restoreCase =
   async (
     id
   ) => {
-    const item =
-      await BeforeAfterCase
-        .findById(id);
+    const item = await BeforeAfterCase.findOneAndUpdate(
+      {
+        _id: id,
+        consentStatus: 'active',
+        withdrawnAt: null,
+        purgedAt: null,
+      },
+      {
+        $set: {
+          isActive: true,
+          publicationStatus: 'published',
+        },
+      },
+      { returnDocument: 'after', runValidators: true }
+    );
 
-
-    if (!item) {
-      throw new ApiError(
-        404,
-        'Before/after case not found'
-      );
+    if (item) {
+      return item;
     }
-
-
-    item.isActive =
-      true;
-
-    await item.save();
-
-
-    return item;
+    const existing = await BeforeAfterCase.findById(id).lean();
+    if (!existing) {
+      throw new ApiError(404, 'Before/after case not found');
+    }
+    if (existing.purgedAt || existing.consentStatus === 'purged') {
+      throw new ApiError(409, 'Purged cases cannot be restored');
+    }
+    throw new ApiError(
+      409,
+      'Withdrawn consent prevents publication; record new consent separately'
+    );
   };
+
+
+const withdrawConsent = async (id, { reason, userId }) => {
+  const item = await BeforeAfterCase.findOneAndUpdate(
+    {
+      _id: id,
+      consentStatus: 'active',
+      purgedAt: null,
+    },
+    {
+      $set: {
+        consentStatus: 'withdrawn',
+        publicationStatus: 'withdrawn',
+        isActive: false,
+        isFeatured: false,
+        withdrawnAt: new Date(),
+        withdrawnBy: userId,
+        withdrawalReason: reason,
+      },
+      $push: {
+        consentHistory: {
+          action: 'withdrawn',
+          policyVersion: env.BEFORE_AFTER_CONSENT_VERSION,
+          method: 'governance_action',
+          actor: userId,
+          occurredAt: new Date(),
+          reason,
+        },
+      },
+    },
+    { returnDocument: 'after', runValidators: true }
+  ).select('+externalConsentReference');
+
+  if (item) {
+    return item;
+  }
+
+  const existing = await BeforeAfterCase.findById(id).lean();
+  if (!existing) {
+    throw new ApiError(404, 'Before/after case not found');
+  }
+  throw new ApiError(409, 'Consent is already withdrawn or media is purged');
+};
+
+
+const purgeCaseMedia = async (id, { reason, userId }) => {
+  const item = await BeforeAfterCase.findById(id)
+    .select('+externalConsentReference');
+  if (!item) {
+    throw new ApiError(404, 'Before/after case not found');
+  }
+  if (item.purgedAt || item.consentStatus === 'purged') {
+    throw new ApiError(409, 'Before/after media is already purged');
+  }
+  if (item.consentStatus !== 'withdrawn' || !item.withdrawnAt) {
+    throw new ApiError(409, 'Consent must be withdrawn before permanent purge');
+  }
+
+  const images = [item.beforeImage, item.afterImage].filter(
+    (image) => image?.publicId
+  );
+  const heldJobs = [];
+  try {
+    for (const image of images) {
+      heldJobs.push(await enqueueMediaCleanup({
+        publicId: image.publicId,
+        reason: 'consent_purge',
+        sourceType: 'before_after',
+        sourceId: item._id,
+        held: true,
+      }));
+    }
+  }
+  catch (error) {
+    await Promise.allSettled(
+      heldJobs.map((job) => cancelMediaCleanup(job?.publicId))
+    );
+    throw error;
+  }
+
+  const now = new Date();
+  let purged;
+  try {
+    purged = await BeforeAfterCase.findOneAndUpdate(
+      {
+        _id: item._id,
+        consentStatus: 'withdrawn',
+        withdrawnAt: { $ne: null },
+        purgedAt: null,
+      },
+      {
+        $set: {
+          beforeImage: null,
+          afterImage: null,
+          publicationStatus: 'purged',
+          consentStatus: 'purged',
+          isActive: false,
+          isFeatured: false,
+          purgedAt: now,
+          purgedBy: userId,
+          externalConsentReference: '',
+        },
+        $push: {
+          consentHistory: {
+            action: 'purged',
+            policyVersion: env.BEFORE_AFTER_CONSENT_VERSION,
+            method: 'governance_action',
+            actor: userId,
+            occurredAt: now,
+            reason,
+          },
+        },
+      },
+      { returnDocument: 'after', runValidators: true }
+    ).select('+externalConsentReference');
+  }
+  catch (error) {
+    // A held record is safer than deleting media after an uncertain database write.
+    throw error;
+  }
+
+  if (!purged) {
+    const latest = await BeforeAfterCase.findById(id).lean();
+    if (!latest) {
+      await Promise.allSettled(
+        heldJobs.map((job) => cancelMediaCleanup(job?.publicId))
+      );
+      throw new ApiError(404, 'Before/after case not found');
+    }
+    if (latest.purgedAt || latest.consentStatus === 'purged') {
+      throw new ApiError(409, 'Before/after media is already purged');
+    }
+    await Promise.allSettled(
+      heldJobs.map((job) => cancelMediaCleanup(job?.publicId))
+    );
+    throw new ApiError(409, 'Consent state changed; reload and try again');
+  }
+
+  await Promise.allSettled(heldJobs.map((job) => finishHeldCleanup(job)));
+  return purged;
+};
 
 
 export {
@@ -755,4 +996,6 @@ export {
   replaceCaseImage,
   disableCase,
   restoreCase,
+  withdrawConsent,
+  purgeCaseMedia,
 };
