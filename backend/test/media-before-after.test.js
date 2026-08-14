@@ -53,6 +53,14 @@ const image = (publicId, overrides = {}) => ({
   ...overrides,
 });
 
+const deferred = () => {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+};
+
 let uploadQueue;
 let uploadCalls;
 let destroyCalls;
@@ -252,6 +260,62 @@ test('dentist image replacement deletes old only after success and rolls back in
   assert.equal(destroyCalls.at(-1).publicId, 'dentist-invalid');
 });
 
+test('concurrent dentist replacements keep one winner and clean the losing upload', async () => {
+  await Dentist.updateOne(
+    { _id: core.dentist._id },
+    { $set: { photo: image('dentist-race-old') } }
+  );
+
+  const releaseUploads = deferred();
+  const bothUploadsStarted = deferred();
+  let uploadCount = 0;
+  destroyCalls = [];
+  setCloudinaryAdapterForTests({
+    async upload() {
+      uploadCount += 1;
+      const publicId = `dentist-race-new-${uploadCount}`;
+      if (uploadCount === 2) {
+        bothUploadsStarted.resolve();
+      }
+      await releaseUploads.promise;
+      return image(publicId);
+    },
+    async delete(publicId) {
+      destroyCalls.push({ publicId });
+    },
+  });
+
+  const replacements = [
+    mediaService.replaceDentistPhoto(core.dentist._id, { buffer: png }),
+    mediaService.replaceDentistPhoto(core.dentist._id, { buffer: png }),
+  ];
+  await bothUploadsStarted.promise;
+  releaseUploads.resolve();
+
+  const results = await Promise.allSettled(replacements);
+  assert.equal(results.filter(({ status }) => status === 'fulfilled').length, 1);
+  assert.equal(results.filter(({ status }) => status === 'rejected').length, 1);
+  assert.equal(
+    results.find(({ status }) => status === 'rejected').reason.statusCode,
+    409
+  );
+
+  const stored = await Dentist.findById(core.dentist._id).lean();
+  const losingUpload = ['dentist-race-new-1', 'dentist-race-new-2']
+    .find((publicId) => publicId !== stored.photo.publicId);
+  assert.deepEqual(
+    destroyCalls.map(({ publicId }) => publicId).sort(),
+    ['dentist-race-old', losingUpload].sort()
+  );
+  assert.equal(
+    await MediaCleanupJob.countDocuments({
+      publicId: stored.photo.publicId,
+      status: 'cancelled',
+    }),
+    1
+  );
+});
+
 test('service image replacement and removal use rollback-safe ordering', async () => {
   await Service.updateOne({ _id: core.service._id }, { $set: { image: image('service-old') } });
   uploadQueue.push(image('service-new'));
@@ -263,6 +327,45 @@ test('service image replacement and removal use rollback-safe ordering', async (
   await mediaService.removeServiceImage(core.service._id);
   assert.equal((await Service.findById(core.service._id).lean()).image, null);
   assert.deepEqual(destroyCalls.map(({ publicId }) => publicId), ['service-old', 'service-new']);
+});
+
+test('concurrent service removal defeats a stale replacement and cleans its upload', async () => {
+  await Service.updateOne(
+    { _id: core.service._id },
+    { $set: { image: image('service-race-old') } }
+  );
+
+  const uploadStarted = deferred();
+  const releaseUpload = deferred();
+  destroyCalls = [];
+  setCloudinaryAdapterForTests({
+    async upload() {
+      uploadStarted.resolve();
+      await releaseUpload.promise;
+      return image('service-race-stale-upload');
+    },
+    async delete(publicId) {
+      destroyCalls.push({ publicId });
+    },
+  });
+
+  const replacement = mediaService.replaceServiceImage(
+    core.service._id,
+    { buffer: png }
+  );
+  await uploadStarted.promise;
+  await mediaService.removeServiceImage(core.service._id);
+  releaseUpload.resolve();
+
+  await assert.rejects(
+    replacement,
+    (error) => error.statusCode === 409
+  );
+  assert.equal((await Service.findById(core.service._id).lean()).image, null);
+  assert.deepEqual(
+    destroyCalls.map(({ publicId }) => publicId).sort(),
+    ['service-race-old', 'service-race-stale-upload'].sort()
+  );
 });
 
 test('image removal commits database state and treats storage deletion failure as observable cleanup debt', async (t) => {
@@ -488,6 +591,64 @@ test('before/after replacement preserves old image on failure and deletes old af
   await beforeAfterService.replaceCaseImage(item._id, 'before', { buffer: png });
   assert.equal((await BeforeAfterCase.findById(item._id).lean()).beforeImage.publicId, 'before-new');
   assert.equal(destroyCalls.at(-1).publicId, 'before-old');
+});
+
+test('consent withdrawal and purge defeat an in-flight image replacement', async () => {
+  uploadQueue.push(image('before-governance-race'), image('after-governance-race'));
+  const item = await beforeAfterService.createCase({
+    data: localizedCase('Governance replacement race'),
+    beforeFile: { buffer: png },
+    afterFile: { buffer: png },
+    userId: staff.admin._id,
+  });
+
+  const uploadStarted = deferred();
+  const releaseUpload = deferred();
+  destroyCalls = [];
+  setCloudinaryAdapterForTests({
+    async upload() {
+      uploadStarted.resolve();
+      await releaseUpload.promise;
+      return image('before-governance-late-upload');
+    },
+    async delete(publicId) {
+      destroyCalls.push({ publicId });
+    },
+  });
+
+  const replacement = beforeAfterService.replaceCaseImage(
+    item._id,
+    'before',
+    { buffer: png }
+  );
+  await uploadStarted.promise;
+
+  await beforeAfterService.withdrawConsent(item._id, {
+    reason: 'Consent withdrawn during replacement',
+    userId: staff.admin._id,
+  });
+  await beforeAfterService.purgeCaseMedia(item._id, {
+    reason: 'Governed purge during replacement',
+    userId: staff.admin._id,
+  });
+  releaseUpload.resolve();
+
+  await assert.rejects(
+    replacement,
+    (error) => error.statusCode === 409
+  );
+  const final = await BeforeAfterCase.findById(item._id).lean();
+  assert.equal(final.consentStatus, 'purged');
+  assert.equal(final.beforeImage, null);
+  assert.equal(final.afterImage, null);
+  assert.deepEqual(
+    destroyCalls.map(({ publicId }) => publicId).sort(),
+    [
+      'after-governance-race',
+      'before-governance-late-upload',
+      'before-governance-race',
+    ].sort()
+  );
 });
 
 test('before/after soft delete retains both assets and restore returns public visibility', async () => {

@@ -103,7 +103,7 @@ test('login failures are limited by normalized account independently of IP', asy
   const limited = await request(app)
     .post('/api/v1/auth/login')
     .send({
-      email: 'TARGET@example.com',
+      email: '  TARGET@example.com  ',
       password: 'incorrect password',
     });
   assert.equal(limited.status, 429);

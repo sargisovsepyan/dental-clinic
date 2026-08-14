@@ -36,6 +36,18 @@ const finishHeldCleanup = async (job) => {
 };
 
 
+const expectedImageFilter = (field, image) => (
+  image?.publicId
+    ? { [`${field}.publicId`]: image.publicId }
+    : {
+        $or: [
+          { [field]: null },
+          { [`${field}.publicId`]: { $exists: false } },
+        ],
+      }
+);
+
+
 const rollbackUploadedImage = async (uploaded, sourceId = '') => {
   if (!uploaded?.publicId) {
     return;
@@ -734,31 +746,39 @@ const replaceCaseImage =
           held: true,
         });
       }
-      item[field] =
-        uploaded;
-
-      await item.save();
+      const updated = await BeforeAfterCase.findOneAndUpdate(
+        {
+          _id: item._id,
+          consentStatus: 'active',
+          purgedAt: null,
+          ...expectedImageFilter(field, previous),
+        },
+        { $set: { [field]: uploaded } },
+        { returnDocument: 'after', runValidators: true }
+      );
+      if (!updated) {
+        throw new ApiError(
+          409,
+          'Case image or consent state changed; reload and try again'
+        );
+      }
       await cancelMediaCleanup(uploaded.publicId).catch((error) => {
         logger.warn('before_after_rollback_hold_cancel_failed', {
           imageType,
           error,
         });
       });
+
+      if (previous?.publicId) {
+        await finishHeldCleanup(previousCleanup);
+      }
     }
     catch (error) {
       await Promise.allSettled([
-        cancelMediaCleanup(previous?.publicId),
         finishHeldCleanup(uploadedRollback),
       ]);
 
       throw error;
-    }
-
-
-    if (
-      previous?.publicId
-    ) {
-      await finishHeldCleanup(previousCleanup);
     }
 
 

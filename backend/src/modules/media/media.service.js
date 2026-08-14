@@ -36,6 +36,18 @@ const finishHeldCleanup = async (job) => {
 };
 
 
+const expectedImageFilter = (field, image) => (
+  image?.publicId
+    ? { [`${field}.publicId`]: image.publicId }
+    : {
+        $or: [
+          { [field]: null },
+          { [`${field}.publicId`]: { $exists: false } },
+        ],
+      }
+);
+
+
 const rollbackUploadedImage = async (uploaded, sourceType, sourceId = '') => {
   if (!uploaded?.publicId) {
     return;
@@ -129,32 +141,39 @@ const replaceDentistPhoto =
           held: true,
         });
       }
-      dentist.photo =
-        uploaded;
-
-      await dentist.save();
+      const updated = await Dentist.findOneAndUpdate(
+        {
+          _id: dentist._id,
+          ...expectedImageFilter('photo', previous),
+        },
+        { $set: { photo: uploaded } },
+        { returnDocument: 'after', runValidators: true }
+      );
+      if (!updated) {
+        throw new ApiError(
+          409,
+          'Dentist photo changed; reload and try again'
+        );
+      }
       await cancelMediaCleanup(uploaded.publicId).catch((error) => {
         logger.warn('dentist_rollback_hold_cancel_failed', { error });
       });
+
+      if (previous?.publicId) {
+        await finishHeldCleanup(previousCleanup);
+      }
+
+      return updated;
     }
     catch (error) {
+      // The old-image hold may belong to a concurrent winner. Recovery will
+      // cancel it if the old image is still referenced.
       await Promise.allSettled([
-        cancelMediaCleanup(previous?.publicId),
         finishHeldCleanup(uploadedRollback),
       ]);
 
       throw error;
     }
-
-
-    if (
-      previous?.publicId
-    ) {
-      await finishHeldCleanup(previousCleanup);
-    }
-
-
-    return dentist;
   };
 
 
@@ -190,27 +209,33 @@ const removeDentistPhoto =
       })
       : null;
 
-    dentist.photo =
-      null;
-
-
     try {
-      await dentist.save();
+      const updated = await Dentist.findOneAndUpdate(
+        {
+          _id: dentist._id,
+          ...expectedImageFilter('photo', previous),
+        },
+        { $set: { photo: null } },
+        { returnDocument: 'after', runValidators: true }
+      );
+      if (!updated) {
+        throw new ApiError(
+          409,
+          'Dentist photo changed; reload and try again'
+        );
+      }
+
+      if (previous?.publicId) {
+        await finishHeldCleanup(previousCleanup);
+      }
+
+      return updated;
     }
     catch (error) {
-      await cancelMediaCleanup(previous?.publicId);
+      // Keep the hold: another concurrent mutation may have removed the same
+      // old image, while reconciliation safely cancels referenced holds.
       throw error;
     }
-
-
-    if (
-      previous?.publicId
-    ) {
-      await finishHeldCleanup(previousCleanup);
-    }
-
-
-    return dentist;
   };
 
 
@@ -278,32 +303,37 @@ const replaceServiceImage =
           held: true,
         });
       }
-      service.image =
-        uploaded;
-
-      await service.save();
+      const updated = await Service.findOneAndUpdate(
+        {
+          _id: service._id,
+          ...expectedImageFilter('image', previous),
+        },
+        { $set: { image: uploaded } },
+        { returnDocument: 'after', runValidators: true }
+      );
+      if (!updated) {
+        throw new ApiError(
+          409,
+          'Service image changed; reload and try again'
+        );
+      }
       await cancelMediaCleanup(uploaded.publicId).catch((error) => {
         logger.warn('service_rollback_hold_cancel_failed', { error });
       });
+
+      if (previous?.publicId) {
+        await finishHeldCleanup(previousCleanup);
+      }
+
+      return updated;
     }
     catch (error) {
       await Promise.allSettled([
-        cancelMediaCleanup(previous?.publicId),
         finishHeldCleanup(uploadedRollback),
       ]);
 
       throw error;
     }
-
-
-    if (
-      previous?.publicId
-    ) {
-      await finishHeldCleanup(previousCleanup);
-    }
-
-
-    return service;
   };
 
 
@@ -339,27 +369,32 @@ const removeServiceImage =
       })
       : null;
 
-    service.image =
-      null;
-
-
     try {
-      await service.save();
+      const updated = await Service.findOneAndUpdate(
+        {
+          _id: service._id,
+          ...expectedImageFilter('image', previous),
+        },
+        { $set: { image: null } },
+        { returnDocument: 'after', runValidators: true }
+      );
+      if (!updated) {
+        throw new ApiError(
+          409,
+          'Service image changed; reload and try again'
+        );
+      }
+
+      if (previous?.publicId) {
+        await finishHeldCleanup(previousCleanup);
+      }
+
+      return updated;
     }
     catch (error) {
-      await cancelMediaCleanup(previous?.publicId);
+      // Reconciliation decides whether this hold belongs to a winner.
       throw error;
     }
-
-
-    if (
-      previous?.publicId
-    ) {
-      await finishHeldCleanup(previousCleanup);
-    }
-
-
-    return service;
   };
 
 

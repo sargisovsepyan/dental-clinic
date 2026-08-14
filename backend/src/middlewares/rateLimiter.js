@@ -19,7 +19,7 @@ const requestIpKey = (req) => ipKeyGenerator(req.ip || 'unknown');
 
 const accountKey = (req) => {
   const email = typeof req.body?.email === 'string'
-    ? req.body.email.normalize('NFKC').toLowerCase()
+    ? req.body.email.trim().normalize('NFKC').toLowerCase()
     : '';
   return email
     ? hmac(email)

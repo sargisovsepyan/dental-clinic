@@ -52,6 +52,15 @@ const isSensitiveKey = (
     ) ||
     normalizedKey.includes(
       'cookie'
+    ) ||
+    normalizedKey.includes(
+      'email'
+    ) ||
+    normalizedKey.includes(
+      'phone'
+    ) ||
+    normalizedKey.includes(
+      'patient'
     )
   );
 };
@@ -208,8 +217,7 @@ const logAuditEvent = async ({
     logger.error(
       'audit_log_write_failed',
       {
-        message:
-          error.message,
+        error,
 
         action,
 
