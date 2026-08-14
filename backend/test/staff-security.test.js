@@ -16,6 +16,8 @@ process.env.JWT_EXPIRES_IN = '15m';
 process.env.CLIENT_URL = 'http://localhost:5173';
 process.env.FRONTEND_URL =
   'https://staff.clinic.example.test';
+process.env.CORS_ORIGINS =
+  'http://localhost:5173,https://staff.clinic.example.test';
 
 const {
   connectReplTestDatabase,

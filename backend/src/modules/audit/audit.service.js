@@ -1,4 +1,17 @@
-﻿import AuditLog from './audit.model.js';
+import crypto from 'crypto';
+
+import AuditLog from './audit.model.js';
+import env from '../../config/env.js';
+
+import logger from '../../observability/logger.js';
+
+
+const pseudonymize = (value) => value
+  ? crypto
+    .createHmac('sha256', env.RATE_LIMIT_KEY_SECRET)
+    .update(String(value))
+    .digest('hex')
+  : '';
 
 
 const SENSITIVE_KEYS = new Set([
@@ -174,15 +187,16 @@ const logAuditEvent = async ({
         req.method,
 
       path:
-        req.originalUrl,
+        req.path || new URL(
+          req.originalUrl,
+          'http://internal.invalid'
+        ).pathname,
 
       ip:
-        req.ip || '',
+        pseudonymize(req.ip),
 
       userAgent:
-        req.get(
-          'user-agent'
-        ) || '',
+        pseudonymize(req.get('user-agent')),
 
       metadata:
         sanitizeValue(
@@ -191,8 +205,8 @@ const logAuditEvent = async ({
     });
   }
   catch (error) {
-    console.error(
-      'AUDIT_LOG_WRITE_FAILED',
+    logger.error(
+      'audit_log_write_failed',
       {
         message:
           error.message,

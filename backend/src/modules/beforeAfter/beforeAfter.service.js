@@ -13,6 +13,7 @@ import {
 import {
   mergeTranslations,
 } from '../../i18n/localization.js';
+import logger from '../../observability/logger.js';
 
 
 const validateRelations =
@@ -615,12 +616,11 @@ const replaceCaseImage =
         previous.publicId
       ).catch(
         (error) => {
-          console.error(
-            'OLD_BEFORE_AFTER_IMAGE_DELETE_FAILED',
+          logger.error(
+            'old_before_after_image_delete_failed',
             {
               imageType,
-              message:
-                error.message,
+              error,
             }
           );
         }

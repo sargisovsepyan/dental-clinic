@@ -13,6 +13,7 @@ import {
 import {
   mergeTranslations,
 } from '../../i18n/localization.js';
+import logger from '../../observability/logger.js';
 
 
 const replaceDentistPhoto =
@@ -74,9 +75,9 @@ const replaceDentistPhoto =
         previous.publicId
       ).catch(
         (error) => {
-          console.error(
-            'OLD_DENTIST_IMAGE_DELETE_FAILED',
-            error.message
+          logger.error(
+            'old_dentist_image_delete_failed',
+            { error }
           );
         }
       );
@@ -123,9 +124,9 @@ const removeDentistPhoto =
         previous.publicId
       ).catch(
         (error) => {
-          console.error(
-            'OLD_DENTIST_IMAGE_DELETE_FAILED',
-            error.message
+          logger.error(
+            'old_dentist_image_delete_failed',
+            { error }
           );
         }
       );
@@ -195,9 +196,9 @@ const replaceServiceImage =
         previous.publicId
       ).catch(
         (error) => {
-          console.error(
-            'OLD_SERVICE_IMAGE_DELETE_FAILED',
-            error.message
+          logger.error(
+            'old_service_image_delete_failed',
+            { error }
           );
         }
       );
@@ -244,9 +245,9 @@ const removeServiceImage =
         previous.publicId
       ).catch(
         (error) => {
-          console.error(
-            'OLD_SERVICE_IMAGE_DELETE_FAILED',
-            error.message
+          logger.error(
+            'old_service_image_delete_failed',
+            { error }
           );
         }
       );

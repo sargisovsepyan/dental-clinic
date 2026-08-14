@@ -24,6 +24,7 @@ import {
 import {
   logAuditEvent,
 } from '../audit/audit.service.js';
+import logger from '../../observability/logger.js';
 
 const formatUser = (user) => ({
   id: user._id,
@@ -293,9 +294,9 @@ const forgotPassword = async (email) => {
     });
   }
   catch (error) {
-    console.error(
-      'PASSWORD_RESET_EMAIL_FAILED',
-      { message: error.message }
+    logger.error(
+      'password_reset_email_failed',
+      { error }
     );
   }
 };

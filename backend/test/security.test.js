@@ -13,7 +13,10 @@ const { connectTestDatabase, clearTestDatabase, disconnectTestDatabase } = await
 const { default: app } = await import('../src/app.js');
 const { default: validate } = await import('../src/middlewares/validate.js');
 const { default: rejectNoSqlOperators } = await import('../src/middlewares/security.js');
-const { default: errorHandler } = await import('../src/middlewares/errorHandler.js');
+const {
+  default: errorHandler,
+  buildErrorBody,
+} = await import('../src/middlewares/errorHandler.js');
 const { sanitizeValue, logAuditEvent } = await import('../src/modules/audit/audit.service.js');
 const { default: AuditLog } = await import('../src/modules/audit/audit.model.js');
 
@@ -151,21 +154,16 @@ test('stored audit metadata never contains sensitive values', async () => {
   const stored = await AuditLog.findOne({ action: 'test.sanitize' }).lean();
   assert.deepEqual(stored.metadata, { safe: 'visible' });
   assert.equal(JSON.stringify(stored).includes(secret), false);
+  assert.notEqual(stored.ip, '127.0.0.1');
+  assert.notEqual(stored.userAgent, 'test-agent');
+  assert.match(stored.ip, /^[a-f0-9]{64}$/);
 });
 
 test('production error responses suppress stacks and unexpected internal messages', async () => {
-  const previous = process.env.NODE_ENV;
-  process.env.NODE_ENV = 'production';
-  try {
-    const localApp = express();
-    localApp.get('/', () => { throw new Error('database host internal.example'); });
-    localApp.use(errorHandler);
-    const response = await request(localApp).get('/');
-    assert.equal(response.status, 500);
-    assert.equal(response.body.stack, undefined);
-    assert.equal(response.body.message, 'Internal server error');
-    assert.equal(JSON.stringify(response.body).includes('internal.example'), false);
-  } finally {
-    process.env.NODE_ENV = previous;
-  }
+  const internalError = new Error('database host internal.example');
+  const response = buildErrorBody(internalError, true);
+  assert.equal(response.statusCode, 500);
+  assert.equal(response.body.stack, undefined);
+  assert.equal(response.body.message, 'Internal server error');
+  assert.equal(JSON.stringify(response.body).includes('internal.example'), false);
 });

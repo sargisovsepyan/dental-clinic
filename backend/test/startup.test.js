@@ -19,24 +19,29 @@ const reservePort = async () => {
   return port;
 };
 
-const waitForStartup = (child, output) => new Promise((resolve, reject) => {
-  const timeout = setTimeout(() => {
-    reject(new Error(`Server startup timed out: ${output()}`));
-  }, 15_000);
-
-  const inspect = () => {
-    if (output().includes('Server running on')) {
-      clearTimeout(timeout);
-      resolve();
+const waitForStartup = async (child, output, port) => {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(
+        `Server exited before startup with code ${child.exitCode}: ${output()}`
+      );
     }
-  };
-
-  child.stdout.on('data', inspect);
-  child.once('exit', (code) => {
-    clearTimeout(timeout);
-    reject(new Error(`Server exited before startup with code ${code}: ${output()}`));
-  });
-});
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${port}/api/v1/health/live`
+      );
+      if (response.status === 200) {
+        return;
+      }
+    }
+    catch {
+      // The socket is expected to refuse connections until listen() runs.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Server startup timed out: ${output()}`);
+};
 
 test('server.js starts against isolated MongoDB and serves health', async () => {
   const mongo = await MongoMemoryServer.create();
@@ -72,11 +77,16 @@ test('server.js starts against isolated MongoDB and serves health', async () => 
   });
 
   try {
-    await waitForStartup(child, () => `${stdout}\n${stderr}`);
+    await waitForStartup(child, () => `${stdout}\n${stderr}`, port);
 
     const response = await fetch(`http://127.0.0.1:${port}/api/v1/health`);
     assert.equal(response.status, 200);
     assert.equal((await response.json()).success, true);
+
+    const readiness = await fetch(
+      `http://127.0.0.1:${port}/api/v1/health/ready`
+    );
+    assert.equal(readiness.status, 200);
   }
   finally {
     if (child.exitCode === null) {

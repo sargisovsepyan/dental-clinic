@@ -13,6 +13,7 @@ import * as clinicService from '../clinic/clinic.service.js';
 
 import ApiError from '../../utils/ApiError.js';
 import normalizePhone from '../../utils/normalizePhone.js';
+import logger from '../../observability/logger.js';
 
 
 const generateConfirmationCode = () => {
@@ -721,12 +722,12 @@ const cancelAppointment = async (
       appointment.quotaReservationId ||
       appointment._id,
   }).catch((error) => {
-    console.error(
-      'APPOINTMENT_QUOTA_RELEASE_FAILED',
+    logger.error(
+      'appointment_quota_release_failed',
       {
         appointmentId:
           String(appointment._id),
-        message: error.message,
+        error,
       }
     );
   });
@@ -1058,12 +1059,12 @@ const rescheduleAppointment = async (
       reservationId:
         currentReservationId,
     }).catch((error) => {
-      console.error(
-        'APPOINTMENT_OLD_QUOTA_RELEASE_FAILED',
+      logger.error(
+        'appointment_old_quota_release_failed',
         {
           appointmentId:
             String(appointment._id),
-          message: error.message,
+          error,
         }
       );
     });

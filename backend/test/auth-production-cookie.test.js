@@ -2,10 +2,11 @@ import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import request from 'supertest';
 
-process.env.NODE_ENV = 'production';
+process.env.NODE_ENV = 'test';
 process.env.MONGO_URI = 'mongodb://127.0.0.1:27017/dental_clinic_test';
 process.env.JWT_SECRET = 'test-only-secret-that-is-at-least-thirty-two-characters';
 process.env.CLIENT_URL = 'https://clinic.example.test';
+process.env.REFRESH_COOKIE_SECURE = 'true';
 
 const { MongoMemoryServer } = await import('mongodb-memory-server');
 const { default: mongoose } = await import('mongoose');
@@ -31,7 +32,7 @@ after(async () => {
   await mongo.stop();
 });
 
-test('production refresh cookie is Secure, HttpOnly, Strict, and path-scoped', async () => {
+test('hardened refresh cookie is Secure, HttpOnly, Strict, and path-scoped', async () => {
   const response = await request(app)
     .post('/api/v1/auth/login')
     .set('Origin', 'https://clinic.example.test')

@@ -89,6 +89,35 @@ test('login rejects an incorrect password and missing credentials', async () => 
   assert.equal((await request(app).post('/api/v1/auth/login').send({})).status, 400);
 });
 
+test('login failures are limited by normalized account independently of IP', async () => {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const response = await request(app)
+      .post('/api/v1/auth/login')
+      .send({
+        email: 'target@example.com',
+        password: 'incorrect password',
+      });
+    assert.equal(response.status, 401);
+  }
+
+  const limited = await request(app)
+    .post('/api/v1/auth/login')
+    .send({
+      email: 'TARGET@example.com',
+      password: 'incorrect password',
+    });
+  assert.equal(limited.status, 429);
+  assert.ok(limited.headers['retry-after']);
+
+  const otherAccount = await request(app)
+    .post('/api/v1/auth/login')
+    .send({
+      email: 'other-target@example.com',
+      password: 'incorrect password',
+    });
+  assert.equal(otherAccount.status, 401);
+});
+
 test('new staff records accept six characters and reject five', async () => {
   const accepted = await User.create({
     name: 'Six Character User',

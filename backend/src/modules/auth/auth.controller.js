@@ -9,9 +9,14 @@ const getCookieOptions = () => ({
   httpOnly: true,
 
   secure:
-    env.NODE_ENV === 'production',
+    env.REFRESH_COOKIE_SECURE,
 
-  sameSite: 'strict',
+  sameSite:
+    env.REFRESH_COOKIE_SAME_SITE,
+
+  ...(env.REFRESH_COOKIE_DOMAIN
+    ? { domain: env.REFRESH_COOKIE_DOMAIN }
+    : {}),
 
   path: '/api/v1/auth',
 

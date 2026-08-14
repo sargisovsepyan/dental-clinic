@@ -25,6 +25,7 @@ import validate from '../../middlewares/validate.js';
 
 import {
   authLimiter,
+  authIpLimiter,
   refreshLimiter,
   passwordRecoveryLimiter,
   passwordSetupLimiter,
@@ -33,6 +34,7 @@ import {
 import asyncHandler from '../../utils/asyncHandler.js';
 
 import auditAction from '../audit/audit.middleware.js';
+import { requireTrustedOrigin } from '../../middlewares/transportSecurity.js';
 
 
 const router =
@@ -41,6 +43,8 @@ const router =
 
 router.post(
   '/login',
+  requireTrustedOrigin,
+  authIpLimiter,
   authLimiter,
   validate(
     loginSchema
@@ -64,6 +68,7 @@ router.post(
 
 router.post(
   '/refresh',
+  requireTrustedOrigin,
   refreshLimiter,
   asyncHandler(
     refresh
@@ -73,6 +78,7 @@ router.post(
 
 router.post(
   '/logout',
+  requireTrustedOrigin,
   asyncHandler(
     logout
   )
