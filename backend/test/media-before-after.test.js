@@ -14,13 +14,25 @@ process.env.CLOUDINARY_API_SECRET = 'test-secret-not-used';
 const { connectTestDatabase, clearTestDatabase, disconnectTestDatabase } = await import('../test-support/database.js');
 const { seedCore, seedStaff } = await import('../test-support/fixtures.js');
 const { default: app } = await import('../src/app.js');
-const { cloudinary } = await import('../src/config/cloudinary.js');
+const {
+  setCloudinaryAdapterForTests,
+  resetCloudinaryAdapterForTests,
+} = await import('../src/utils/cloudinaryImage.js');
 const mediaService = await import('../src/modules/media/media.service.js');
 const beforeAfterService = await import('../src/modules/beforeAfter/beforeAfter.service.js');
 const { default: MediaAsset } = await import('../src/modules/media/media.model.js');
 const { default: BeforeAfterCase } = await import('../src/modules/beforeAfter/beforeAfter.model.js');
 const { default: Dentist } = await import('../src/modules/dentists/dentist.model.js');
 const { default: Service } = await import('../src/modules/services/service.model.js');
+const { default: MediaCleanupJob } = await import(
+  '../src/modules/media/mediaCleanup.model.js'
+);
+const {
+  enqueueMediaCleanup,
+  processMediaCleanupJob,
+  recoverHeldCleanupJobs,
+} = await import('../src/modules/media/mediaCleanup.service.js');
+const { uploadImageBuffer } = await import('../src/utils/cloudinaryImage.js');
 
 const png = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -37,18 +49,6 @@ const image = (publicId, overrides = {}) => ({
   ...overrides,
 });
 
-const cloudinaryResult = (asset) => ({
-  public_id: asset.publicId,
-  secure_url: asset.secureUrl,
-  width: asset.width,
-  height: asset.height,
-  format: asset.format,
-  bytes: asset.bytes,
-});
-
-const originalUploadStream = cloudinary.uploader.upload_stream;
-const originalDestroy = cloudinary.uploader.destroy;
-
 let uploadQueue;
 let uploadCalls;
 let destroyCalls;
@@ -62,27 +62,25 @@ const installCloudinaryStub = () => {
   destroyCalls = [];
   destroyFailure = null;
 
-  cloudinary.uploader.upload_stream = (options, callback) => ({
-    end(buffer) {
+  setCloudinaryAdapterForTests({
+    async upload(buffer, options) {
       uploadCalls.push({ options, bytes: buffer.length });
       const next = uploadQueue.shift();
       if (!next) {
-        callback(new Error('Unexpected Cloudinary upload in test'));
-      } else if (next instanceof Error) {
-        callback(next);
-      } else {
-        callback(null, cloudinaryResult(next));
+        throw new Error('Unexpected Cloudinary upload in test');
+      }
+      if (next instanceof Error) {
+        throw next;
+      }
+      return next;
+    },
+    async delete(publicId) {
+      destroyCalls.push({ publicId });
+      if (destroyFailure) {
+        throw destroyFailure;
       }
     },
   });
-
-  cloudinary.uploader.destroy = async (publicId, options) => {
-    destroyCalls.push({ publicId, options });
-    if (destroyFailure) {
-      throw destroyFailure;
-    }
-    return { result: 'ok' };
-  };
 };
 
 before(connectTestDatabase);
@@ -93,8 +91,7 @@ beforeEach(async () => {
   installCloudinaryStub();
 });
 after(async () => {
-  cloudinary.uploader.upload_stream = originalUploadStream;
-  cloudinary.uploader.destroy = originalDestroy;
+  resetCloudinaryAdapterForTests();
   await disconnectTestDatabase();
 });
 
@@ -270,6 +267,109 @@ test('image removal commits database state and treats storage deletion failure a
   await assert.doesNotReject(mediaService.removeDentistPhoto(core.dentist._id));
   assert.equal((await Dentist.findById(core.dentist._id).lean()).photo, null);
   assert.deepEqual(destroyCalls.map(({ publicId }) => publicId), ['dentist-remove']);
+  const cleanup = await MediaCleanupJob.findOne({ publicId: 'dentist-remove' }).lean();
+  assert.equal(cleanup.status, 'pending');
+  assert.equal(cleanup.attempts, 1);
+  assert.equal(cleanup.lastErrorCode, 'Error');
+  assert.ok(cleanup.nextAttemptAt > cleanup.updatedAt);
+});
+
+test('tests fail closed unless an explicit fake Cloudinary adapter is installed', async () => {
+  resetCloudinaryAdapterForTests();
+  assert.throws(
+    () => uploadImageBuffer(png, { folder: 'never-contact-external' }),
+    /Tests must inject a fake Cloudinary adapter/
+  );
+  assert.equal(uploadCalls.length, 0);
+  installCloudinaryStub();
+});
+
+test('cleanup retries are operator-resettable, bounded, idempotent, and single-claim', async () => {
+  destroyFailure = new Error('simulated storage outage');
+  const job = await enqueueMediaCleanup({
+    publicId: 'retryable-orphan',
+    reason: 'reconciliation',
+  });
+  job.maxAttempts = 1;
+  await job.save();
+
+  const [winner, loser] = await Promise.all([
+    processMediaCleanupJob(job._id, { force: true, workerId: 'worker-a' }),
+    processMediaCleanupJob(job._id, { force: true, workerId: 'worker-b' }),
+  ]);
+  assert.equal([winner, loser].filter(Boolean).length, 1);
+  assert.equal(destroyCalls.length, 1);
+  assert.equal((await MediaCleanupJob.findById(job._id)).status, 'failed');
+
+  assert.equal(
+    (await request(app).get('/api/v1/media/cleanup-jobs')).status,
+    401
+  );
+  assert.equal(
+    (await request(app)
+      .get('/api/v1/media/cleanup-jobs')
+      .set({ Authorization: `Bearer ${staff.receptionistToken}` })).status,
+    403
+  );
+  const listed = await request(app)
+    .get('/api/v1/media/cleanup-jobs?status=failed')
+    .set(admin());
+  assert.equal(listed.status, 200);
+  assert.equal(listed.body.data.jobs.length, 1);
+
+  const scheduled = await request(app)
+    .post(`/api/v1/media/cleanup-jobs/${job._id}/retry`)
+    .set(admin());
+  assert.equal(scheduled.status, 202);
+
+  destroyFailure = null;
+  const reset = await MediaCleanupJob.findById(job._id);
+  assert.equal(reset.status, 'pending');
+  assert.equal(reset.attempts, 0);
+  const completed = await processMediaCleanupJob(job._id, { force: true });
+  assert.equal(completed.status, 'completed');
+  assert.equal(destroyCalls.length, 2);
+  assert.equal(await processMediaCleanupJob(job._id, { force: true }), null);
+});
+
+test('cleanup never deletes referenced media and reconciles abandoned held jobs safely', async () => {
+  await Dentist.updateOne(
+    { _id: core.dentist._id },
+    { $set: { photo: image('still-referenced') } }
+  );
+  const referenced = await enqueueMediaCleanup({
+    publicId: 'still-referenced',
+    reason: 'reconciliation',
+  });
+  const deferred = await processMediaCleanupJob(referenced._id, { force: true });
+  assert.equal(deferred.status, 'pending');
+  assert.equal(deferred.attempts, 0);
+  assert.equal(deferred.lastErrorCode, 'still_referenced');
+  assert.equal(destroyCalls.length, 0);
+
+  const heldOrphan = await enqueueMediaCleanup({
+    publicId: 'abandoned-held-orphan',
+    reason: 'rollback',
+    held: true,
+  });
+  const heldReference = await enqueueMediaCleanup({
+    publicId: 'still-referenced',
+    reason: 'replacement',
+    held: true,
+  });
+  const old = new Date(Date.now() - 60 * 60 * 1000);
+  await MediaCleanupJob.collection.updateMany(
+    { _id: { $in: [heldOrphan._id, heldReference._id] } },
+    { $set: { status: 'held', updatedAt: old } }
+  );
+
+  assert.equal(await recoverHeldCleanupJobs(), 2);
+  assert.equal((await MediaCleanupJob.findById(heldOrphan._id)).status, 'pending');
+  assert.equal((await MediaCleanupJob.findById(heldReference._id)).status, 'cancelled');
+  await processMediaCleanupJob(heldOrphan._id, { force: true });
+  assert.deepEqual(destroyCalls.map(({ publicId }) => publicId), [
+    'abandoned-held-orphan',
+  ]);
 });
 
 test('gallery soft delete hides publicly without Cloudinary deletion and restore reverses it', async () => {

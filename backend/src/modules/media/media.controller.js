@@ -1,5 +1,11 @@
 ﻿import * as mediaService from './media.service.js';
 
+import {
+  listMediaCleanupJobs,
+  retryMediaCleanupJob,
+} from './mediaCleanup.service.js';
+import ApiError from '../../utils/ApiError.js';
+
 
 const uploadDentistPhoto =
   async (
@@ -253,6 +259,30 @@ const restoreGalleryImage =
   };
 
 
+const getCleanupJobs = async (req, res) => {
+  const result = await listMediaCleanupJobs(
+    req.validatedQuery || req.query
+  );
+  res.status(200).json({
+    success: true,
+    data: result,
+  });
+};
+
+
+const retryCleanupJob = async (req, res) => {
+  const job = await retryMediaCleanupJob(req.params.id);
+  if (!job) {
+    throw new ApiError(404, 'Retryable media cleanup job not found');
+  }
+  res.status(202).json({
+    success: true,
+    message: 'Media cleanup retry scheduled',
+    data: { job },
+  });
+};
+
+
 export {
   uploadDentistPhoto,
   deleteDentistPhoto,
@@ -264,5 +294,7 @@ export {
   updateGalleryImage,
   deleteGalleryImage,
   restoreGalleryImage,
+  getCleanupJobs,
+  retryCleanupJob,
 };
 

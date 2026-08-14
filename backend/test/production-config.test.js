@@ -109,6 +109,10 @@ test('production rejects unsafe transport, shared-state, credential, and secret 
     { SMTP_PASSWORD: '' },
     { CLOUDINARY_API_SECRET: '' },
     { ERROR_MONITOR_WEBHOOK_URL: '' },
+    {
+      MEDIA_CLEANUP_BACKOFF_BASE_SECONDS: '120',
+      MEDIA_CLEANUP_BACKOFF_MAX_SECONDS: '60',
+    },
   ];
 
   for (const invalid of invalidCases) {

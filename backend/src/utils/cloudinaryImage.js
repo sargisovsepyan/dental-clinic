@@ -1,112 +1,101 @@
-﻿import {
+import {
   cloudinary,
   assertCloudinaryConfigured,
 } from '../config/cloudinary.js';
+import env from '../config/env.js';
 
 
-const uploadImageBuffer = (
-  buffer,
-  {
-    folder,
-    tags = [],
+let testAdapter = null;
+
+
+const setCloudinaryAdapterForTests = (adapter) => {
+  if (env.NODE_ENV !== 'test') {
+    throw new Error('Cloudinary adapter injection is only allowed in tests');
   }
-) => {
-  assertCloudinaryConfigured();
-
-
-  return new Promise(
-    (
-      resolve,
-      reject
-    ) => {
-      const stream =
-        cloudinary.uploader
-          .upload_stream(
-            {
-              resource_type:
-                'image',
-
-              folder,
-
-              tags,
-
-              use_filename:
-                false,
-
-              unique_filename:
-                true,
-
-              overwrite:
-                false,
-            },
-
-            (
-              error,
-              result
-            ) => {
-              if (error) {
-                return reject(
-                  error
-                );
-              }
-
-              resolve({
-                publicId:
-                  result.public_id,
-
-                secureUrl:
-                  result.secure_url,
-
-                width:
-                  result.width,
-
-                height:
-                  result.height,
-
-                format:
-                  result.format,
-
-                bytes:
-                  result.bytes,
-              });
-            }
-          );
-
-
-      stream.end(
-        buffer
-      );
-    }
-  );
+  if (
+    typeof adapter?.upload !== 'function' ||
+    typeof adapter?.delete !== 'function'
+  ) {
+    throw new TypeError('Cloudinary test adapter must implement upload and delete');
+  }
+  testAdapter = adapter;
 };
 
 
-const deleteCloudinaryImage =
-  async (
-    publicId
-  ) => {
-    if (!publicId) {
-      return;
-    }
+const resetCloudinaryAdapterForTests = () => {
+  testAdapter = null;
+};
 
 
+const liveAdapter = {
+  upload: (buffer, { folder, tags = [] }) => {
     assertCloudinaryConfigured();
+    return new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          resource_type: 'image',
+          folder,
+          tags,
+          use_filename: false,
+          unique_filename: true,
+          overwrite: false,
+        },
+        (error, result) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve({
+            publicId: result.public_id,
+            secureUrl: result.secure_url,
+            width: result.width,
+            height: result.height,
+            format: result.format,
+            bytes: result.bytes,
+          });
+        }
+      );
+      stream.end(buffer);
+    });
+  },
+  delete: async (publicId) => {
+    assertCloudinaryConfigured();
+    await cloudinary.uploader.destroy(publicId, {
+      resource_type: 'image',
+      invalidate: true,
+    });
+  },
+};
 
 
-    await cloudinary.uploader.destroy(
-      publicId,
-      {
-        resource_type:
-          'image',
-
-        invalidate:
-          true,
-      }
+const getAdapter = () => {
+  if (testAdapter) {
+    return testAdapter;
+  }
+  if (env.NODE_ENV === 'test') {
+    throw new Error(
+      'Tests must inject a fake Cloudinary adapter; external media calls are disabled'
     );
-  };
+  }
+  return liveAdapter;
+};
+
+
+const uploadImageBuffer = (buffer, options) =>
+  getAdapter().upload(buffer, options);
+
+
+const deleteCloudinaryImage = async (publicId) => {
+  if (!publicId) {
+    return;
+  }
+  await getAdapter().delete(publicId);
+};
 
 
 export {
   uploadImageBuffer,
   deleteCloudinaryImage,
+  setCloudinaryAdapterForTests,
+  resetCloudinaryAdapterForTests,
 };

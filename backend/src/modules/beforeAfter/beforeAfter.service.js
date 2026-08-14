@@ -14,6 +14,52 @@ import {
   mergeTranslations,
 } from '../../i18n/localization.js';
 import logger from '../../observability/logger.js';
+import {
+  enqueueMediaCleanup,
+  activateMediaCleanup,
+  cancelMediaCleanup,
+  processMediaCleanupJob,
+  cleanupMediaAsset,
+} from '../media/mediaCleanup.service.js';
+
+
+const finishHeldCleanup = async (job) => {
+  if (!job || job.status === 'completed') {
+    return job;
+  }
+  const activated = await activateMediaCleanup(job.publicId);
+  const pending = activated || job;
+  return pending.status === 'pending'
+    ? processMediaCleanupJob(pending._id, { force: true })
+    : pending;
+};
+
+
+const rollbackUploadedImage = async (uploaded, sourceId = '') => {
+  if (!uploaded?.publicId) {
+    return;
+  }
+  try {
+    await cleanupMediaAsset({
+      publicId: uploaded.publicId,
+      reason: 'rollback',
+      sourceType: 'before_after',
+      sourceId,
+    });
+  }
+  catch (cleanupError) {
+    logger.error('before_after_rollback_queue_failed', {
+      sourceId: String(sourceId || ''),
+      error: cleanupError,
+    });
+    await deleteCloudinaryImage(uploaded.publicId).catch((error) => {
+      logger.error('before_after_rollback_delete_failed', {
+        sourceId: String(sourceId || ''),
+        error,
+      });
+    });
+  }
+};
 
 
 const validateRelations =
@@ -112,6 +158,8 @@ const createCase =
 
     let beforeImage = null;
     let afterImage = null;
+    let beforeRollback = null;
+    let afterRollback = null;
 
 
     try {
@@ -129,6 +177,13 @@ const createCase =
           }
         );
 
+      beforeRollback = await enqueueMediaCleanup({
+        publicId: beforeImage.publicId,
+        reason: 'rollback',
+        sourceType: 'before_after',
+        held: true,
+      });
+
 
       afterImage =
         await uploadImageBuffer(
@@ -143,23 +198,26 @@ const createCase =
             ],
           }
         );
+
+      afterRollback = await enqueueMediaCleanup({
+        publicId: afterImage.publicId,
+        reason: 'rollback',
+        sourceType: 'before_after',
+        held: true,
+      });
     }
     catch (error) {
-      if (
-        beforeImage?.publicId
-      ) {
-        await deleteCloudinaryImage(
-          beforeImage.publicId
-        ).catch(() => {});
+      if (beforeRollback) {
+        await finishHeldCleanup(beforeRollback);
       }
-
-
-      if (
-        afterImage?.publicId
-      ) {
-        await deleteCloudinaryImage(
-          afterImage.publicId
-        ).catch(() => {});
+      else {
+        await rollbackUploadedImage(beforeImage);
+      }
+      if (afterRollback) {
+        await finishHeldCleanup(afterRollback);
+      }
+      else {
+        await rollbackUploadedImage(afterImage);
       }
 
 
@@ -221,18 +279,18 @@ const createCase =
     }
     catch (error) {
       await Promise.allSettled([
-        deleteCloudinaryImage(
-          beforeImage.publicId
-        ),
-
-        deleteCloudinaryImage(
-          afterImage.publicId
-        ),
+        finishHeldCleanup(beforeRollback),
+        finishHeldCleanup(afterRollback),
       ]);
 
 
       throw error;
     }
+
+    await Promise.allSettled([
+      cancelMediaCleanup(beforeImage.publicId),
+      cancelMediaCleanup(afterImage.publicId),
+    ]);
 
 
     return populateCase(
@@ -594,16 +652,26 @@ const replaceCaseImage =
       );
 
 
+    let previousCleanup = null;
+
     try {
+      if (previous?.publicId) {
+        previousCleanup = await enqueueMediaCleanup({
+          publicId: previous.publicId,
+          reason: 'replacement',
+          sourceType: 'before_after',
+          sourceId: item._id,
+          held: true,
+        });
+      }
       item[field] =
         uploaded;
 
       await item.save();
     }
     catch (error) {
-      await deleteCloudinaryImage(
-        uploaded.publicId
-      ).catch(() => {});
+      await cancelMediaCleanup(previous?.publicId);
+      await rollbackUploadedImage(uploaded, item._id);
 
       throw error;
     }
@@ -612,19 +680,7 @@ const replaceCaseImage =
     if (
       previous?.publicId
     ) {
-      await deleteCloudinaryImage(
-        previous.publicId
-      ).catch(
-        (error) => {
-          logger.error(
-            'old_before_after_image_delete_failed',
-            {
-              imageType,
-              error,
-            }
-          );
-        }
-      );
+      await finishHeldCleanup(previousCleanup);
     }
 
 

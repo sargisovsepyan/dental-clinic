@@ -107,8 +107,25 @@ const updateGallerySchema = {
 };
 
 
+const cleanupListSchema = {
+  query: Joi.object({
+    status: Joi.string().valid(
+      'held',
+      'pending',
+      'processing',
+      'completed',
+      'failed',
+      'cancelled'
+    ),
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(50),
+  }),
+};
+
+
 export {
   entityIdSchema,
   createGallerySchema,
   updateGallerySchema,
+  cleanupListSchema,
 };

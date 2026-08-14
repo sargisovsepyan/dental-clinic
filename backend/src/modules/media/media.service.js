@@ -14,6 +14,55 @@ import {
   mergeTranslations,
 } from '../../i18n/localization.js';
 import logger from '../../observability/logger.js';
+import {
+  enqueueMediaCleanup,
+  activateMediaCleanup,
+  cancelMediaCleanup,
+  processMediaCleanupJob,
+  cleanupMediaAsset,
+} from './mediaCleanup.service.js';
+
+
+const finishHeldCleanup = async (job) => {
+  if (!job || job.status === 'completed') {
+    return job;
+  }
+  const activated = await activateMediaCleanup(job.publicId);
+  const pending = activated || job;
+  if (pending.status !== 'pending') {
+    return pending;
+  }
+  return processMediaCleanupJob(pending._id, { force: true });
+};
+
+
+const rollbackUploadedImage = async (uploaded, sourceType, sourceId = '') => {
+  if (!uploaded?.publicId) {
+    return;
+  }
+  try {
+    await cleanupMediaAsset({
+      publicId: uploaded.publicId,
+      reason: 'rollback',
+      sourceType,
+      sourceId,
+    });
+  }
+  catch (cleanupError) {
+    logger.error('media_rollback_queue_failed', {
+      sourceType,
+      sourceId: String(sourceId || ''),
+      error: cleanupError,
+    });
+    await deleteCloudinaryImage(uploaded.publicId).catch((error) => {
+      logger.error('media_rollback_delete_failed', {
+        sourceType,
+        sourceId: String(sourceId || ''),
+        error,
+      });
+    });
+  }
+};
 
 
 const replaceDentistPhoto =
@@ -53,16 +102,26 @@ const replaceDentistPhoto =
       );
 
 
+    let previousCleanup = null;
+
     try {
+      if (previous?.publicId) {
+        previousCleanup = await enqueueMediaCleanup({
+          publicId: previous.publicId,
+          reason: 'replacement',
+          sourceType: 'dentist',
+          sourceId: dentist._id,
+          held: true,
+        });
+      }
       dentist.photo =
         uploaded;
 
       await dentist.save();
     }
     catch (error) {
-      await deleteCloudinaryImage(
-        uploaded.publicId
-      ).catch(() => {});
+      await cancelMediaCleanup(previous?.publicId);
+      await rollbackUploadedImage(uploaded, 'dentist', dentist._id);
 
       throw error;
     }
@@ -71,16 +130,7 @@ const replaceDentistPhoto =
     if (
       previous?.publicId
     ) {
-      await deleteCloudinaryImage(
-        previous.publicId
-      ).catch(
-        (error) => {
-          logger.error(
-            'old_dentist_image_delete_failed',
-            { error }
-          );
-        }
-      );
+      await finishHeldCleanup(previousCleanup);
     }
 
 
@@ -110,26 +160,33 @@ const removeDentistPhoto =
       dentist.photo;
 
 
+    const previousCleanup = previous?.publicId
+      ? await enqueueMediaCleanup({
+        publicId: previous.publicId,
+        reason: 'removal',
+        sourceType: 'dentist',
+        sourceId: dentist._id,
+        held: true,
+      })
+      : null;
+
     dentist.photo =
       null;
 
 
-    await dentist.save();
+    try {
+      await dentist.save();
+    }
+    catch (error) {
+      await cancelMediaCleanup(previous?.publicId);
+      throw error;
+    }
 
 
     if (
       previous?.publicId
     ) {
-      await deleteCloudinaryImage(
-        previous.publicId
-      ).catch(
-        (error) => {
-          logger.error(
-            'old_dentist_image_delete_failed',
-            { error }
-          );
-        }
-      );
+      await finishHeldCleanup(previousCleanup);
     }
 
 
@@ -174,16 +231,26 @@ const replaceServiceImage =
       );
 
 
+    let previousCleanup = null;
+
     try {
+      if (previous?.publicId) {
+        previousCleanup = await enqueueMediaCleanup({
+          publicId: previous.publicId,
+          reason: 'replacement',
+          sourceType: 'service',
+          sourceId: service._id,
+          held: true,
+        });
+      }
       service.image =
         uploaded;
 
       await service.save();
     }
     catch (error) {
-      await deleteCloudinaryImage(
-        uploaded.publicId
-      ).catch(() => {});
+      await cancelMediaCleanup(previous?.publicId);
+      await rollbackUploadedImage(uploaded, 'service', service._id);
 
       throw error;
     }
@@ -192,16 +259,7 @@ const replaceServiceImage =
     if (
       previous?.publicId
     ) {
-      await deleteCloudinaryImage(
-        previous.publicId
-      ).catch(
-        (error) => {
-          logger.error(
-            'old_service_image_delete_failed',
-            { error }
-          );
-        }
-      );
+      await finishHeldCleanup(previousCleanup);
     }
 
 
@@ -231,26 +289,33 @@ const removeServiceImage =
       service.image;
 
 
+    const previousCleanup = previous?.publicId
+      ? await enqueueMediaCleanup({
+        publicId: previous.publicId,
+        reason: 'removal',
+        sourceType: 'service',
+        sourceId: service._id,
+        held: true,
+      })
+      : null;
+
     service.image =
       null;
 
 
-    await service.save();
+    try {
+      await service.save();
+    }
+    catch (error) {
+      await cancelMediaCleanup(previous?.publicId);
+      throw error;
+    }
 
 
     if (
       previous?.publicId
     ) {
-      await deleteCloudinaryImage(
-        previous.publicId
-      ).catch(
-        (error) => {
-          logger.error(
-            'old_service_image_delete_failed',
-            { error }
-          );
-        }
-      );
+      await finishHeldCleanup(previousCleanup);
     }
 
 
@@ -268,7 +333,7 @@ const createGalleryImage =
     translations = {},
     isActive = true,
   }) => {
-    const uploaded =
+  const uploaded =
       await uploadImageBuffer(
         file.buffer,
         {
@@ -282,11 +347,20 @@ const createGalleryImage =
       );
 
 
+    let rollbackJob = null;
+    let created = null;
+
     try {
+      rollbackJob = await enqueueMediaCleanup({
+        publicId: uploaded.publicId,
+        reason: 'rollback',
+        sourceType: 'gallery',
+        held: true,
+      });
       const primary =
         translations.hy;
 
-      return await MediaAsset.create({
+      created = await MediaAsset.create({
         type:
           'clinic_gallery',
 
@@ -314,12 +388,21 @@ const createGalleryImage =
       });
     }
     catch (error) {
-      await deleteCloudinaryImage(
-        uploaded.publicId
-      ).catch(() => {});
+      if (rollbackJob) {
+        await finishHeldCleanup(rollbackJob);
+      }
+      else {
+        await rollbackUploadedImage(uploaded, 'gallery');
+      }
 
       throw error;
     }
+
+    await cancelMediaCleanup(uploaded.publicId).catch((error) => {
+      logger.warn('gallery_rollback_hold_cancel_failed', { error });
+    });
+
+    return created;
   };
 
 

@@ -12,6 +12,8 @@ import {
   updateGalleryImage,
   deleteGalleryImage,
   restoreGalleryImage,
+  getCleanupJobs,
+  retryCleanupJob,
 } from './media.controller.js';
 
 
@@ -19,6 +21,7 @@ import {
   entityIdSchema,
   createGallerySchema,
   updateGallerySchema,
+  cleanupListSchema,
 } from './media.validation.js';
 
 
@@ -44,6 +47,30 @@ import auditAction from '../audit/audit.middleware.js';
 
 const router =
   express.Router();
+
+
+router.get(
+  '/cleanup-jobs',
+  auth,
+  authorize('admin'),
+  validate(cleanupListSchema),
+  asyncHandler(getCleanupJobs)
+);
+
+
+router.post(
+  '/cleanup-jobs/:id/retry',
+  auth,
+  authorize('admin'),
+  validate(entityIdSchema),
+  auditAction(
+    {
+      action: 'media.cleanup.retry',
+      entityType: 'media_cleanup',
+    },
+    retryCleanupJob
+  )
+);
 
 
 router.get(

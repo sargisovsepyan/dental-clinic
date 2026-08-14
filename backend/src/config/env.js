@@ -61,6 +61,17 @@ const envSchema = Joi.object({
   REDIS_CONNECT_TIMEOUT_MS: Joi.number()
     .integer().min(100).max(30000).default(5000),
 
+  MEDIA_CLEANUP_MAX_ATTEMPTS: Joi.number()
+    .integer().min(1).max(50).default(8),
+  MEDIA_CLEANUP_BACKOFF_BASE_SECONDS: Joi.number()
+    .integer().min(1).max(86400).default(60),
+  MEDIA_CLEANUP_BACKOFF_MAX_SECONDS: Joi.number()
+    .integer().min(60).max(604800).default(86400),
+  MEDIA_CLEANUP_REFERENCE_RETRY_SECONDS: Joi.number()
+    .integer().min(60).max(604800).default(3600),
+  MEDIA_CLEANUP_STALE_LOCK_SECONDS: Joi.number()
+    .integer().min(60).max(86400).default(900),
+
   INVITE_TOKEN_TTL_MINUTES: Joi.number()
     .integer().min(5).max(10080).default(1440),
   RESET_TOKEN_TTL_MINUTES: Joi.number()
@@ -272,6 +283,14 @@ const validateEnvironment = (rawEnvironment) => {
   if (value.REFRESH_COOKIE_SAME_SITE === 'none' && !value.REFRESH_COOKIE_SECURE) {
     throw new Error('SameSite=None refresh cookies must be Secure');
   }
+  if (
+    value.MEDIA_CLEANUP_BACKOFF_BASE_SECONDS >
+    value.MEDIA_CLEANUP_BACKOFF_MAX_SECONDS
+  ) {
+    throw new Error(
+      'MEDIA_CLEANUP_BACKOFF_BASE_SECONDS cannot exceed its maximum'
+    );
+  }
 
   const quotaSecret = value.APPOINTMENT_QUOTA_SECRET || value.JWT_SECRET;
   const rateLimitSecret = value.RATE_LIMIT_KEY_SECRET || quotaSecret;
@@ -348,6 +367,15 @@ const validateEnvironment = (rawEnvironment) => {
     RATE_LIMIT_STORE: value.RATE_LIMIT_STORE,
     REDIS_URL: value.REDIS_URL,
     REDIS_CONNECT_TIMEOUT_MS: value.REDIS_CONNECT_TIMEOUT_MS,
+    MEDIA_CLEANUP_MAX_ATTEMPTS: value.MEDIA_CLEANUP_MAX_ATTEMPTS,
+    MEDIA_CLEANUP_BACKOFF_BASE_SECONDS:
+      value.MEDIA_CLEANUP_BACKOFF_BASE_SECONDS,
+    MEDIA_CLEANUP_BACKOFF_MAX_SECONDS:
+      value.MEDIA_CLEANUP_BACKOFF_MAX_SECONDS,
+    MEDIA_CLEANUP_REFERENCE_RETRY_SECONDS:
+      value.MEDIA_CLEANUP_REFERENCE_RETRY_SECONDS,
+    MEDIA_CLEANUP_STALE_LOCK_SECONDS:
+      value.MEDIA_CLEANUP_STALE_LOCK_SECONDS,
     INVITE_TOKEN_TTL_MINUTES: value.INVITE_TOKEN_TTL_MINUTES,
     RESET_TOKEN_TTL_MINUTES: value.RESET_TOKEN_TTL_MINUTES,
     SMTP_HOST: value.SMTP_HOST,
