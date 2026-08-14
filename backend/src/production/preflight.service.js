@@ -13,6 +13,9 @@ import MediaAsset from '../modules/media/media.model.js';
 import BeforeAfterCase from '../modules/beforeAfter/beforeAfter.model.js';
 import PhoneDailyQuota from '../modules/appointments/phoneDailyQuota.model.js';
 import Appointment from '../modules/appointments/appointment.model.js';
+import {
+  reconcilePhoneDailyQuotas,
+} from '../modules/appointments/phoneDailyQuota.service.js';
 
 
 const normalizeKey = (key) => Object.entries(key)
@@ -153,15 +156,57 @@ const verifyArmenianPublicationContent = async () => {
 
 
 const verifyDataInvariants = async () => {
-  const [clinicCount, invalidQuotaRows, invalidAppointmentLocks, invalidConsentCases] =
+  const clinic = await Clinic.findOne({ key: 'default' })
+    .select('bookingSettings.maxAppointmentsPerPhonePerDay')
+    .lean();
+  const quotaLimit = clinic?.bookingSettings?.maxAppointmentsPerPhonePerDay;
+
+  const [
+    clinicCount,
+    invalidQuotaRows,
+    overLimitQuotaRows,
+    duplicateQuotaReservationRows,
+    invalidAppointmentLocks,
+    missingAppointmentQuotaReferences,
+    invalidConsentCases,
+    quotaReconciliation,
+  ] =
     await Promise.all([
       Clinic.countDocuments({ key: 'default' }),
       PhoneDailyQuota.countDocuments({ reservations: { $not: { $type: 'array' } } }),
+      Number.isInteger(quotaLimit)
+        ? PhoneDailyQuota.countDocuments({
+            reservations: { $type: 'array' },
+            $expr: { $gt: [{ $size: '$reservations' }, quotaLimit] },
+          })
+        : 0,
+      PhoneDailyQuota.aggregate([
+        { $match: { reservations: { $type: 'array' } } },
+        {
+          $project: {
+            count: { $size: '$reservations' },
+            uniqueCount: {
+              $size: {
+                $setUnion: ['$reservations.reservationId', []],
+              },
+            },
+          },
+        },
+        { $match: { $expr: { $ne: ['$count', '$uniqueCount'] } } },
+        { $count: 'count' },
+      ]).then(([result]) => result?.count || 0),
       Appointment.countDocuments({
         status: { $ne: 'cancelled' },
         $or: [
           { lockKeys: { $exists: false } },
           { lockKeys: { $size: 0 } },
+        ],
+      }),
+      Appointment.countDocuments({
+        status: { $ne: 'cancelled' },
+        $or: [
+          { quotaReservationId: { $exists: false } },
+          { quotaReservationId: null },
         ],
       }),
       BeforeAfterCase.countDocuments({
@@ -173,11 +218,17 @@ const verifyDataInvariants = async () => {
           { afterImage: null },
         ],
       }),
+      reconcilePhoneDailyQuotas({ dryRun: true }),
     ]);
   return {
     invalidClinicSingleton: clinicCount === 1 ? 0 : 1,
     invalidQuotaRows,
+    overLimitQuotaRows,
+    duplicateQuotaReservationRows,
     invalidAppointmentLocks,
+    missingAppointmentQuotaReferences,
+    missingQuotaReservations: quotaReconciliation.missingReservations,
+    staleOrphanQuotaReservations: quotaReconciliation.orphanReservations,
     invalidConsentCases,
   };
 };

@@ -26,6 +26,9 @@ const { default: Appointment } = await import(
 const { default: User } = await import('../src/modules/users/user.model.js');
 const { default: Session } = await import('../src/modules/sessions/session.model.js');
 const { default: Clinic } = await import('../src/modules/clinic/clinic.model.js');
+const { default: PhoneDailyQuota } = await import(
+  '../src/modules/appointments/phoneDailyQuota.model.js'
+);
 
 
 before(async () => {
@@ -153,4 +156,41 @@ test('data preflight requires exactly one clinic singleton', async () => {
     (await verifyDataInvariants()).invalidClinicSingleton,
     0
   );
+});
+
+
+test('data preflight detects over-limit, duplicate, and missing quota state', async () => {
+  await Clinic.updateOne(
+    { key: 'default' },
+    { $set: { 'bookingSettings.maxAppointmentsPerPhonePerDay': 1 } }
+  );
+  const reservationId = new mongoose.Types.ObjectId();
+  await PhoneDailyQuota.collection.insertOne({
+    phoneKey: 'a'.repeat(64),
+    date: '2026-08-16',
+    reservations: [
+      { reservationId, reservedAt: new Date() },
+      { reservationId, reservedAt: new Date() },
+    ],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const appointmentId = new mongoose.Types.ObjectId();
+  await Appointment.collection.insertOne({
+    _id: appointmentId,
+    status: 'pending',
+    lockKeys: ['2026-08-16:600'],
+    confirmationCode: `PF-${appointmentId}`,
+  });
+
+  try {
+    const invariants = await verifyDataInvariants();
+    assert.equal(invariants.overLimitQuotaRows, 1);
+    assert.equal(invariants.duplicateQuotaReservationRows, 1);
+    assert.equal(invariants.missingAppointmentQuotaReferences, 1);
+  }
+  finally {
+    await PhoneDailyQuota.deleteMany({});
+    await Appointment.collection.deleteOne({ _id: appointmentId });
+  }
 });
