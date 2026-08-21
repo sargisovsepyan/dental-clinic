@@ -4,12 +4,14 @@ import Dentist from '../dentists/dentist.model.js';
 import DentistScheduleException from '../dentists/dentistScheduleException.model.js';
 
 import Service from '../services/service.model.js';
+import ServiceCategory from '../serviceCategories/serviceCategory.model.js';
 
 import Appointment from '../appointments/appointment.model.js';
 
 import * as clinicService from '../clinic/clinic.service.js';
 
 import ApiError from '../../utils/ApiError.js';
+import env from '../../config/env.js';
 
 
 const timeToMinutes = (time) => {
@@ -360,14 +362,16 @@ const getAvailability = async ({
   serviceId,
   date,
   excludeAppointmentId = null,
+  includeBookingGuard = false,
 }) => {
   const clinic =
-    await clinicService.getClinic();
+    await clinicService.getClinic({
+      includeBookingGuard,
+    });
 
 
   const timezone =
-    clinic.timezone ||
-    'Asia/Yerevan';
+    env.CLINIC_TIMEZONE;
 
 
   const requestedDate =
@@ -441,10 +445,23 @@ const getAvailability = async ({
       isActive: true,
 
       bookingEnabled: true,
-    });
+    }).select(includeBookingGuard ? '+bookingGuardVersion' : '');
 
 
   if (!service) {
+    throw new ApiError(
+      404,
+      'Service is not available for online booking'
+    );
+  }
+
+  const activeCategory =
+    await ServiceCategory.findOne({
+      _id: service.category,
+      isActive: true,
+    }).select(includeBookingGuard ? '+serviceMutationVersion' : '_id');
+
+  if (!activeCategory) {
     throw new ApiError(
       404,
       'Service is not available for online booking'
@@ -459,7 +476,7 @@ const getAvailability = async ({
       isActive: true,
 
       bookingEnabled: true,
-    });
+    }).select(includeBookingGuard ? '+bookingGuardVersion' : '');
 
 
   if (!dentist) {
@@ -515,7 +532,8 @@ const getAvailability = async ({
   const clinicSchedule =
     await clinicService
       .getEffectiveSchedule(
-        date
+        date,
+        { clinic }
       );
 
 
@@ -655,11 +673,27 @@ const getAvailability = async ({
         duration;
 
 
-      const startLocal =
-        requestedDay.plus({
-          minutes:
-            startMinute,
-        });
+      const startTime = minutesToTime(startMinute);
+      const endTime = minutesToTime(appointmentEnd);
+      const startLocal = DateTime.fromISO(
+        `${date}T${startTime}`,
+        { zone: timezone }
+      );
+      const endLocal = DateTime.fromISO(
+        `${date}T${endTime}`,
+        { zone: timezone }
+      );
+
+      if (
+        !startLocal.isValid || !endLocal.isValid ||
+        startLocal.toFormat('yyyy-MM-dd HH:mm') !== `${date} ${startTime}` ||
+        endLocal.toFormat('yyyy-MM-dd HH:mm') !== `${date} ${endTime}` ||
+        startLocal.getPossibleOffsets().length !== 1 ||
+        endLocal.getPossibleOffsets().length !== 1
+      ) {
+        startMinute += interval;
+        continue;
+      }
 
 
       if (
@@ -687,23 +721,12 @@ const getAvailability = async ({
       }
 
 
-      const endLocal =
-        requestedDay.plus({
-          minutes:
-            appointmentEnd,
-        });
-
-
       slots.push({
         start:
-          minutesToTime(
-            startMinute
-          ),
+          startTime,
 
         end:
-          minutesToTime(
-            appointmentEnd
-          ),
+          endTime,
 
         startAt:
           startLocal
@@ -800,7 +823,33 @@ const getAvailability = async ({
 
       dentistSource:
         dentistSchedule.source,
+
+      clinicRevision:
+        clinic.scheduleRevision,
+
+      dentistRevision:
+        dentist.scheduleRevision,
     },
+
+    ...(includeBookingGuard && {
+      _bookingGuard: {
+        categoryId: activeCategory._id,
+        categoryVersion: activeCategory.serviceMutationVersion,
+        serviceId: service._id,
+        serviceVersion: service.bookingGuardVersion,
+        clinicId: clinic._id,
+        clinicVersion: clinic.bookingGuardVersion,
+        dentistId: dentist._id,
+        dentistVersion: dentist.bookingGuardVersion,
+      },
+      _bookingSettings: {
+        requireEmail: bookingSettings.requireEmail,
+        autoConfirmAppointments:
+          bookingSettings.autoConfirmAppointments,
+        maxAppointmentsPerPhonePerDay:
+          bookingSettings.maxAppointmentsPerPhonePerDay,
+      },
+    }),
 
     slots,
   };

@@ -1,15 +1,39 @@
 ﻿import * as appointmentService from './appointment.service.js';
 
+import {
+  verifyPublicBookingChallenge,
+} from '../../security/botChallenge.js';
+
 
 const createAppointment = async (
   req,
   res
 ) => {
+  const idempotencyKey =
+    appointmentService.validateBookingIdempotencyKey(
+      req.get('Idempotency-Key'),
+      { required: true }
+    );
+
+  await verifyPublicBookingChallenge({
+    token: req.body.challengeToken,
+    idempotencyKey,
+  });
+
   const appointment =
     await appointmentService
-      .createAppointment(
-        req.body
-      );
+      .createAppointment({
+        ...req.body,
+        challengeToken: undefined,
+      }, {
+        idempotencyKey:
+          idempotencyKey,
+      });
+
+  res.locals.bookingIdempotencyReplay =
+    appointmentService.wasIdempotentBookingReplay(appointment);
+  const publicResult =
+    appointmentService.getPublicBookingResult(appointment);
 
 
   res.status(201).json({
@@ -20,38 +44,7 @@ const createAppointment = async (
 
     data: {
       appointment: {
-        id:
-          appointment._id,
-
-        confirmationCode:
-          appointment
-            .confirmationCode,
-
-        patientName:
-          appointment
-            .patientName,
-
-        date:
-          appointment.date,
-
-        startTime:
-          appointment.startTime,
-
-        endTime:
-          appointment.endTime,
-
-        status:
-          appointment.status,
-
-        dentist:
-          appointment.dentist,
-
-        service:
-          appointment.service,
-
-        price:
-          appointment
-            .priceSnapshot,
+        ...publicResult,
       },
     },
   });
@@ -184,7 +177,8 @@ const rescheduleAppointment =
       await appointmentService
         .rescheduleAppointment(
           req.params.id,
-          req.body
+          req.body,
+          req.user.id
         );
 
 

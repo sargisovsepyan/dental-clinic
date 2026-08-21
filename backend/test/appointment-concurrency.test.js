@@ -1,5 +1,6 @@
 import test, { after, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 
 process.env.NODE_ENV = 'test';
@@ -9,7 +10,11 @@ process.env.JWT_EXPIRES_IN = '15m';
 process.env.CLIENT_URL = 'http://localhost:5173';
 process.env.CLINIC_TIMEZONE = 'Asia/Yerevan';
 
-const { connectTestDatabase, clearTestDatabase, disconnectTestDatabase } = await import('../test-support/database.js');
+const {
+  connectReplTestDatabase: connectTestDatabase,
+  clearReplTestDatabase: clearTestDatabase,
+  disconnectReplTestDatabase: disconnectTestDatabase,
+} = await import('../test-support/replDatabase.js');
 const { seedCore, publicBooking } = await import('../test-support/fixtures.js');
 const { default: app } = await import('../src/app.js');
 const { default: Appointment } = await import('../src/modules/appointments/appointment.model.js');
@@ -19,6 +24,7 @@ const appointmentService = await import('../src/modules/appointments/appointment
 
 let core;
 let adminToken;
+let adminId;
 
 before(async () => {
   await connectTestDatabase();
@@ -35,12 +41,14 @@ beforeEach(async () => {
     role: 'admin',
   });
   adminToken = generateToken(admin);
+  adminId = admin._id;
 });
 
 after(disconnectTestDatabase);
 
 const postBooking = (body) => request(app)
   .post('/api/v1/appointments')
+  .set('Idempotency-Key', randomUUID())
   .send(body);
 
 const authPatch = (path, body) => request(app)
@@ -111,6 +119,7 @@ test('failed HTTP reschedule preserves and continues protecting the original slo
   const stored = await Appointment.findById(original._id).select('+lockKeys').lean();
   assert.equal(stored.startTime, '10:00');
   assert.ok(stored.lockKeys.includes(`${core.date}:600`));
+  assert.deepEqual(stored.rescheduleHistory, []);
 
   const retry = await postBooking(publicBooking(core, '10:00', '403'));
   assert.equal(retry.status, 409);
@@ -173,4 +182,102 @@ test('concurrent reschedules reject one stale write instead of silently losing a
   const winner = responses.find(({ status }) => status === 200);
   const stored = await Appointment.findById(original._id).lean();
   assert.equal(stored.startTime, winner.body.data.appointment.startTime);
+});
+
+test('cancel versus reschedule has one mutation-version winner', async () => {
+  const original = await createDirect('10:00', '901');
+  const path = `/api/v1/appointments/${original._id}`;
+  const responses = await Promise.all([
+    request(app)
+      .post(`${path}/cancel`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ reason: 'Concurrent cancellation' }),
+    authPatch(`${path}/reschedule`, {
+      date: core.date,
+      startTime: '14:00',
+      reason: 'Concurrent reschedule',
+    }),
+  ]);
+
+  assert.deepEqual(responses.map(({ status }) => status).sort(), [200, 409]);
+  const stored = await Appointment.findById(original._id)
+    .select('+lockKeys')
+    .lean();
+  assert.equal(stored.mutationVersion, 1);
+  if (stored.status === 'cancelled') {
+    assert.deepEqual(stored.lockKeys, [`released:${stored._id}`]);
+    assert.deepEqual(stored.rescheduleHistory, []);
+  }
+  else {
+    assert.equal(stored.startTime, '14:00');
+    assert.equal(stored.rescheduleHistory.length, 1);
+  }
+});
+
+test('status transition versus reschedule has one stale-write loser', async () => {
+  const original = await createDirect('10:00', '902');
+  const path = `/api/v1/appointments/${original._id}`;
+  const responses = await Promise.all([
+    authPatch(`${path}/status`, { status: 'confirmed' }),
+    authPatch(`${path}/reschedule`, {
+      date: core.date,
+      startTime: '14:00',
+      reason: 'Concurrent reschedule',
+    }),
+  ]);
+
+  assert.deepEqual(responses.map(({ status }) => status).sort(), [200, 409]);
+  const stored = await Appointment.findById(original._id).lean();
+  assert.equal(stored.mutationVersion, 1);
+  assert.ok(
+    (stored.status === 'confirmed' && stored.startTime === '10:00') ||
+    (stored.status === 'pending' && stored.startTime === '14:00')
+  );
+});
+
+test('reschedule history records actor and reason and remains bounded at 100', async () => {
+  const original = await createDirect('10:00', '903');
+  const oldEntries = Array.from({ length: 100 }, (_, index) => ({
+    actor: adminId,
+    reason: `historical-${index}`,
+    changedAt: new Date(Date.now() - (100 - index) * 1000),
+    from: {
+      dentist: core.dentist._id,
+      service: core.service._id,
+      date: core.date,
+      startTime: '09:00',
+      endTime: '10:00',
+    },
+    to: {
+      dentist: core.dentist._id,
+      service: core.service._id,
+      date: core.date,
+      startTime: '10:00',
+      endTime: '11:00',
+    },
+  }));
+  await Appointment.collection.updateOne(
+    { _id: original._id },
+    { $set: { rescheduleHistory: oldEntries } }
+  );
+
+  const response = await authPatch(
+    `/api/v1/appointments/${original._id}/reschedule`,
+    {
+      date: core.date,
+      startTime: '14:00',
+      reason: 'Patient requested a later visit',
+    }
+  );
+  assert.equal(response.status, 200);
+
+  const stored = await Appointment.findById(original._id).lean();
+  assert.equal(stored.rescheduleHistory.length, 100);
+  assert.equal(stored.rescheduleHistory[0].reason, 'historical-1');
+  const latest = stored.rescheduleHistory.at(-1);
+  assert.equal(String(latest.actor), String(adminId));
+  assert.equal(latest.reason, 'Patient requested a later visit');
+  assert.equal(latest.from.startTime, '10:00');
+  assert.equal(latest.to.startTime, '14:00');
+  assert.ok(latest.changedAt instanceof Date);
 });

@@ -1,5 +1,6 @@
 import User from '../modules/users/user.model.js';
 import Session from '../modules/sessions/session.model.js';
+import RefreshReplayHistory from '../modules/sessions/refreshReplayHistory.model.js';
 import OneTimeToken from '../modules/auth/oneTimeToken.model.js';
 import ServiceCategory from '../modules/serviceCategories/serviceCategory.model.js';
 import Service from '../modules/services/service.model.js';
@@ -8,7 +9,9 @@ import Clinic from '../modules/clinic/clinic.model.js';
 import ClinicClosure from '../modules/clinic/clinicClosure.model.js';
 import DentistScheduleException from '../modules/dentists/dentistScheduleException.model.js';
 import Appointment from '../modules/appointments/appointment.model.js';
+import BookingIdempotency from '../modules/appointments/bookingIdempotency.model.js';
 import PhoneDailyQuota from '../modules/appointments/phoneDailyQuota.model.js';
+import PhoneQuotaKeyIdentity from '../modules/appointments/phoneQuotaKeyIdentity.model.js';
 import AuditLog from '../modules/audit/audit.model.js';
 import MediaAsset from '../modules/media/media.model.js';
 import MediaCleanupJob from '../modules/media/mediaCleanup.model.js';
@@ -20,6 +23,7 @@ import AdminInvariant from '../modules/staff/adminInvariant.model.js';
 const productionModels = Object.freeze([
   User,
   Session,
+  RefreshReplayHistory,
   OneTimeToken,
   ServiceCategory,
   Service,
@@ -28,7 +32,9 @@ const productionModels = Object.freeze([
   ClinicClosure,
   DentistScheduleException,
   Appointment,
+  BookingIdempotency,
   PhoneDailyQuota,
+  PhoneQuotaKeyIdentity,
   AuditLog,
   MediaAsset,
   MediaCleanupJob,

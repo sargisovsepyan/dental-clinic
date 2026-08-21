@@ -3,6 +3,7 @@
 import {
   createJoiTranslations,
 } from '../../i18n/localization.js';
+import { SLUG_PATTERN } from '../../utils/buildSlug.js';
 
 const mongoId = Joi.string()
   .hex()
@@ -35,19 +36,18 @@ const createCategorySchema = {
     slug: Joi.string()
       .trim()
       .lowercase()
+      .pattern(SLUG_PATTERN)
+      .min(2)
       .max(120)
       .optional(),
+
+    imageUrl: Joi.forbidden(),
 
     description: Joi.string()
       .trim()
       .max(500)
       .allow('')
-      .default(''),
-
-    imageUrl: Joi.string()
-      .uri()
-      .allow('')
-      .default(''),
+      .optional(),
 
     sortOrder: Joi.number()
       .integer()
@@ -73,18 +73,15 @@ const updateCategorySchema = {
 
     translations,
 
-    slug: Joi.string()
-      .trim()
-      .lowercase()
-      .max(120),
+    slug: Joi.forbidden(),
+
+    imageUrl: Joi.forbidden(),
+
+    isActive: Joi.forbidden(),
 
     description: Joi.string()
       .trim()
       .max(500)
-      .allow(''),
-
-    imageUrl: Joi.string()
-      .uri()
       .allow(''),
 
     sortOrder: Joi.number()
@@ -92,7 +89,6 @@ const updateCategorySchema = {
       .min(0)
       .max(10000),
 
-    isActive: Joi.boolean(),
   })
     .min(1),
 };

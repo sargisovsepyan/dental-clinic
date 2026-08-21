@@ -4,12 +4,47 @@ import Dentist from './dentist.model.js';
 import DentistScheduleException from './dentistScheduleException.model.js';
 
 import Service from '../services/service.model.js';
+import ServiceCategory from '../serviceCategories/serviceCategory.model.js';
 
 import ApiError from '../../utils/ApiError.js';
-import buildSlug from '../../utils/buildSlug.js';
+import { buildCanonicalSlug } from '../../utils/buildSlug.js';
 import {
-  mergeTranslations,
+  buildTranslationSet,
+  synchronizePrimaryFields,
 } from '../../i18n/localization.js';
+import env from '../../config/env.js';
+import runTransaction from '../../utils/runTransaction.js';
+import {
+  assertScheduleMutationAllowed,
+  findDentistScheduleConflicts,
+} from '../appointments/scheduleConflict.service.js';
+
+const LOCALIZED_FIELDS = Object.freeze([
+  'title',
+  'bio',
+  'specializations',
+]);
+const UPDATE_FIELDS = new Set([
+  'firstName',
+  'lastName',
+  ...LOCALIZED_FIELDS,
+  'translations',
+  'experienceYears',
+  'languages',
+  'services',
+  'weeklySchedule',
+  'isFeatured',
+  'bookingEnabled',
+  'sortOrder',
+]);
+
+const assertUpdateFields = (data) => {
+  const unsupported = Object.keys(data)
+    .find((field) => !UPDATE_FIELDS.has(field));
+  if (unsupported) {
+    throw new ApiError(400, `${unsupported} cannot be changed by dentist update`);
+  }
+};
 
 
 const timeToMinutes = (time) => {
@@ -121,7 +156,8 @@ const validateWeeklySchedule = (
 
 
 const ensureServicesExist = async (
-  ids = []
+  ids = [],
+  session = null
 ) => {
   if (!ids.length) {
     return;
@@ -133,21 +169,52 @@ const ensureServicesExist = async (
     ),
   ];
 
-  const count =
-    await Service.countDocuments({
+  const services =
+    await Service.find({
       _id: {
         $in: uniqueIds,
       },
 
       isActive: true,
-    });
+    })
+      .select('_id category')
+      .session(session)
+      .lean();
 
-  if (count !== uniqueIds.length) {
+  const activeCategoryIds = new Set(
+    (await ServiceCategory.find({
+      _id: {
+        $in: services.map(({ category }) => category),
+      },
+      isActive: true,
+    }).session(session).distinct('_id')).map(String)
+  );
+
+  if (
+    services.length !== uniqueIds.length ||
+    services.some(({ category }) => !activeCategoryIds.has(String(category)))
+  ) {
     throw new ApiError(
       400,
       'One or more selected services are unavailable'
     );
   }
+};
+
+const getPublicServiceIds = async () => {
+  const services = await Service.find({ isActive: true })
+    .select('_id category')
+    .lean();
+  const activeCategoryIds = new Set(
+    (await ServiceCategory.find({
+      _id: { $in: services.map(({ category }) => category) },
+      isActive: true,
+    }).distinct('_id')).map(String)
+  );
+
+  return services
+    .filter(({ category }) => activeCategoryIds.has(String(category)))
+    .map(({ _id }) => _id);
 };
 
 
@@ -158,11 +225,15 @@ const createDentist = async (
     data.services
   );
 
-  const slug =
-    data.slug ||
-    buildSlug(
-      `${data.firstName}-${data.lastName}`
-    );
+  const normalized = synchronizePrimaryFields(
+    data,
+    LOCALIZED_FIELDS,
+    'Dentist'
+  );
+  const slug = buildCanonicalSlug({
+    explicit: normalized.slug,
+    fallback: `${normalized.firstName}-${normalized.lastName}`,
+  });
 
   const duplicate =
     await Dentist.findOne({
@@ -178,14 +249,19 @@ const createDentist = async (
 
   const weeklySchedule =
     validateWeeklySchedule(
-      data.weeklySchedule
+      normalized.weeklySchedule
     );
 
   const primary =
-    data.translations?.hy;
+    normalized.translations?.hy;
+
+  if (normalized.isActive === false) {
+    normalized.bookingEnabled = false;
+    normalized.isFeatured = false;
+  }
 
   return Dentist.create({
-    ...data,
+    ...normalized,
     title:
       data.title ??
       primary?.title ??
@@ -207,6 +283,19 @@ const createDentist = async (
 const getPublicDentists = async (
   query = {}
 ) => {
+  const publicServiceIds =
+    await getPublicServiceIds();
+  const publicServiceIdSet = new Set(
+    publicServiceIds.map(String)
+  );
+
+  if (
+    query.service &&
+    !publicServiceIdSet.has(String(query.service))
+  ) {
+    return [];
+  }
+
   const filter = {
     isActive: true,
   };
@@ -236,6 +325,7 @@ const getPublicDentists = async (
       path: 'services',
       match: {
         isActive: true,
+        _id: { $in: publicServiceIds },
       },
       select:
         'name slug translations durationMinutes priceType priceFrom priceTo currency bookingEnabled',
@@ -267,6 +357,8 @@ const getAdminDentists = async () => {
 const getDentistBySlug = async (
   slug
 ) => {
+  const publicServiceIds =
+    await getPublicServiceIds();
   const dentist =
     await Dentist.findOne({
       slug,
@@ -276,6 +368,7 @@ const getDentistBySlug = async (
         path: 'services',
         match: {
           isActive: true,
+          _id: { $in: publicServiceIds },
         },
         select:
           'name slug translations shortDescription durationMinutes priceType priceFrom priceTo currency bookingEnabled',
@@ -297,50 +390,125 @@ const updateDentist = async (
   id,
   data
 ) => {
-  const dentist =
-    await Dentist.findById(id);
+  const {
+    expectedScheduleRevision,
+    scheduleConflictAcknowledgement,
+    ...changes
+  } = data;
+  assertUpdateFields(changes);
 
-  if (!dentist) {
-    throw new ApiError(
-      404,
-      'Dentist not found'
-    );
-  }
+  const normalized = synchronizePrimaryFields(
+    changes,
+    LOCALIZED_FIELDS,
+    'Dentist'
+  );
 
-  if (data.services) {
-    await ensureServicesExist(
-      data.services
-    );
-  }
-
-  if (data.weeklySchedule) {
-    data.weeklySchedule =
+  if (normalized.weeklySchedule) {
+    normalized.weeklySchedule =
       validateWeeklySchedule(
-        data.weeklySchedule
+        normalized.weeklySchedule
       );
   }
 
-  if (data.translations) {
-    dentist.translations =
-      mergeTranslations(
-        dentist.translations,
-        data.translations
-      );
-
-    delete data.translations;
+  const set = buildTranslationSet(
+    normalized.translations
+  );
+  const primary =
+    normalized.translations?.hy;
+  for (const field of LOCALIZED_FIELDS) {
+    if (primary?.[field] !== undefined) {
+      set[field] = primary[field];
+    }
   }
 
-  Object.assign(
-    dentist,
-    data
-  );
+  for (const field of UPDATE_FIELDS) {
+    if (
+      !LOCALIZED_FIELDS.includes(field) &&
+      field !== 'translations' &&
+      normalized[field] !== undefined
+    ) {
+      set[field] = normalized[field];
+    }
+  }
 
-  await dentist.save();
+  const scheduleMutation = normalized.weeklySchedule !== undefined;
+  const bookingMutation = scheduleMutation ||
+    normalized.services !== undefined ||
+    normalized.bookingEnabled !== undefined;
 
-  return dentist.populate(
-    'services',
-    'name slug translations isActive bookingEnabled'
-  );
+  const apply = async (session = null) => {
+    const dentist = await Dentist.findById(id)
+      .select(bookingMutation ? '+bookingGuardVersion' : '')
+      .session(session);
+    if (!dentist) {
+      throw new ApiError(404, 'Dentist not found');
+    }
+    if (
+      !dentist.isActive &&
+      (changes.bookingEnabled === true || changes.isFeatured === true)
+    ) {
+      throw new ApiError(
+        409,
+        'Restore the dentist before enabling booking or featuring the profile'
+      );
+    }
+    if (normalized.services) {
+      await ensureServicesExist(normalized.services, session);
+    }
+    if (scheduleMutation) {
+      const conflicts = await findDentistScheduleConflicts({
+        dentist,
+        proposedWeeklySchedule: normalized.weeklySchedule,
+        session,
+      });
+      assertScheduleMutationAllowed({
+        currentRevision: dentist.scheduleRevision,
+        expectedRevision: expectedScheduleRevision,
+        acknowledgementToken: scheduleConflictAcknowledgement,
+        scope: `dentist-weekly-schedule:${dentist._id}`,
+        proposal: normalized.weeklySchedule,
+        conflicts,
+      });
+    }
+
+    const updated = await Dentist.findOneAndUpdate(
+      {
+        _id: id,
+        ...(changes.bookingEnabled === true || changes.isFeatured === true
+          ? { isActive: true }
+          : {}),
+        ...(scheduleMutation
+          ? { scheduleRevision: expectedScheduleRevision }
+          : {}),
+        ...(bookingMutation
+          ? { bookingGuardVersion: dentist.bookingGuardVersion }
+          : {}),
+      },
+      {
+        $set: set,
+        ...((scheduleMutation || bookingMutation) && {
+          $inc: {
+            ...(scheduleMutation ? { scheduleRevision: 1 } : {}),
+            ...(bookingMutation ? { bookingGuardVersion: 1 } : {}),
+          },
+        }),
+      },
+      { returnDocument: 'after', runValidators: true, session }
+    ).populate('services', 'name slug translations isActive bookingEnabled');
+
+    if (!updated) {
+      if (!await Dentist.exists({ _id: id }).session(session)) {
+        throw new ApiError(404, 'Dentist not found');
+      }
+      throw new ApiError(
+        409,
+        'Dentist lifecycle or schedule changed while the update was in progress'
+      );
+    }
+    return updated;
+  };
+
+  return bookingMutation ? runTransaction(apply) : apply();
 };
 
 
@@ -351,8 +519,12 @@ const disableDentist = async (
     await Dentist.findByIdAndUpdate(
       id,
       {
-        isActive: false,
-        bookingEnabled: false,
+        $set: {
+          isActive: false,
+          bookingEnabled: false,
+          isFeatured: false,
+        },
+        $inc: { bookingGuardVersion: 1 },
       },
       {
         returnDocument: 'after',
@@ -384,10 +556,21 @@ const restoreDentist = async (
     );
   }
 
-  dentist.isActive = true;
-  await dentist.save();
-
-  return dentist;
+  await ensureServicesExist(
+    dentist.services
+  );
+  return Dentist.findOneAndUpdate(
+    { _id: dentist._id },
+    {
+      $set: {
+        isActive: true,
+        bookingEnabled: false,
+        isFeatured: false,
+      },
+      $inc: { bookingGuardVersion: 1 },
+    },
+    { returnDocument: 'after', runValidators: true }
+  );
 };
 
 
@@ -398,7 +581,7 @@ const validateLocalDate = (
     DateTime.fromISO(
       date,
       {
-        zone: 'Asia/Yerevan',
+        zone: env.CLINIC_TIMEZONE,
       }
     );
 
@@ -423,23 +606,17 @@ const upsertScheduleException =
   ) => {
     validateLocalDate(date);
 
-    const dentist =
-      await Dentist.findById(
-        dentistId
-      );
-
-    if (!dentist) {
-      throw new ApiError(
-        404,
-        'Dentist not found'
-      );
-    }
+    const {
+      expectedScheduleRevision,
+      scheduleConflictAcknowledgement,
+      ...changes
+    } = data;
 
     const payload = {
-      ...data,
-      shifts: data.isWorking
+      ...changes,
+      shifts: changes.isWorking
         ? validateShifts(
-            data.shifts
+            changes.shifts
           )
         : [],
     };
@@ -454,8 +631,42 @@ const upsertScheduleException =
       );
     }
 
-    return DentistScheduleException
-      .findOneAndUpdate(
+    return runTransaction(async (session) => {
+      const dentist = await Dentist.findById(dentistId)
+        .select('+bookingGuardVersion')
+        .session(session);
+      if (!dentist) {
+        throw new ApiError(404, 'Dentist not found');
+      }
+      const conflicts = await findDentistScheduleConflicts({
+        dentist,
+        exceptionDate: date,
+        proposedException: payload,
+        session,
+      });
+      assertScheduleMutationAllowed({
+        currentRevision: dentist.scheduleRevision,
+        expectedRevision: expectedScheduleRevision,
+        acknowledgementToken: scheduleConflictAcknowledgement,
+        scope: `dentist-exception:${dentist._id}:${date}`,
+        proposal: payload,
+        conflicts,
+      });
+      const guarded = await Dentist.updateOne(
+        {
+          _id: dentist._id,
+          scheduleRevision: expectedScheduleRevision,
+          bookingGuardVersion: dentist.bookingGuardVersion,
+        },
+        { $inc: { scheduleRevision: 1, bookingGuardVersion: 1 } },
+        { session }
+      );
+      if (guarded.modifiedCount !== 1) {
+        throw new ApiError(409, 'Dentist schedule changed; reload and try again', {
+          code: 'SCHEDULE_REVISION_CONFLICT',
+        });
+      }
+      return DentistScheduleException.findOneAndUpdate(
         {
           dentist: dentistId,
           date,
@@ -472,8 +683,10 @@ const upsertScheduleException =
           upsert: true,
           runValidators: true,
           setDefaultsOnInsert: true,
+          session,
         }
       );
+    });
   };
 
 
@@ -532,25 +745,59 @@ const getScheduleExceptions =
 const deleteScheduleException =
   async (
     dentistId,
-    date
+    date,
+    options = {}
   ) => {
     validateLocalDate(date);
 
-    const exception =
-      await DentistScheduleException
-        .findOneAndDelete({
-          dentist: dentistId,
-          date,
-        });
-
-    if (!exception) {
-      throw new ApiError(
-        404,
-        'Schedule exception not found'
+    return runTransaction(async (session) => {
+      const dentist = await Dentist.findById(dentistId)
+        .select('+bookingGuardVersion')
+        .session(session);
+      const exception = await DentistScheduleException.findOne({
+        dentist: dentistId,
+        date,
+      }).session(session);
+      if (!dentist) {
+        throw new ApiError(404, 'Dentist not found');
+      }
+      if (!exception) {
+        throw new ApiError(404, 'Schedule exception not found');
+      }
+      const conflicts = await findDentistScheduleConflicts({
+        dentist,
+        exceptionDate: date,
+        proposedException: null,
+        session,
+      });
+      assertScheduleMutationAllowed({
+        currentRevision: dentist.scheduleRevision,
+        expectedRevision: options.expectedScheduleRevision,
+        acknowledgementToken: options.scheduleConflictAcknowledgement,
+        scope: `dentist-exception-delete:${dentist._id}:${date}`,
+        proposal: null,
+        conflicts,
+      });
+      const guarded = await Dentist.updateOne(
+        {
+          _id: dentist._id,
+          scheduleRevision: options.expectedScheduleRevision,
+          bookingGuardVersion: dentist.bookingGuardVersion,
+        },
+        { $inc: { scheduleRevision: 1, bookingGuardVersion: 1 } },
+        { session }
       );
-    }
-
-    return exception;
+      if (guarded.modifiedCount !== 1) {
+        throw new ApiError(409, 'Dentist schedule changed; reload and try again', {
+          code: 'SCHEDULE_REVISION_CONFLICT',
+        });
+      }
+      await DentistScheduleException.deleteOne(
+        { _id: exception._id },
+        { session }
+      );
+      return exception;
+    });
   };
 
 

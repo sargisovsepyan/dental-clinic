@@ -126,6 +126,69 @@ const dentistSnapshotSchema =
   );
 
 
+const reschedulePointSchema = new mongoose.Schema(
+  {
+    dentist: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Dentist',
+      required: true,
+    },
+    service: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Service',
+      required: true,
+    },
+    date: {
+      type: String,
+      required: true,
+      match: /^\d{4}-\d{2}-\d{2}$/,
+    },
+    startTime: {
+      type: String,
+      required: true,
+      match: /^([01]\d|2[0-3]):[0-5]\d$/,
+    },
+    endTime: {
+      type: String,
+      required: true,
+      match: /^([01]\d|2[0-3]):[0-5]\d$/,
+    },
+  },
+  { _id: false }
+);
+
+
+const rescheduleHistorySchema = new mongoose.Schema(
+  {
+    actor: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    reason: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+      default: '',
+    },
+    from: {
+      type: reschedulePointSchema,
+      required: true,
+    },
+    to: {
+      type: reschedulePointSchema,
+      required: true,
+    },
+    changedAt: {
+      type: Date,
+      required: true,
+      default: Date.now,
+    },
+  },
+  { _id: false }
+);
+
+
 const appointmentSchema =
   new mongoose.Schema(
     {
@@ -245,6 +308,37 @@ const appointmentSchema =
         select: false,
       },
 
+      idempotencyKeyHash: {
+        type: String,
+        minlength: 64,
+        maxlength: 64,
+        default: null,
+        select: false,
+      },
+
+      idempotencyRequestHash: {
+        type: String,
+        minlength: 64,
+        maxlength: 64,
+        default: null,
+        select: false,
+      },
+
+      mutationVersion: {
+        type: Number,
+        min: 0,
+        default: 0,
+      },
+
+      rescheduleHistory: {
+        type: [rescheduleHistorySchema],
+        default: [],
+        validate: {
+          validator: (entries) => entries.length <= 100,
+          message: 'Reschedule history cannot exceed 100 entries',
+        },
+      },
+
 
       status: {
         type: String,
@@ -306,6 +400,12 @@ const appointmentSchema =
           'in_person',
         ],
         default: 'website',
+      },
+
+      privacyPolicyVersion: {
+        type: String,
+        required: true,
+        match: /^(?:[0-9]{4}-[0-9]{2}(?:\.[0-9]+)?|legacy-unverified)$/,
       },
 
 
@@ -370,6 +470,30 @@ appointmentSchema.index({
   patientPhone: 1,
   createdAt: -1,
 });
+
+
+appointmentSchema.index(
+  { quotaReservationId: 1 },
+  {
+    unique: true,
+    name: 'unique_appointment_quota_reservation',
+    partialFilterExpression: {
+      quotaReservationId: { $type: 'objectId' },
+    },
+  }
+);
+
+
+appointmentSchema.index(
+  { idempotencyKeyHash: 1 },
+  {
+    unique: true,
+    name: 'unique_booking_idempotency_key',
+    partialFilterExpression: {
+      idempotencyKeyHash: { $type: 'string' },
+    },
+  }
+);
 
 
 const Appointment = mongoose.model(

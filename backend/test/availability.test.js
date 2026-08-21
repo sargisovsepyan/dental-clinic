@@ -9,7 +9,11 @@ process.env.JWT_SECRET = 'test-only-secret-that-is-at-least-thirty-two-character
 process.env.CLIENT_URL = 'http://localhost:5173';
 process.env.CLINIC_TIMEZONE = 'Asia/Yerevan';
 
-const { connectTestDatabase, clearTestDatabase, disconnectTestDatabase } = await import('../test-support/database.js');
+const {
+  connectReplTestDatabase: connectTestDatabase,
+  clearReplTestDatabase: clearTestDatabase,
+  disconnectReplTestDatabase: disconnectTestDatabase,
+} = await import('../test-support/replDatabase.js');
 const { seedCore, futureDate, publicBooking } = await import('../test-support/fixtures.js');
 const availabilityService = await import('../src/modules/availability/availability.service.js');
 const appointmentService = await import('../src/modules/appointments/appointment.service.js');

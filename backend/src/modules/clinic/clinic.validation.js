@@ -3,6 +3,10 @@
 import {
   createJoiTranslations,
 } from '../../i18n/localization.js';
+import {
+  safeHttpsUrl,
+  safeSocialUrl,
+} from '../../utils/publicUrl.js';
 
 const clinicTranslation = Joi.object({
   clinicName: Joi.string()
@@ -94,10 +98,7 @@ const bookingSettingsSchema =
       Joi.boolean(),
 
     cancellationNoticeHours:
-      Joi.number()
-        .integer()
-        .min(0)
-        .max(168),
+      Joi.forbidden(),
 
     maxAppointmentsPerPhonePerDay:
       Joi.number()
@@ -110,27 +111,37 @@ const bookingSettingsSchema =
 const socialLinksSchema =
   Joi.object({
     instagram:
-      Joi.string()
-        .uri()
+      safeSocialUrl('instagram')
         .allow(''),
 
     facebook:
-      Joi.string()
-        .uri()
+      safeSocialUrl('facebook')
         .allow(''),
 
     whatsapp:
-      Joi.string()
+      safeSocialUrl('whatsapp')
         .allow(''),
 
     telegram:
-      Joi.string()
+      safeSocialUrl('telegram')
         .allow(''),
   });
 
 
 const updateClinicSchema = {
   body: Joi.object({
+    expectedScheduleRevision: Joi.number()
+      .integer()
+      .min(0)
+      .when('weeklySchedule', {
+        is: Joi.exist(),
+        then: Joi.required(),
+      }),
+
+    scheduleConflictAcknowledgement: Joi.string()
+      .hex()
+      .length(64),
+
     clinicName:
       Joi.string()
         .trim()
@@ -181,8 +192,7 @@ const updateClinicSchema = {
         .allow(''),
 
     mapUrl:
-      Joi.string()
-        .uri()
+      safeHttpsUrl
         .allow(''),
 
     latitude:
@@ -224,6 +234,15 @@ const closureSchema = {
   }),
 
   body: Joi.object({
+    expectedScheduleRevision: Joi.number()
+      .integer()
+      .min(0)
+      .required(),
+
+    scheduleConflictAcknowledgement: Joi.string()
+      .hex()
+      .length(64),
+
     isOpen:
       Joi.boolean()
         .required(),
@@ -252,6 +271,17 @@ const closureDateSchema = {
       )
       .required(),
   }),
+
+  query: Joi.object({
+    expectedScheduleRevision: Joi.number()
+      .integer()
+      .min(0)
+      .required(),
+
+    scheduleConflictAcknowledgement: Joi.string()
+      .hex()
+      .length(64),
+  }),
 };
 
 
@@ -266,7 +296,11 @@ const listClosuresSchema = {
       .pattern(
         /^\d{4}-\d{2}-\d{2}$/
       ),
-  }),
+  }).custom((value, helpers) => (
+    value.from && value.to && value.from > value.to
+      ? helpers.message({ custom: 'from must be on or before to' })
+      : value
+  )),
 };
 
 

@@ -8,11 +8,13 @@ import {
 } from '../production/indexManagement.service.js';
 import { verifyCriticalIndexes } from '../production/preflight.service.js';
 import logger from '../observability/logger.js';
+import { assertMaintenanceSafety } from './maintenanceGuard.js';
 
 
 if (env.NODE_ENV !== 'production') {
   throw new Error('Production index creation requires NODE_ENV=production');
 }
+assertMaintenanceSafety();
 
 let exitCode = 1;
 try {

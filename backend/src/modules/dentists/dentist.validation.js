@@ -3,6 +3,7 @@
 import {
   createJoiTranslations,
 } from '../../i18n/localization.js';
+import { SLUG_PATTERN } from '../../utils/buildSlug.js';
 
 const mongoId = Joi.string()
   .hex()
@@ -74,13 +75,16 @@ const createDentistSchema = {
     slug: Joi.string()
       .trim()
       .lowercase()
+      .pattern(SLUG_PATTERN)
+      .min(2)
       .max(180),
+
+    photoUrl: Joi.forbidden(),
 
     title: Joi.string()
       .trim()
       .max(150)
-      .allow('')
-      .default(''),
+      .allow(''),
 
     translations,
 
@@ -93,24 +97,18 @@ const createDentistSchema = {
       )
       .max(20)
       .unique()
-      .default([]),
+      .optional(),
 
     bio: Joi.string()
       .trim()
       .max(5000)
-      .allow('')
-      .default(''),
+      .allow(''),
 
     experienceYears: Joi.number()
       .integer()
       .min(0)
       .max(70)
       .default(0),
-
-    photoUrl: Joi.string()
-      .uri()
-      .allow('')
-      .default(''),
 
     languages: Joi.array()
       .items(
@@ -161,6 +159,18 @@ const updateDentistSchema = {
   }),
 
   body: Joi.object({
+    expectedScheduleRevision: Joi.number()
+      .integer()
+      .min(0)
+      .when('weeklySchedule', {
+        is: Joi.exist(),
+        then: Joi.required(),
+      }),
+
+    scheduleConflictAcknowledgement: Joi.string()
+      .hex()
+      .length(64),
+
     firstName: Joi.string()
       .trim()
       .min(2)
@@ -171,17 +181,18 @@ const updateDentistSchema = {
       .min(2)
       .max(80),
 
-    slug: Joi.string()
-      .trim()
-      .lowercase()
-      .max(180),
-
     title: Joi.string()
       .trim()
       .max(150)
       .allow(''),
 
     translations,
+
+    slug: Joi.forbidden(),
+
+    photoUrl: Joi.forbidden(),
+
+    isActive: Joi.forbidden(),
 
     specializations: Joi.array()
       .items(
@@ -202,10 +213,6 @@ const updateDentistSchema = {
       .integer()
       .min(0)
       .max(70),
-
-    photoUrl: Joi.string()
-      .uri()
-      .allow(''),
 
     languages: Joi.array()
       .items(
@@ -232,8 +239,6 @@ const updateDentistSchema = {
     isFeatured: Joi.boolean(),
 
     bookingEnabled: Joi.boolean(),
-
-    isActive: Joi.boolean(),
 
     sortOrder: Joi.number()
       .integer()
@@ -272,6 +277,15 @@ const scheduleExceptionSchema = {
   }),
 
   body: Joi.object({
+    expectedScheduleRevision: Joi.number()
+      .integer()
+      .min(0)
+      .required(),
+
+    scheduleConflictAcknowledgement: Joi.string()
+      .hex()
+      .length(64),
+
     isWorking: Joi.boolean()
       .required(),
 
@@ -297,6 +311,17 @@ const deleteScheduleExceptionSchema = {
       .pattern(/^\d{4}-\d{2}-\d{2}$/)
       .required(),
   }),
+
+  query: Joi.object({
+    expectedScheduleRevision: Joi.number()
+      .integer()
+      .min(0)
+      .required(),
+
+    scheduleConflictAcknowledgement: Joi.string()
+      .hex()
+      .length(64),
+  }),
 };
 
 
@@ -311,7 +336,11 @@ const listScheduleExceptionsSchema = {
 
     to: Joi.string()
       .pattern(/^\d{4}-\d{2}-\d{2}$/),
-  }),
+  }).custom((value, helpers) => (
+    value.from && value.to && value.from > value.to
+      ? helpers.message({ custom: 'from must be on or before to' })
+      : value
+  )),
 };
 
 

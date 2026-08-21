@@ -4,6 +4,7 @@ import {
   createTranslationsSchema,
   requirePrimaryContent,
 } from '../../i18n/localization.js';
+import { SLUG_PATTERN } from '../../utils/buildSlug.js';
 
 const categoryTranslationSchema = new mongoose.Schema(
   {
@@ -27,7 +28,9 @@ const serviceCategorySchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: true,
+      required() {
+        return this.isActive !== false;
+      },
       trim: true,
       minlength: 2,
       maxlength: 100,
@@ -39,6 +42,7 @@ const serviceCategorySchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       trim: true,
+      match: SLUG_PATTERN,
       maxlength: 120,
     },
 
@@ -73,6 +77,13 @@ const serviceCategorySchema = new mongoose.Schema(
       type: Boolean,
       default: true,
       index: true,
+    },
+
+    serviceMutationVersion: {
+      type: Number,
+      default: 0,
+      min: 0,
+      select: false,
     },
   },
   {

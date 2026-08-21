@@ -5,9 +5,22 @@ import ClinicClosure from './clinicClosure.model.js';
 
 import ApiError from '../../utils/ApiError.js';
 import env from '../../config/env.js';
+import runTransaction from '../../utils/runTransaction.js';
 import {
-  mergeTranslations,
+  buildTranslationSet,
+  synchronizePrimaryFields,
 } from '../../i18n/localization.js';
+import {
+  assertScheduleMutationAllowed,
+  findClinicScheduleConflicts,
+} from '../appointments/scheduleConflict.service.js';
+
+const LOCALIZED_FIELDS = Object.freeze([
+  'clinicName',
+  'tagline',
+  'description',
+  'address',
+]);
 
 
 const timeToMinutes = (time) => {
@@ -145,7 +158,7 @@ const validateDate = (
     DateTime.fromISO(
       date,
       {
-        zone: 'Asia/Yerevan',
+        zone: env.CLINIC_TIMEZONE,
       }
     );
 
@@ -165,16 +178,17 @@ const validateDate = (
 };
 
 
-const ensureClinic = async () => {
-  return Clinic.findOneAndUpdate(
+const ensureClinic = async ({
+  session = null,
+  includeBookingGuard = false,
+} = {}) => {
+  const query = Clinic.findOneAndUpdate(
     {
       key: 'default',
     },
     {
       $setOnInsert: {
         key: 'default',
-        timezone:
-          env.CLINIC_TIMEZONE,
         clinicName:
           'Ատամնաբուժական կլինիկա',
         translations: {
@@ -190,14 +204,34 @@ const ensureClinic = async () => {
       returnDocument: 'after',
       setDefaultsOnInsert: true,
       runValidators: true,
+      session,
     }
   );
+  if (includeBookingGuard) {
+    query.select('+bookingGuardVersion');
+  }
+  const clinic = await query;
+
+  if (clinic.timezone !== env.CLINIC_TIMEZONE) {
+    await Clinic.collection.updateOne(
+      { _id: clinic._id },
+      { $set: { timezone: env.CLINIC_TIMEZONE } },
+      { session }
+    );
+    const refreshed = Clinic.findById(clinic._id).session(session);
+    if (includeBookingGuard) {
+      refreshed.select('+bookingGuardVersion');
+    }
+    return refreshed;
+  }
+
+  return clinic;
 };
 
 
-const getClinic = async () => {
+const getClinic = async (options = {}) => {
   const clinic =
-    await ensureClinic();
+    await ensureClinic(options);
 
   return clinic;
 };
@@ -206,79 +240,115 @@ const getClinic = async () => {
 const updateClinic = async (
   data
 ) => {
-  const clinic =
-    await ensureClinic();
+  const {
+    expectedScheduleRevision,
+    scheduleConflictAcknowledgement,
+    ...changes
+  } = data;
+  const normalized = synchronizePrimaryFields(
+    changes,
+    LOCALIZED_FIELDS,
+    'Clinic'
+  );
+  const set = buildTranslationSet(normalized.translations);
+  const primary =
+    normalized.translations?.hy;
 
-  if (
-    data.weeklySchedule
-  ) {
-    clinic.weeklySchedule =
-      validateWeeklySchedule(
-        data.weeklySchedule
-      );
+  for (const field of LOCALIZED_FIELDS) {
+    if (primary?.[field] !== undefined) {
+      set[field] = primary[field];
+    }
   }
 
-  if (
-    data.bookingSettings
-  ) {
-    const current =
-      clinic.bookingSettings
-        ?.toObject?.() ||
-      {};
-
-    clinic.bookingSettings = {
-      ...current,
-      ...data.bookingSettings,
-    };
+  if (normalized.weeklySchedule) {
+    set.weeklySchedule = validateWeeklySchedule(
+      normalized.weeklySchedule
+    );
   }
 
-  if (data.socialLinks) {
-    const current =
-      clinic.socialLinks
-        ?.toObject?.() ||
-      {};
-
-    clinic.socialLinks = {
-      ...current,
-      ...data.socialLinks,
-    };
+  for (const [field, value] of Object.entries(
+    normalized.bookingSettings || {}
+  )) {
+    set[`bookingSettings.${field}`] = value;
   }
 
-  if (data.translations) {
-    clinic.translations =
-      mergeTranslations(
-        clinic.translations,
-        data.translations
-      );
-
+  for (const [field, value] of Object.entries(
+    normalized.socialLinks || {}
+  )) {
+    set[`socialLinks.${field}`] = value;
   }
 
-  const protectedFields =
-    new Set([
-      'weeklySchedule',
-      'bookingSettings',
-      'socialLinks',
-      'translations',
-      'key',
-      'timezone',
-    ]);
+  const protectedFields = new Set([
+    ...LOCALIZED_FIELDS,
+    'weeklySchedule',
+    'bookingSettings',
+    'socialLinks',
+    'translations',
+    'key',
+    'timezone',
+  ]);
+  for (const [field, value] of Object.entries(normalized)) {
+    if (!protectedFields.has(field)) {
+      set[field] = value;
+    }
+  }
 
-  for (
-    const [key, value]
-    of Object.entries(data)
-  ) {
-    if (
-      protectedFields.has(key)
-    ) {
-      continue;
+  const scheduleMutation = normalized.weeklySchedule !== undefined;
+  const bookingMutation = scheduleMutation || normalized.bookingSettings !== undefined;
+
+  const apply = async (session = null) => {
+    const clinic = await ensureClinic({
+      session,
+      includeBookingGuard: bookingMutation,
+    });
+    if (scheduleMutation) {
+      const conflicts = await findClinicScheduleConflicts({
+        clinic,
+        proposedWeeklySchedule: set.weeklySchedule,
+        session,
+      });
+      assertScheduleMutationAllowed({
+        currentRevision: clinic.scheduleRevision,
+        expectedRevision: expectedScheduleRevision,
+        acknowledgementToken: scheduleConflictAcknowledgement,
+        scope: 'clinic-weekly-schedule',
+        proposal: set.weeklySchedule,
+        conflicts,
+      });
     }
 
-    clinic[key] = value;
-  }
+    const updated = await Clinic.findOneAndUpdate(
+      {
+        _id: clinic._id,
+        ...(scheduleMutation
+          ? { scheduleRevision: expectedScheduleRevision }
+          : {}),
+        ...(bookingMutation
+          ? { bookingGuardVersion: clinic.bookingGuardVersion }
+          : {}),
+      },
+      {
+        $set: set,
+        ...((scheduleMutation || bookingMutation) && {
+          $inc: {
+            ...(scheduleMutation ? { scheduleRevision: 1 } : {}),
+            ...(bookingMutation ? { bookingGuardVersion: 1 } : {}),
+          },
+        }),
+      },
+      { returnDocument: 'after', runValidators: true, session }
+    );
+    if (!updated) {
+      throw new ApiError(409, 'Clinic settings changed; reload and try again', {
+        code: 'SCHEDULE_REVISION_CONFLICT',
+      });
+    }
+    return updated;
+  };
 
-  await clinic.save();
-
-  return clinic;
+  return scheduleMutation || bookingMutation
+    ? runTransaction(apply)
+    : apply();
 };
 
 
@@ -288,13 +358,19 @@ const upsertClosure = async (
 ) => {
   validateDate(date);
 
+  const {
+    expectedScheduleRevision,
+    scheduleConflictAcknowledgement,
+    ...changes
+  } = data;
+
   const payload = {
-    ...data,
+    ...changes,
 
     shifts:
-      data.isOpen
+      changes.isOpen
         ? validateShifts(
-            data.shifts
+            changes.shifts
           )
         : [],
   };
@@ -309,8 +385,44 @@ const upsertClosure = async (
     );
   }
 
-  return ClinicClosure
-    .findOneAndUpdate(
+  return runTransaction(async (session) => {
+    const clinic = await ensureClinic({
+      session,
+      includeBookingGuard: true,
+    });
+    const conflicts = await findClinicScheduleConflicts({
+      clinic,
+      exceptionDate: date,
+      proposedException: payload,
+      session,
+    });
+    assertScheduleMutationAllowed({
+      currentRevision: clinic.scheduleRevision,
+      expectedRevision: expectedScheduleRevision,
+      acknowledgementToken: scheduleConflictAcknowledgement,
+      scope: `clinic-exception:${date}`,
+      proposal: payload,
+      conflicts,
+    });
+
+    const guarded = await Clinic.updateOne(
+      {
+        _id: clinic._id,
+        scheduleRevision: expectedScheduleRevision,
+        bookingGuardVersion: clinic.bookingGuardVersion,
+      },
+      {
+        $inc: { scheduleRevision: 1, bookingGuardVersion: 1 },
+      },
+      { session }
+    );
+    if (guarded.modifiedCount !== 1) {
+      throw new ApiError(409, 'Clinic schedule changed; reload and try again', {
+        code: 'SCHEDULE_REVISION_CONFLICT',
+      });
+    }
+
+    return ClinicClosure.findOneAndUpdate(
       {
         date,
       },
@@ -325,8 +437,10 @@ const upsertClosure = async (
         upsert: true,
         runValidators: true,
         setDefaultsOnInsert: true,
+        session,
       }
     );
+  });
 };
 
 
@@ -370,29 +484,56 @@ const getClosures = async (
 
 
 const deleteClosure = async (
-  date
+  date,
+  options = {}
 ) => {
   validateDate(date);
 
-  const closure =
-    await ClinicClosure
-      .findOneAndDelete({
-        date,
-      });
-
-  if (!closure) {
-    throw new ApiError(
-      404,
-      'Clinic schedule exception not found'
+  return runTransaction(async (session) => {
+    const clinic = await ensureClinic({
+      session,
+      includeBookingGuard: true,
+    });
+    const closure = await ClinicClosure.findOne({ date }).session(session);
+    if (!closure) {
+      throw new ApiError(404, 'Clinic schedule exception not found');
+    }
+    const conflicts = await findClinicScheduleConflicts({
+      clinic,
+      exceptionDate: date,
+      proposedException: null,
+      session,
+    });
+    assertScheduleMutationAllowed({
+      currentRevision: clinic.scheduleRevision,
+      expectedRevision: options.expectedScheduleRevision,
+      acknowledgementToken: options.scheduleConflictAcknowledgement,
+      scope: `clinic-exception-delete:${date}`,
+      proposal: null,
+      conflicts,
+    });
+    const guarded = await Clinic.updateOne(
+      {
+        _id: clinic._id,
+        scheduleRevision: options.expectedScheduleRevision,
+        bookingGuardVersion: clinic.bookingGuardVersion,
+      },
+      { $inc: { scheduleRevision: 1, bookingGuardVersion: 1 } },
+      { session }
     );
-  }
-
-  return closure;
+    if (guarded.modifiedCount !== 1) {
+      throw new ApiError(409, 'Clinic schedule changed; reload and try again', {
+        code: 'SCHEDULE_REVISION_CONFLICT',
+      });
+    }
+    await ClinicClosure.deleteOne({ _id: closure._id }, { session });
+    return closure;
+  });
 };
 
 
 const getEffectiveSchedule =
-  async (date) => {
+  async (date, { clinic: suppliedClinic = null, session = null } = {}) => {
     const parsed =
       validateDate(date);
 
@@ -401,6 +542,7 @@ const getEffectiveSchedule =
         .findOne({
           date,
         })
+        .session(session)
         .lean();
 
     if (exception) {
@@ -416,8 +558,7 @@ const getEffectiveSchedule =
       };
     }
 
-    const clinic =
-      await ensureClinic();
+    const clinic = suppliedClinic || await ensureClinic({ session });
 
     const weekday =
       parsed.weekday;

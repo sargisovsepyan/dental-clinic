@@ -3,6 +3,7 @@
 import {
   createJoiTranslations,
 } from '../../i18n/localization.js';
+import { SLUG_PATTERN } from '../../utils/buildSlug.js';
 
 const mongoId = Joi.string()
   .hex()
@@ -32,11 +33,6 @@ const serviceBody = {
   translations: createJoiTranslations(
     serviceTranslation
   ),
-
-  slug: Joi.string()
-    .trim()
-    .lowercase()
-    .max(180),
 
   category: mongoId,
 
@@ -74,15 +70,9 @@ const serviceBody = {
     .min(15)
     .max(480),
 
-  imageUrl: Joi.string()
-    .uri()
-    .allow(''),
-
   isFeatured: Joi.boolean(),
 
   bookingEnabled: Joi.boolean(),
-
-  isActive: Joi.boolean(),
 
   sortOrder: Joi.number()
     .integer()
@@ -93,6 +83,18 @@ const serviceBody = {
 const createServiceSchema = {
   body: Joi.object({
     ...serviceBody,
+
+    imageUrl: Joi.forbidden(),
+
+    slug: Joi.string()
+      .trim()
+      .lowercase()
+      .pattern(SLUG_PATTERN)
+      .min(2)
+      .max(180),
+
+    isActive: Joi.boolean()
+      .default(true),
 
     category:
       serviceBody.category.required(),
@@ -114,7 +116,12 @@ const updateServiceSchema = {
     id: mongoId.required(),
   }),
 
-  body: Joi.object(serviceBody)
+  body: Joi.object({
+    ...serviceBody,
+    slug: Joi.forbidden(),
+    imageUrl: Joi.forbidden(),
+    isActive: Joi.forbidden(),
+  })
     .min(1),
 };
 

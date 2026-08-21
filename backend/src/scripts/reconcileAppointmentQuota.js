@@ -4,10 +4,14 @@ import connectDB from '../config/db.js';
 import {
   reconcilePhoneDailyQuotas,
 } from '../modules/appointments/phoneDailyQuota.service.js';
+import { assertMaintenanceSafety } from './maintenanceGuard.js';
+import { redactText } from '../observability/logger.js';
 
 const apply = process.argv.includes('--apply');
 
 const main = async () => {
+  assertMaintenanceSafety();
+
   await connectDB();
 
   const stats = await reconcilePhoneDailyQuotas({
@@ -24,7 +28,7 @@ const main = async () => {
 main()
   .catch((error) => {
     console.error(
-      `Quota reconciliation failed: ${error.message}`
+      `Quota reconciliation failed: ${redactText(error.message)}`
     );
     process.exitCode = 1;
   })

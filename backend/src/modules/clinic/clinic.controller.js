@@ -82,7 +82,8 @@ const deleteClosure = async (
   res
 ) => {
   await clinicService.deleteClosure(
-    req.params.date
+    req.params.date,
+    req.validatedQuery || req.query
   );
 
   res.status(200).json({

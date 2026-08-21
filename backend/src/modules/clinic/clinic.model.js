@@ -4,6 +4,11 @@ import {
   createTranslationsSchema,
   requirePrimaryContent,
 } from '../../i18n/localization.js';
+import env from '../../config/env.js';
+import {
+  isSafeHttpsUrl,
+  isAllowedSocialUrl,
+} from '../../utils/publicUrl.js';
 
 const clinicTranslationSchema = new mongoose.Schema(
   {
@@ -136,13 +141,6 @@ const bookingSettingsSchema =
         default: false,
       },
 
-      cancellationNoticeHours: {
-        type: Number,
-        min: 0,
-        max: 168,
-        default: 12,
-      },
-
       maxAppointmentsPerPhonePerDay: {
         type: Number,
         min: 1,
@@ -163,24 +161,40 @@ const socialLinksSchema =
         type: String,
         trim: true,
         default: '',
+        validate: {
+          validator: (value) => isAllowedSocialUrl('instagram', value),
+          message: 'Instagram must use an approved HTTPS URL',
+        },
       },
 
       facebook: {
         type: String,
         trim: true,
         default: '',
+        validate: {
+          validator: (value) => isAllowedSocialUrl('facebook', value),
+          message: 'Facebook must use an approved HTTPS URL',
+        },
       },
 
       whatsapp: {
         type: String,
         trim: true,
         default: '',
+        validate: {
+          validator: (value) => isAllowedSocialUrl('whatsapp', value),
+          message: 'WhatsApp must use an approved HTTPS URL',
+        },
       },
 
       telegram: {
         type: String,
         trim: true,
         default: '',
+        validate: {
+          validator: (value) => isAllowedSocialUrl('telegram', value),
+          message: 'Telegram must use an approved HTTPS URL',
+        },
       },
     },
     {
@@ -259,6 +273,10 @@ const clinicSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: '',
+      validate: {
+        validator: isSafeHttpsUrl,
+        message: 'Map URL must use HTTPS without credentials',
+      },
     },
 
     latitude: {
@@ -277,7 +295,7 @@ const clinicSchema = new mongoose.Schema(
 
     timezone: {
       type: String,
-      default: 'Asia/Yerevan',
+      default: () => env.CLINIC_TIMEZONE,
       immutable: true,
     },
 
@@ -367,6 +385,19 @@ const clinicSchema = new mongoose.Schema(
     bookingSettings: {
       type: bookingSettingsSchema,
       default: () => ({}),
+    },
+
+    scheduleRevision: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    bookingGuardVersion: {
+      type: Number,
+      min: 0,
+      default: 0,
+      select: false,
     },
   },
   {

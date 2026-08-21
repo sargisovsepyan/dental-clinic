@@ -50,8 +50,11 @@ router.post(
   ),
   auditAction(
     {
-      action:
-        'appointment.create.website',
+      action: (_req, _responseBody, res) => (
+        res.locals.bookingIdempotencyReplay
+          ? 'appointment.booking.replay'
+          : 'appointment.create.website'
+      ),
 
       entityType:
         'appointment',

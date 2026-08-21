@@ -67,6 +67,16 @@ const createAppointmentSchema = {
       Joi.boolean()
         .valid(true)
         .required(),
+
+    challengeToken:
+      Joi.string()
+        .min(10)
+        .max(4096)
+        .when('$challengeRequired', {
+          is: true,
+          then: Joi.required(),
+          otherwise: Joi.optional(),
+        }),
   }),
 };
 
@@ -250,7 +260,11 @@ const listAppointmentsSchema = {
         .min(1)
         .max(100)
         .default(25),
-  }),
+  }).custom((value, helpers) => (
+    value.from && value.to && value.from > value.to
+      ? helpers.message({ custom: 'from must be on or before to' })
+      : value
+  )),
 };
 
 

@@ -1,4 +1,6 @@
 import mongoose from 'mongoose';
+import bcrypt from 'bcrypt';
+import { DateTime } from 'luxon';
 
 import env from '../config/env.js';
 import CRITICAL_INDEXES from './criticalIndexes.js';
@@ -13,9 +15,21 @@ import MediaAsset from '../modules/media/media.model.js';
 import BeforeAfterCase from '../modules/beforeAfter/beforeAfter.model.js';
 import PhoneDailyQuota from '../modules/appointments/phoneDailyQuota.model.js';
 import Appointment from '../modules/appointments/appointment.model.js';
+import BookingIdempotency from '../modules/appointments/bookingIdempotency.model.js';
+import DentistScheduleException from '../modules/dentists/dentistScheduleException.model.js';
 import {
+  exactPhoneQuotaKeyVersionExpression,
+  getPhoneQuotaIdentityStatus,
   reconcilePhoneDailyQuotas,
 } from '../modules/appointments/phoneDailyQuota.service.js';
+import {
+  isAllowedSocialUrl,
+  isSafeHttpsUrl,
+} from '../utils/publicUrl.js';
+import {
+  VERIFIED_CONSENT_METHODS,
+  UNVERIFIED_POLICY,
+} from '../modules/beforeAfter/beforeAfter.consent.js';
 
 
 const normalizeKey = (key) => Object.entries(key)
@@ -28,6 +42,97 @@ const normalizeKey = (key) => Object.entries(key)
 
 const keysEqual = (left, right) =>
   JSON.stringify(normalizeKey(left)) === JSON.stringify(normalizeKey(right));
+
+
+const canonicalValue = (value) => {
+  if (Array.isArray(value)) {
+    return value.map(canonicalValue);
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, canonicalValue(value[key])])
+    );
+  }
+  return value;
+};
+
+
+const valuesEqual = (left, right) => (
+  JSON.stringify(canonicalValue(left)) ===
+  JSON.stringify(canonicalValue(right))
+);
+
+
+const verifyMigrationLedger = async () => {
+  const records = await Migration.collection.find({}).toArray();
+  const expected = new Map(
+    migrationManifest.map((entry) => [entry.version, entry])
+  );
+  const actual = new Map(records.map((entry) => [entry.version, entry]));
+  const missing = migrationManifest
+    .filter(({ version }) => !actual.has(version))
+    .map(({ version }) => version);
+  const unexpected = records
+    .filter(({ version }) => !expected.has(version))
+    .map(({ version }) => version);
+  const incomplete = records
+    .filter((record) => expected.has(record.version) && record.state !== 'applied')
+    .map(({ version, state }) => ({ version, state: state || 'legacy' }));
+  const checksumFailures = records
+    .filter((record) => {
+      const manifestEntry = expected.get(record.version);
+      return manifestEntry && record.checksum !== manifestEntry.checksum;
+    })
+    .map(({ version, checksum }) => ({
+      version,
+      issue: checksum ? 'checksum_mismatch' : 'checksum_missing',
+    }));
+  const inconsistent = records.flatMap((record) => {
+    const expectedEntry = expected.get(record.version);
+    if (!expectedEntry) return [];
+    const issues = [];
+    if (record.description !== expectedEntry.description) {
+      issues.push('description_mismatch');
+    }
+    if (!Number.isInteger(record.attempts) || record.attempts < 0) {
+      issues.push('invalid_attempt_count');
+    }
+    if (record.state === 'applied') {
+      if (!(record.appliedAt instanceof Date)) issues.push('applied_at_missing');
+      if (record.ownerToken !== undefined) issues.push('residual_owner');
+      if (record.leaseExpiresAt !== undefined) issues.push('residual_lease');
+      if (record.lastFailure !== undefined) issues.push('residual_failure');
+    }
+    else if (record.state === 'running') {
+      if (typeof record.ownerToken !== 'string' || !record.ownerToken) {
+        issues.push('owner_missing');
+      }
+      if (!(record.leaseExpiresAt instanceof Date)) issues.push('lease_missing');
+      if (!(record.lastStartedAt instanceof Date)) issues.push('started_at_missing');
+    }
+    else if (record.state === 'failed') {
+      if (typeof record.lastFailure !== 'string' || !record.lastFailure) {
+        issues.push('failure_missing');
+      }
+      if (record.ownerToken !== undefined) issues.push('residual_owner');
+      if (record.leaseExpiresAt !== undefined) issues.push('residual_lease');
+    }
+    return issues.map((issue) => ({ version: record.version, issue }));
+  });
+
+  return {
+    ok: missing.length === 0 && unexpected.length === 0 &&
+      incomplete.length === 0 && checksumFailures.length === 0 &&
+      inconsistent.length === 0,
+    missing,
+    unexpected,
+    incomplete,
+    checksumFailures,
+    inconsistent,
+  };
+};
 
 
 const verifyCriticalIndexes = async (
@@ -75,21 +180,66 @@ const verifyCriticalIndexes = async (
           issue: 'index_name_mismatch',
         });
       }
-      if (expected.unique === true && actual.unique !== true) {
+      const booleanOptions = ['unique', 'sparse', 'hidden'];
+      for (const option of booleanOptions) {
+        if (Boolean(actual[option]) !== Boolean(expected[option])) {
+          failures.push({
+            collection: collectionName,
+            key: expected.key,
+            issue:
+              option === 'unique' && expected.unique === true
+                ? 'unique_option_missing'
+                : 'index_option_mismatch',
+            option,
+          });
+        }
+      }
+
+      const actualTtl = actual.expireAfterSeconds === undefined
+        ? undefined
+        : Number(actual.expireAfterSeconds);
+      if (actualTtl !== expected.expireAfterSeconds) {
         failures.push({
           collection: collectionName,
           key: expected.key,
-          issue: 'unique_option_missing',
+          issue: expected.expireAfterSeconds === undefined
+            ? 'index_option_mismatch'
+            : 'ttl_option_mismatch',
+          option: 'expireAfterSeconds',
         });
       }
-      if (
-        expected.expireAfterSeconds !== undefined &&
-        Number(actual.expireAfterSeconds) !== expected.expireAfterSeconds
-      ) {
+
+      for (const option of ['partialFilterExpression', 'collation']) {
+        if (!valuesEqual(actual[option], expected[option])) {
+          failures.push({
+            collection: collectionName,
+            key: expected.key,
+            issue: 'index_option_mismatch',
+            option,
+          });
+        }
+      }
+    }
+
+    for (const actual of actualIndexes) {
+      if (actual.name === '_id_') {
+        continue;
+      }
+      const declared = collectionExpectations.some(
+        (expected) => keysEqual(actual.key, expected.key)
+      );
+      if (!declared && actual.unique === true) {
         failures.push({
           collection: collectionName,
-          key: expected.key,
-          issue: 'ttl_option_mismatch',
+          key: actual.key,
+          issue: 'unexpected_unique_index',
+        });
+      }
+      if (!declared && actual.expireAfterSeconds !== undefined) {
+        failures.push({
+          collection: collectionName,
+          key: actual.key,
+          issue: 'unexpected_ttl_index',
         });
       }
     }
@@ -155,9 +305,310 @@ const verifyArmenianPublicationContent = async () => {
 };
 
 
+const timeToMinutes = (time) => {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(time || ''))) {
+    return null;
+  }
+  const [hours, minutes] = time.split(':').map(Number);
+  return hours * 60 + minutes;
+};
+
+
+const countIncompleteAppointmentLocks = async () => {
+  let invalid = 0;
+  const cursor = Appointment.find({ status: { $ne: 'cancelled' } })
+    .select('date startTime endTime bufferMinutes +lockKeys')
+    .lean()
+    .cursor();
+
+  for await (const appointment of cursor) {
+    const start = timeToMinutes(appointment.startTime);
+    const end = timeToMinutes(appointment.endTime);
+    const buffer = appointment.bufferMinutes;
+    const actual = appointment.lockKeys;
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(String(appointment.date || '')) ||
+      start === null ||
+      end === null ||
+      !Number.isInteger(buffer) ||
+      buffer < 0 ||
+      end <= start ||
+      end + buffer > 1440 ||
+      !Array.isArray(actual)
+    ) {
+      invalid += 1;
+      continue;
+    }
+
+    const expected = [];
+    for (let minute = start; minute < end + buffer; minute += 1) {
+      expected.push(`${appointment.date}:${minute}`);
+    }
+    if (
+      actual.length !== expected.length ||
+      new Set(actual).size !== actual.length ||
+      actual.some((key, index) => key !== expected[index])
+    ) {
+      invalid += 1;
+    }
+  }
+
+  return invalid;
+};
+
+
+const countInvalidCancelledAppointmentLocks = async () => {
+  let invalid = 0;
+  const cursor = Appointment.find({ status: 'cancelled' })
+    .select('+lockKeys')
+    .lean()
+    .cursor();
+
+  for await (const appointment of cursor) {
+    const expected = `released:${appointment._id}`;
+    if (
+      !Array.isArray(appointment.lockKeys) ||
+      appointment.lockKeys.length !== 1 ||
+      appointment.lockKeys[0] !== expected
+    ) {
+      invalid += 1;
+    }
+  }
+  return invalid;
+};
+
+
+const countInvalidAppointmentMutationVersions = async () => (
+  Appointment.aggregate([
+    {
+      $match: {
+        $expr: {
+          $cond: [
+            {
+              $in: [
+                { $type: '$mutationVersion' },
+                ['int', 'long', 'double', 'decimal'],
+              ],
+            },
+            {
+              $or: [
+                { $lt: ['$mutationVersion', 0] },
+                {
+                  $ne: [
+                    '$mutationVersion',
+                    { $trunc: '$mutationVersion' },
+                  ],
+                },
+              ],
+            },
+            true,
+          ],
+        },
+      },
+    },
+    { $count: 'count' },
+  ]).then(([result]) => result?.count || 0)
+);
+
+
+const countInvalidRevisionState = async (Model, fields) => (
+  Model.aggregate([
+    {
+      $match: {
+        $expr: {
+          $or: fields.map((field) => ({
+            $cond: [
+              {
+                $in: [
+                  { $type: `$${field}` },
+                  ['int', 'long', 'double', 'decimal'],
+                ],
+              },
+              {
+                $or: [
+                  { $lt: [`$${field}`, 0] },
+                  { $ne: [`$${field}`, { $trunc: `$${field}` }] },
+                ],
+              },
+              true,
+            ],
+          })),
+        },
+      },
+    },
+    { $count: 'count' },
+  ]).then(([result]) => result?.count || 0)
+);
+
+
+const countInvalidAppointmentTimestamps = async () => {
+  let invalid = 0;
+  const cursor = Appointment.find({})
+    .select('date startTime endTime startAt endAt')
+    .lean()
+    .cursor();
+
+  for await (const appointment of cursor) {
+    const start = appointment.startAt instanceof Date
+      ? DateTime.fromJSDate(appointment.startAt, { zone: 'utc' })
+        .setZone(env.CLINIC_TIMEZONE)
+      : null;
+    const end = appointment.endAt instanceof Date
+      ? DateTime.fromJSDate(appointment.endAt, { zone: 'utc' })
+        .setZone(env.CLINIC_TIMEZONE)
+      : null;
+    if (
+      !start?.isValid || !end?.isValid || end <= start ||
+      start.toFormat('yyyy-MM-dd HH:mm') !==
+        `${appointment.date} ${appointment.startTime}` ||
+      end.toFormat('yyyy-MM-dd HH:mm') !==
+        `${appointment.date} ${appointment.endTime}`
+    ) {
+      invalid += 1;
+    }
+  }
+  return invalid;
+};
+
+
+const verifyCatalogAndScheduleReferences = async () => {
+  const activeCategoryIds = await ServiceCategory.distinct('_id', {
+    isActive: true,
+  });
+  const activeServicesWithInvalidCategory = await Service.countDocuments({
+    isActive: true,
+    category: { $nin: activeCategoryIds },
+  });
+
+  const validServiceIds = await Service.distinct('_id', {
+    isActive: true,
+    category: { $in: activeCategoryIds },
+  });
+  const validServiceSet = new Set(validServiceIds.map(String));
+  let bookableDentistsWithInvalidServices = 0;
+  const dentistCursor = Dentist.find({
+    isActive: true,
+    bookingEnabled: true,
+  })
+    .select('services')
+    .lean()
+    .cursor();
+  for await (const dentist of dentistCursor) {
+    if (
+      !Array.isArray(dentist.services) ||
+      dentist.services.length === 0 ||
+      dentist.services.some((id) => !validServiceSet.has(String(id)))
+    ) {
+      bookableDentistsWithInvalidServices += 1;
+    }
+  }
+
+  const dentistIds = await Dentist.distinct('_id');
+  const orphanDentistScheduleExceptions =
+    await DentistScheduleException.countDocuments({
+      dentist: { $nin: dentistIds },
+    });
+
+  return {
+    activeServicesWithInvalidCategory,
+    bookableDentistsWithInvalidServices,
+    orphanDentistScheduleExceptions,
+  };
+};
+
+
+const isUnsafeStoredUrl = (value, validator) => (
+  value !== undefined &&
+  value !== null &&
+  value !== '' &&
+  !validator(value)
+);
+
+
+const countUnsafeStoredPublicUrls = async () => {
+  let count = 0;
+  const publicUrlFields = [
+    [ServiceCategory, 'imageUrl'],
+    [Service, 'imageUrl'],
+    [Dentist, 'photoUrl'],
+  ];
+
+  for (const [Model, field] of publicUrlFields) {
+    const cursor = Model.find({ [field]: { $exists: true } })
+      .select(field)
+      .lean()
+      .cursor();
+    for await (const row of cursor) {
+      if (isUnsafeStoredUrl(row[field], isSafeHttpsUrl)) {
+        count += 1;
+      }
+    }
+  }
+
+  const clinicCursor = Clinic.find({
+    $or: [
+      { mapUrl: { $exists: true } },
+      { socialLinks: { $exists: true } },
+    ],
+  })
+    .select('mapUrl socialLinks')
+    .lean()
+    .cursor();
+  for await (const clinic of clinicCursor) {
+    if (isUnsafeStoredUrl(clinic.mapUrl, isSafeHttpsUrl)) {
+      count += 1;
+    }
+    for (const platform of [
+      'instagram',
+      'facebook',
+      'whatsapp',
+      'telegram',
+    ]) {
+      const value = clinic.socialLinks?.[platform];
+      if (
+        isUnsafeStoredUrl(
+          value,
+          (candidate) => isAllowedSocialUrl(platform, candidate)
+        )
+      ) {
+        count += 1;
+      }
+    }
+  }
+
+  return count;
+};
+
+
+const countUsableActiveAdmins = async () => {
+  const admins = await User.find({
+    role: 'admin',
+    isActive: true,
+    isSetupComplete: true,
+  })
+    .select('+password')
+    .lean();
+
+  return admins.filter(({ password }) => {
+    try {
+      const rounds = bcrypt.getRounds(password);
+      return Number.isInteger(rounds) && rounds >= 4 && rounds <= 31;
+    }
+    catch {
+      return false;
+    }
+  }).length;
+};
+
+
+const dataInvariantsPass = (invariants) => Object.entries(invariants)
+  .filter(([name]) => name !== 'unverifiedLegacyAppointmentPrivacyVersions')
+  .every(([, count]) => count === 0);
+
+
 const verifyDataInvariants = async () => {
   const clinic = await Clinic.findOne({ key: 'default' })
-    .select('bookingSettings.maxAppointmentsPerPhonePerDay')
+    .select('timezone bookingSettings.maxAppointmentsPerPhonePerDay')
     .lean();
   const quotaLimit = clinic?.bookingSettings?.maxAppointmentsPerPhonePerDay;
 
@@ -169,7 +620,26 @@ const verifyDataInvariants = async () => {
     invalidAppointmentLocks,
     invalidAppointmentLockShapeRows,
     missingAppointmentQuotaReferences,
+    duplicateAppointmentQuotaReferences,
+    incompleteAppointmentLocks,
+    invalidCancelledAppointmentLocks,
+    invalidAppointmentMutationVersions,
+    invalidClinicScheduleRevisionState,
+    invalidDentistScheduleRevisionState,
+    invalidServiceBookingGuardState,
+    invalidCategoryServiceMutationState,
+    invalidAppointmentTimestamps,
+    missingAppointmentPrivacyVersions,
+    unverifiedLegacyAppointmentPrivacyVersions,
+    invalidAppointmentPrivacyEvidence,
+    legacyAppointmentIdempotencyHashes,
+    invalidBookingIdempotencyRecords,
+    orphanBookingIdempotencyRecords,
+    quotaKeyVersionMismatchRows,
+    quotaIdentityStatus,
     invalidConsentCases,
+    referenceFailures,
+    unsafeStoredPublicUrls,
     quotaReconciliation,
   ] =
     await Promise.all([
@@ -246,6 +716,95 @@ const verifyDataInvariants = async () => {
           { quotaReservationId: null },
         ],
       }),
+      Appointment.aggregate([
+        {
+          $match: {
+            status: { $ne: 'cancelled' },
+            quotaReservationId: { $type: 'objectId' },
+          },
+        },
+        {
+          $group: {
+            _id: '$quotaReservationId',
+            count: { $sum: 1 },
+          },
+        },
+        { $match: { count: { $gt: 1 } } },
+        { $count: 'count' },
+      ]).then(([result]) => result?.count || 0),
+      countIncompleteAppointmentLocks(),
+      countInvalidCancelledAppointmentLocks(),
+      countInvalidAppointmentMutationVersions(),
+      countInvalidRevisionState(
+        Clinic,
+        ['scheduleRevision', 'bookingGuardVersion']
+      ),
+      countInvalidRevisionState(
+        Dentist,
+        ['scheduleRevision', 'bookingGuardVersion']
+      ),
+      countInvalidRevisionState(Service, ['bookingGuardVersion']),
+      countInvalidRevisionState(ServiceCategory, ['serviceMutationVersion']),
+      countInvalidAppointmentTimestamps(),
+      Appointment.countDocuments({
+        $or: [
+          { privacyPolicyVersion: { $exists: false } },
+          { privacyPolicyVersion: null },
+          { privacyPolicyVersion: '' },
+        ],
+      }),
+      Appointment.countDocuments({
+        privacyPolicyVersion: 'legacy-unverified',
+      }),
+      Appointment.countDocuments({
+        privacyPolicyVersion: { $ne: 'legacy-unverified' },
+        $or: [
+          { privacyConsentAt: { $not: { $type: 'date' } } },
+          {
+            privacyConsentMethod: {
+              $nin: ['website', 'phone', 'in_person'],
+            },
+          },
+          {
+            privacyPolicyVersion: {
+              $not: /^(?:[0-9]{4}-[0-9]{2}(?:\.[0-9]+)?)$/,
+            },
+          },
+        ],
+      }),
+      Appointment.countDocuments({
+        $or: [
+          { idempotencyKeyHash: { $type: 'string' } },
+          { idempotencyRequestHash: { $type: 'string' } },
+        ],
+      }),
+      BookingIdempotency.countDocuments({
+        $or: [
+          { keyHash: { $not: /^[a-f0-9]{64}$/i } },
+          { requestHash: { $not: /^[a-f0-9]{64}$/i } },
+          { appointment: { $not: { $type: 'objectId' } } },
+          { expiresAt: { $not: { $type: 'date' } } },
+          { responseSnapshot: { $exists: false } },
+        ],
+      }),
+      BookingIdempotency.aggregate([
+        {
+          $lookup: {
+            from: 'appointments',
+            localField: 'appointment',
+            foreignField: '_id',
+            as: 'appointments',
+          },
+        },
+        { $match: { appointments: { $size: 0 } } },
+        { $count: 'count' },
+      ]).then(([result]) => result?.count || 0),
+      PhoneDailyQuota.countDocuments({
+        $expr: {
+          $not: [exactPhoneQuotaKeyVersionExpression()],
+        },
+      }),
+      getPhoneQuotaIdentityStatus(),
       BeforeAfterCase.countDocuments({
         publicationStatus: 'published',
         $or: [
@@ -253,20 +812,61 @@ const verifyDataInvariants = async () => {
           { isActive: { $ne: true } },
           { beforeImage: null },
           { afterImage: null },
+          { consentMethod: { $nin: VERIFIED_CONSENT_METHODS } },
+          { consentPolicyVersion: { $ne: env.BEFORE_AFTER_CONSENT_VERSION } },
+          { consentPolicyVersion: UNVERIFIED_POLICY },
+          { consentConfirmedAt: { $not: { $type: 'date' } } },
+          { consentRecordedBy: { $not: { $type: 'objectId' } } },
         ],
       }),
-      reconcilePhoneDailyQuotas({ dryRun: true }),
+      verifyCatalogAndScheduleReferences(),
+      countUnsafeStoredPublicUrls(),
+      Number.isInteger(quotaLimit)
+        ? reconcilePhoneDailyQuotas({
+            dryRun: true,
+            includeLiveOrphans: true,
+          })
+        : {
+            missingReservations: 0,
+            orphanReservations: 0,
+            repairConflicts: 0,
+            invalidAppointmentReferences: 0,
+          },
     ]);
   return {
     invalidClinicSingleton: clinicCount === 1 ? 0 : 1,
+    invalidClinicTimezone:
+      clinic && clinic.timezone === env.CLINIC_TIMEZONE ? 0 : 1,
     invalidQuotaRows,
     overLimitQuotaRows,
     duplicateQuotaReservationRows,
     invalidAppointmentLocks,
     invalidAppointmentLockShapeRows,
     missingAppointmentQuotaReferences,
+    duplicateAppointmentQuotaReferences,
+    incompleteAppointmentLocks,
+    invalidCancelledAppointmentLocks,
+    invalidAppointmentMutationVersions,
+    invalidClinicScheduleRevisionState,
+    invalidDentistScheduleRevisionState,
+    invalidServiceBookingGuardState,
+    invalidCategoryServiceMutationState,
+    invalidAppointmentTimestamps,
+    missingAppointmentPrivacyVersions,
+    unverifiedLegacyAppointmentPrivacyVersions,
+    invalidAppointmentPrivacyEvidence,
+    legacyAppointmentIdempotencyHashes,
+    invalidBookingIdempotencyRecords,
+    orphanBookingIdempotencyRecords,
+    quotaKeyVersionMismatchRows,
+    invalidQuotaKeyIdentity: quotaIdentityStatus.matches ? 0 : 1,
+    invalidQuotaAppointmentReferences:
+      quotaReconciliation.invalidAppointmentReferences,
     missingQuotaReservations: quotaReconciliation.missingReservations,
     staleOrphanQuotaReservations: quotaReconciliation.orphanReservations,
+    quotaRepairConflicts: quotaReconciliation.repairConflicts,
+    ...referenceFailures,
+    unsafeStoredPublicUrls,
     invalidConsentCases,
   };
 };
@@ -290,23 +890,10 @@ const runProductionPreflight = async (
     failures: indexFailures,
   });
 
-  const appliedMigrations = new Set(
-    await Migration.distinct('version')
-  );
-  const missingMigrations = migrationManifest
-    .map(({ version }) => version)
-    .filter((version) => !appliedMigrations.has(version));
-  checks.push({
-    name: 'migrations',
-    ok: missingMigrations.length === 0,
-    missing: missingMigrations,
-  });
+  const migrationLedger = await verifyMigrationLedger();
+  checks.push({ name: 'migrations', ...migrationLedger });
 
-  const activeAdmins = await User.countDocuments({
-    role: 'admin',
-    isActive: true,
-    isSetupComplete: { $ne: false },
-  });
+  const activeAdmins = await countUsableActiveAdmins();
   checks.push({ name: 'active_admin', ok: activeAdmins > 0, count: activeAdmins });
 
   const armenianFailures = await verifyArmenianPublicationContent();
@@ -319,7 +906,7 @@ const runProductionPreflight = async (
   const invariants = await verifyDataInvariants();
   checks.push({
     name: 'data_invariants',
-    ok: Object.values(invariants).every((count) => count === 0),
+    ok: dataInvariantsPass(invariants),
     ...invariants,
   });
 
@@ -344,5 +931,8 @@ export {
   verifyMongoGuarantees,
   verifyArmenianPublicationContent,
   verifyDataInvariants,
+  countUsableActiveAdmins,
+  dataInvariantsPass,
+  verifyMigrationLedger,
   runProductionPreflight,
 };

@@ -4,6 +4,7 @@ import productionModels from './models.js';
 const UNIQUE_DATA_CHECKS = Object.freeze([
   { collection: 'users', fields: ['email'] },
   { collection: 'sessions', fields: ['tokenHash'] },
+  { collection: 'refreshreplayhistories', fields: ['tokenHash'] },
   { collection: 'onetimetokens', fields: ['tokenHash'] },
   { collection: 'servicecategories', fields: ['slug'] },
   { collection: 'services', fields: ['slug'] },
@@ -14,9 +15,20 @@ const UNIQUE_DATA_CHECKS = Object.freeze([
   { collection: 'appointments', fields: ['confirmationCode'] },
   {
     collection: 'appointments',
+    fields: ['quotaReservationId'],
+    filter: { quotaReservationId: { $type: 'objectId' } },
+  },
+  {
+    collection: 'appointments',
+    fields: ['idempotencyKeyHash'],
+    filter: { idempotencyKeyHash: { $type: 'string' } },
+  },
+  {
+    collection: 'appointments',
     fields: ['dentist', 'lockKeys'],
     unwind: 'lockKeys',
   },
+  { collection: 'bookingidempotencies', fields: ['keyHash'] },
   { collection: 'phonedailyquotas', fields: ['phoneKey', 'date'] },
   { collection: 'mediacleanupjobs', fields: ['publicId'] },
 ]);
@@ -41,9 +53,12 @@ const findDuplicateUniqueData = async (db) => {
         ? [{ $unwind: { path: `$${check.unwind}`, preserveNullAndEmptyArrays: false } }]
         : []),
       {
-        $match: Object.fromEntries(
-          check.fields.map((field) => [field, { $exists: true, $ne: null }])
-        ),
+        $match: {
+          ...Object.fromEntries(
+            check.fields.map((field) => [field, { $exists: true, $ne: null }])
+          ),
+          ...(check.filter || {}),
+        },
       },
       { $group: { _id: id, count: { $sum: 1 } } },
       { $match: { count: { $gt: 1 } } },

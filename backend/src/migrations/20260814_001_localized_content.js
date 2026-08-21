@@ -73,6 +73,8 @@ const hasValue = (value) => (
 const run = async ({
   legacyLocale,
   dryRun = true,
+  assertLease = async () => {},
+  beforeDocumentWrite,
 }) => {
   if (!SUPPORTED_LOCALES.includes(legacyLocale)) {
     throw new Error(
@@ -89,6 +91,17 @@ const run = async ({
     const operations = [];
     let scanned = 0;
     let changed = 0;
+    let written = 0;
+
+    const flush = async () => {
+      if (operations.length === 0) return;
+      await assertLease();
+      const result = await target.model.collection.bulkWrite(
+        operations.splice(0),
+        { ordered: false }
+      );
+      written += result.modifiedCount;
+    };
 
     for await (const document of cursor) {
       scanned += 1;
@@ -115,20 +128,29 @@ const run = async ({
       if (Object.keys(set).length) {
         changed += 1;
         if (!dryRun) {
-          operations.push({
-            updateOne: {
-              filter: { _id: document._id },
-              update: { $set: set },
-            },
+          await beforeDocumentWrite?.({
+            target: target.name,
+            document,
+            set,
           });
+          for (const [translatedField, value] of Object.entries(set)) {
+            const sourceField = translatedField.split('.').at(-1);
+            operations.push({
+              updateOne: {
+                filter: {
+                  _id: document._id,
+                  [sourceField]: document[sourceField],
+                  [translatedField]: { $exists: false },
+                },
+                update: { $set: { [translatedField]: value } },
+              },
+            });
+          }
 
           if (
             operations.length >= WRITE_BATCH_SIZE
           ) {
-            await target.model.collection.bulkWrite(
-              operations.splice(0),
-              { ordered: false }
-            );
+            await flush();
           }
         }
       }
@@ -137,13 +159,12 @@ const run = async ({
     stats[target.name] = {
       scanned,
       changed,
+      written,
     };
 
-    if (!dryRun && operations.length) {
-      await target.model.collection.bulkWrite(
-        operations,
-        { ordered: false }
-      );
+    if (!dryRun) {
+      await flush();
+      stats[target.name].written = written;
     }
   }
 

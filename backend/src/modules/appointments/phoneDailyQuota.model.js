@@ -32,6 +32,11 @@ const phoneDailyQuotaSchema = new mongoose.Schema(
       match: /^\d{4}-\d{2}-\d{2}$/,
       index: true,
     },
+    keyVersion: {
+      type: String,
+      required: true,
+      match: /^v[1-9][0-9]{0,5}$/,
+    },
     reservations: {
       type: [reservationSchema],
       default: [],

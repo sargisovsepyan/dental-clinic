@@ -1,5 +1,6 @@
 import test, { after, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 
 process.env.NODE_ENV = 'test';
@@ -8,7 +9,11 @@ process.env.JWT_SECRET = 'test-only-secret-that-is-at-least-thirty-two-character
 process.env.CLIENT_URL = 'http://localhost:5173';
 process.env.CLINIC_TIMEZONE = 'Asia/Yerevan';
 
-const { connectTestDatabase, clearTestDatabase, disconnectTestDatabase } = await import('../test-support/database.js');
+const {
+  connectReplTestDatabase: connectTestDatabase,
+  clearReplTestDatabase: clearTestDatabase,
+  disconnectReplTestDatabase: disconnectTestDatabase,
+} = await import('../test-support/replDatabase.js');
 const { seedCore, seedStaff, publicBooking } = await import('../test-support/fixtures.js');
 const { default: app } = await import('../src/app.js');
 const { default: Appointment } = await import('../src/modules/appointments/appointment.model.js');
@@ -29,6 +34,10 @@ beforeEach(async () => {
 after(disconnectTestDatabase);
 
 const auth = (token) => ({ Authorization: `Bearer ${token}` });
+const postPublicBooking = (body, key = randomUUID()) => request(app)
+  .post('/api/v1/appointments')
+  .set('Idempotency-Key', key)
+  .send(body);
 const createDirect = (start = '09:00', suffix = '901') => appointmentService.createAppointment(
   publicBooking(core, start, suffix),
 );
@@ -39,7 +48,7 @@ test('public booking normalizes phone and stores correct timestamps, snapshots, 
     patientPhone: '099 123 456',
     patientComment: 'Please call on arrival',
   };
-  const response = await request(app).post('/api/v1/appointments').send(body);
+  const response = await postPublicBooking(body);
   assert.equal(response.status, 201);
   assert.equal(response.body.data.appointment.patientPhone, undefined);
   assert.equal(response.body.data.appointment.patientEmail, undefined);
@@ -56,19 +65,36 @@ test('public booking normalizes phone and stores correct timestamps, snapshots, 
   assert.equal(stored.priceSnapshot.priceFrom, 20000);
   assert.equal(stored.source, 'website');
   assert.equal(stored.privacyConsentMethod, 'website');
+  assert.equal(stored.privacyPolicyVersion, '2026-01');
+  assert.equal(stored.mutationVersion, 0);
   assert.ok(stored.privacyConsentAt instanceof Date);
 });
 
 test('privacy consent, valid relations, and configured email requirement are enforced', async () => {
   const withoutConsent = { ...publicBooking(core, '09:00', '921') };
   delete withoutConsent.privacyAccepted;
-  assert.equal((await request(app).post('/api/v1/appointments').send(withoutConsent)).status, 400);
+  assert.equal((await postPublicBooking(withoutConsent)).status, 400);
 
   await Clinic.updateOne({ key: 'default' }, { $set: { 'bookingSettings.requireEmail': true } });
   const withoutEmail = { ...publicBooking(core, '09:00', '922'), patientEmail: '' };
-  const response = await request(app).post('/api/v1/appointments').send(withoutEmail);
+  const response = await postPublicBooking(withoutEmail);
   assert.equal(response.status, 400);
   assert.match(response.body.message, /Email is required/);
+});
+
+test('public booking requires a UUID v4 Idempotency-Key before processing', async () => {
+  const payload = publicBooking(core, '09:00', '923');
+  const missing = await request(app)
+    .post('/api/v1/appointments')
+    .send(payload);
+  const malformed = await request(app)
+    .post('/api/v1/appointments')
+    .set('Idempotency-Key', 'predictable-key')
+    .send(payload);
+
+  assert.equal(missing.status, 400);
+  assert.equal(malformed.status, 400);
+  assert.equal(await Appointment.countDocuments(), 0);
 });
 
 test('admin phone booking stores source, creator, consent method, and internal note atomically', async () => {
@@ -123,7 +149,7 @@ test('state machine accepts the valid path and rejects transitions from terminal
   assert.equal(reschedule.status, 409);
 });
 
-test('concurrent transitions from one state have exactly one winner', async () => {
+test('concurrent duplicate transitions from one state have exactly one winner', async () => {
   const appointment = await createDirect('13:00', '961');
   const responses = await Promise.all([
     request(app)
@@ -133,9 +159,12 @@ test('concurrent transitions from one state have exactly one winner', async () =
     request(app)
       .patch(`/api/v1/appointments/${appointment._id}/status`)
       .set(auth(staff.adminToken))
-      .send({ status: 'no_show' }),
+      .send({ status: 'confirmed' }),
   ]);
   assert.deepEqual(responses.map(({ status }) => status).sort(), [200, 409]);
+  const stored = await Appointment.findById(appointment._id).lean();
+  assert.equal(stored.status, 'confirmed');
+  assert.equal(stored.mutationVersion, 1);
 });
 
 test('cancelled and no-show appointments reject invalid transitions and rescheduling', async () => {
@@ -163,17 +192,25 @@ test('cancelled and no-show appointments reject invalid transitions and reschedu
 test('maximum bookings per phone per local date is enforced and cancelled bookings do not count', async () => {
   await Clinic.updateOne({ key: 'default' }, { $set: { 'bookingSettings.maxAppointmentsPerPhonePerDay': 1 } });
   const samePhone = publicBooking(core, '09:00', '981');
-  assert.equal((await request(app).post('/api/v1/appointments').send(samePhone)).status, 201);
-  const second = await request(app).post('/api/v1/appointments').send({ ...samePhone, startTime: '11:00' });
+  assert.equal((await postPublicBooking(samePhone)).status, 201);
+  const second = await postPublicBooking({ ...samePhone, startTime: '11:00' });
   assert.equal(second.status, 429);
 
   const existing = await Appointment.findOne({ patientPhone: samePhone.patientPhone });
   await appointmentService.cancelAppointment(existing._id, staff.admin._id, 'Cancelled');
-  assert.equal((await request(app).post('/api/v1/appointments').send({ ...samePhone, startTime: '11:00' })).status, 201);
+  assert.equal((await postPublicBooking({ ...samePhone, startTime: '11:00' })).status, 201);
 });
 
 test('appointment administration is available to receptionists but denied to dentist-role users', async () => {
   await createDirect('16:00', '991');
   assert.equal((await request(app).get('/api/v1/appointments').set(auth(staff.receptionistToken))).status, 200);
   assert.equal((await request(app).get('/api/v1/appointments').set(auth(staff.dentistToken))).status, 403);
+});
+
+test('appointment list rejects a reversed local-date range', async () => {
+  const response = await request(app)
+    .get('/api/v1/appointments')
+    .query({ from: '2026-08-20', to: '2026-08-19' })
+    .set(auth(staff.receptionistToken));
+  assert.equal(response.status, 400);
 });

@@ -177,7 +177,8 @@ const deleteScheduleException =
     await dentistService
       .deleteScheduleException(
         req.params.id,
-        req.params.date
+        req.params.date,
+        req.validatedQuery || req.query
       );
 
     res.status(200).json({

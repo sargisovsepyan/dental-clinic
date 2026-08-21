@@ -123,6 +123,80 @@ const mergeTranslations = (
   return merged;
 };
 
+const valuesEqual = (left, right) => (
+  JSON.stringify(left) === JSON.stringify(right)
+);
+
+const synchronizePrimaryFields = (
+  data,
+  localizedFields,
+  label
+) => {
+  const normalized = {
+    ...data,
+  };
+  const incomingTranslations = data.translations
+    ? structuredClone(data.translations)
+    : undefined;
+  const primary = {
+    ...(incomingTranslations?.[PRIMARY_LOCALE] || {}),
+  };
+  let hasPrimaryUpdate = false;
+
+  for (const field of localizedFields) {
+    const legacyValue = data[field];
+    const primaryValue = primary[field];
+
+    if (
+      legacyValue !== undefined &&
+      primaryValue !== undefined &&
+      !valuesEqual(legacyValue, primaryValue)
+    ) {
+      throw new ApiError(
+        400,
+        `${label} ${field} conflicts with translations.${PRIMARY_LOCALE}.${field}`
+      );
+    }
+
+    const authoritativeValue = primaryValue !== undefined
+      ? primaryValue
+      : legacyValue;
+
+    if (authoritativeValue === undefined) {
+      continue;
+    }
+
+    primary[field] = authoritativeValue;
+    normalized[field] = authoritativeValue;
+    hasPrimaryUpdate = true;
+  }
+
+  if (incomingTranslations || hasPrimaryUpdate) {
+    normalized.translations = {
+      ...(incomingTranslations || {}),
+      ...(hasPrimaryUpdate && {
+        [PRIMARY_LOCALE]: primary,
+      }),
+    };
+  }
+
+  return normalized;
+};
+
+const buildTranslationSet = (translations) => {
+  const set = {};
+
+  for (const locale of SUPPORTED_LOCALES) {
+    for (const [field, value] of Object.entries(
+      translations?.[locale] || {}
+    )) {
+      set[`translations.${locale}.${field}`] = value;
+    }
+  }
+
+  return set;
+};
+
 const hasPrimaryContent = (
   translations,
   requiredFields
@@ -174,6 +248,8 @@ export {
   createMultipartTranslations,
   assertSupportedTranslationKeys,
   mergeTranslations,
+  synchronizePrimaryFields,
+  buildTranslationSet,
   hasPrimaryContent,
   requirePrimaryContent,
 };

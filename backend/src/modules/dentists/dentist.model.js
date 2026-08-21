@@ -6,6 +6,7 @@ import {
   createTranslationsSchema,
   requirePrimaryContent,
 } from '../../i18n/localization.js';
+import { SLUG_PATTERN } from '../../utils/buildSlug.js';
 
 const dentistTranslationSchema = new mongoose.Schema(
   {
@@ -102,6 +103,7 @@ const dentistSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       trim: true,
+      match: SLUG_PATTERN,
       maxlength: 180,
     },
 
@@ -179,6 +181,19 @@ const dentistSchema = new mongoose.Schema(
     weeklySchedule: {
       type: [weeklyDaySchema],
       default: [],
+    },
+
+    scheduleRevision: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    bookingGuardVersion: {
+      type: Number,
+      min: 0,
+      default: 0,
+      select: false,
     },
 
     isFeatured: {

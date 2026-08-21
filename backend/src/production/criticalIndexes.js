@@ -3,7 +3,16 @@ const CRITICAL_INDEXES = Object.freeze([
   { collection: 'sessions', key: { tokenHash: 1 }, unique: true },
   { collection: 'sessions', key: { expiresAt: 1 }, expireAfterSeconds: 0 },
   { collection: 'sessions', key: { user: 1, revokedAt: 1, createdAt: -1 } },
-  { collection: 'sessions', key: { consumedTokenHashes: 1 } },
+  {
+    collection: 'refreshreplayhistories',
+    key: { tokenHash: 1 },
+    unique: true,
+  },
+  {
+    collection: 'refreshreplayhistories',
+    key: { expiresAt: 1 },
+    expireAfterSeconds: 0,
+  },
   { collection: 'onetimetokens', key: { tokenHash: 1 }, unique: true },
   { collection: 'onetimetokens', key: { expiresAt: 1 }, expireAfterSeconds: 0 },
   { collection: 'onetimetokens', key: { user: 1, purpose: 1, consumedAt: 1 } },
@@ -29,8 +38,38 @@ const CRITICAL_INDEXES = Object.freeze([
     unique: true,
     name: 'unique_dentist_booking_lock',
   },
+  {
+    collection: 'appointments',
+    key: { quotaReservationId: 1 },
+    unique: true,
+    name: 'unique_appointment_quota_reservation',
+    partialFilterExpression: {
+      quotaReservationId: { $type: 'objectId' },
+    },
+  },
+  {
+    collection: 'appointments',
+    key: { idempotencyKeyHash: 1 },
+    unique: true,
+    name: 'unique_booking_idempotency_key',
+    partialFilterExpression: {
+      idempotencyKeyHash: { $type: 'string' },
+    },
+  },
   { collection: 'appointments', key: { dentist: 1, date: 1, startAt: 1 } },
   { collection: 'appointments', key: { date: 1, status: 1 } },
+  {
+    collection: 'bookingidempotencies',
+    key: { keyHash: 1 },
+    unique: true,
+  },
+  {
+    collection: 'bookingidempotencies',
+    key: { expiresAt: 1 },
+    expireAfterSeconds: 0,
+  },
+  { collection: 'migrations', key: { version: 1 }, unique: true },
+  { collection: 'migrations', key: { state: 1 } },
   {
     collection: 'phonedailyquotas',
     key: { phoneKey: 1, date: 1 },

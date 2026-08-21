@@ -3,17 +3,105 @@
 import mongoose from 'mongoose';
 
 import Appointment from './appointment.model.js';
+import BookingIdempotency from './bookingIdempotency.model.js';
 import {
+  initializePhoneQuotaInfrastructure,
+  assertPhoneQuotaKeyIdentity,
   acquirePhoneDailyQuota,
   releasePhoneDailyQuota,
 } from './phoneDailyQuota.service.js';
 
 import * as availabilityService from '../availability/availability.service.js';
-import * as clinicService from '../clinic/clinic.service.js';
+import Clinic from '../clinic/clinic.model.js';
+import Dentist from '../dentists/dentist.model.js';
+import Service from '../services/service.model.js';
+import ServiceCategory from '../serviceCategories/serviceCategory.model.js';
 
 import ApiError from '../../utils/ApiError.js';
 import normalizePhone from '../../utils/normalizePhone.js';
-import logger from '../../observability/logger.js';
+import runTransaction from '../../utils/runTransaction.js';
+import env from '../../config/env.js';
+
+
+class BookingGuardChangedError extends Error {
+  constructor() {
+    super('Booking inputs changed during appointment admission');
+    this.name = 'BookingGuardChangedError';
+  }
+}
+
+
+const versionPredicate = (field, value) => (
+  Number.isInteger(value) && value > 0
+    ? { [field]: value }
+    : {
+        $or: [
+          { [field]: 0 },
+          { [field]: { $exists: false } },
+        ],
+      }
+);
+
+
+const bookingGuardPredicate = (value) =>
+  versionPredicate('bookingGuardVersion', value);
+
+
+const touchBookingGuards = async (guard, session) => {
+  const category = await ServiceCategory.updateOne(
+    {
+      _id: guard.categoryId,
+      ...versionPredicate('serviceMutationVersion', guard.categoryVersion),
+      isActive: true,
+    },
+    { $inc: { serviceMutationVersion: 1 } },
+    { session }
+  );
+  if (category.modifiedCount !== 1) {
+    throw new BookingGuardChangedError();
+  }
+
+  const service = await Service.updateOne(
+    {
+      _id: guard.serviceId,
+      category: guard.categoryId,
+      ...bookingGuardPredicate(guard.serviceVersion),
+      isActive: true,
+      bookingEnabled: true,
+    },
+    { $inc: { bookingGuardVersion: 1 } },
+    { session }
+  );
+  if (service.modifiedCount !== 1) {
+    throw new BookingGuardChangedError();
+  }
+
+  const clinic = await Clinic.updateOne(
+    {
+      _id: guard.clinicId,
+      ...bookingGuardPredicate(guard.clinicVersion),
+    },
+    { $inc: { bookingGuardVersion: 1 } },
+    { session }
+  );
+  if (clinic.modifiedCount !== 1) {
+    throw new BookingGuardChangedError();
+  }
+
+  const dentist = await Dentist.updateOne(
+    {
+      _id: guard.dentistId,
+      ...bookingGuardPredicate(guard.dentistVersion),
+      isActive: true,
+      bookingEnabled: true,
+    },
+    { $inc: { bookingGuardVersion: 1 } },
+    { session }
+  );
+  if (dentist.modifiedCount !== 1) {
+    throw new BookingGuardChangedError();
+  }
+};
 
 
 const generateConfirmationCode = () => {
@@ -56,329 +144,382 @@ const buildLockKeys = (
 };
 
 
-const createAppointment = async (
-  data,
-  context = {}
+const hashIdempotencyKey = (key) => (
+  crypto
+    .createHash('sha256')
+    .update('booking-idempotency\0', 'utf8')
+    .update(key, 'utf8')
+    .digest('hex')
+);
+
+
+const IDEMPOTENCY_KEY_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+
+const validateBookingIdempotencyKey = (key, { required = false } = {}) => {
+  if (!key && !required) {
+    return null;
+  }
+  if (typeof key !== 'string' || !IDEMPOTENCY_KEY_PATTERN.test(key)) {
+    throw new ApiError(400, 'Idempotency-Key must be a UUID v4');
+  }
+  return key.toLowerCase();
+};
+
+
+const hashBookingRequest = (data, patientPhone, idempotencyKey) => (
+  crypto
+    .createHmac('sha256', idempotencyKey)
+    .update('booking-request-fingerprint\0', 'utf8')
+    .update(JSON.stringify({
+      patientName: data.patientName,
+      patientPhone,
+      patientEmail: (data.patientEmail || '').toLowerCase(),
+      dentistId: String(data.dentistId),
+      serviceId: String(data.serviceId),
+      date: data.date,
+      startTime: data.startTime,
+      patientComment: data.patientComment || '',
+      privacyAccepted: data.privacyAccepted,
+    }), 'utf8')
+    .digest('hex')
+);
+
+
+const BOOKING_METADATA = Symbol('bookingMetadata');
+
+
+const attachBookingMetadata = (
+  appointment,
+  { replayed, publicResult }
 ) => {
-  const patientPhone =
-    normalizePhone(
-      data.patientPhone
-    );
-
-
-  const clinic =
-    await clinicService.getClinic();
-
-
-  if (
-    clinic.bookingSettings
-      .requireEmail &&
-    !data.patientEmail
-  ) {
-    throw new ApiError(
-      400,
-      'Email is required for booking'
-    );
-  }
-
-
-  const availability =
-    await availabilityService
-      .getAvailability({
-        dentistId:
-          data.dentistId,
-
-        serviceId:
-          data.serviceId,
-
-        date:
-          data.date,
-      });
-
-
-  const selectedSlot =
-    availability.slots.find(
-      (slot) =>
-        slot.start ===
-        data.startTime
-    );
-
-
-  if (!selectedSlot) {
-    throw new ApiError(
-      409,
-      'Selected time is no longer available'
-    );
-  }
-
-
-  const maxPerDay =
-    clinic.bookingSettings
-      .maxAppointmentsPerPhonePerDay;
-
-
-  const appointmentId =
-    new mongoose.Types.ObjectId();
-
-  const quotaReservationId =
-    appointmentId;
-
-
-  const startMinute =
-    timeToMinutes(
-      selectedSlot.start
-    );
-
-
-  const appointmentEndMinute =
-    timeToMinutes(
-      selectedSlot.end
-    );
-
-
-  const blockedEndMinute =
-    appointmentEndMinute +
-    availability.rules
-      .bufferMinutes;
-
-
-  const lockKeys =
-    buildLockKeys(
-      data.date,
-      startMinute,
-      blockedEndMinute
-    );
-
-
-  const basePayload = {
-    patientName:
-      data.patientName,
-
-    patientPhone,
-
-    patientEmail:
-      data.patientEmail || '',
-
-
-    dentist:
-      availability.dentist.id,
-
-    service:
-      availability.service.id,
-
-
-    dentistSnapshot: {
-      firstName:
-        availability
-          .dentist
-          .firstName,
-
-      lastName:
-        availability
-          .dentist
-          .lastName,
-
-      title:
-        availability
-          .dentist
-          .title || '',
-
-      translations:
-        availability
-          .dentist
-          .translations || {},
-    },
-
-
-    serviceSnapshot: {
-      name:
-        availability
-          .service
-          .name,
-
-      durationMinutes:
-        availability
-          .service
-          .durationMinutes,
-
-      translations:
-        availability
-          .service
-          .translations || {},
-    },
-
-
-    priceSnapshot: {
-      priceType:
-        availability
-          .service
-          .priceType,
-
-      priceFrom:
-        availability
-          .service
-          .priceFrom,
-
-      priceTo:
-        availability
-          .service
-          .priceTo,
-
-      currency:
-        availability
-          .service
-          .currency,
-    },
-
-
-    date:
-      data.date,
-
-    startTime:
-      selectedSlot.start,
-
-    endTime:
-      selectedSlot.end,
-
-    startAt:
-      new Date(
-        selectedSlot.startAt
-      ),
-
-    endAt:
-      new Date(
-        selectedSlot.endAt
-      ),
-
-    bufferMinutes:
-      availability
-        .rules
-        .bufferMinutes,
-
-
-    lockKeys,
-
-    quotaReservationId,
-
-
-    status:
-      clinic.bookingSettings
-        .autoConfirmAppointments
-        ? 'confirmed'
-        : 'pending',
-
-
-    source:
-      context.source ||
-      'website',
-
-
-    patientComment:
-      data.patientComment || '',
-
-
-    internalNote:
-      context.internalNote || '',
-
-
-    privacyConsentAt:
-      new Date(),
-
-    privacyConsentMethod:
-      context.privacyConsentMethod ||
-      'website',
-
-    createdBy:
-      context.createdBy || null,
-  };
-
-
-  await Appointment.init();
-
-  await acquirePhoneDailyQuota({
-    patientPhone,
-    date: data.date,
-    reservationId: quotaReservationId,
-    limit: maxPerDay,
+  Object.defineProperty(appointment, BOOKING_METADATA, {
+    value: Object.freeze({ replayed, publicResult }),
+    enumerable: false,
   });
+  return appointment;
+};
 
-  let appointment;
 
-  try {
-    for (
-      let attempt = 1;
-      attempt <= 3;
-      attempt += 1
-    ) {
-      try {
-        appointment =
-          await Appointment.create({
-            _id: appointmentId,
-            ...basePayload,
+const wasIdempotentBookingReplay = (appointment) => Boolean(
+  appointment?.[BOOKING_METADATA]?.replayed
+);
 
-            confirmationCode:
-              generateConfirmationCode(),
-          });
 
-        break;
-      }
-      catch (error) {
-        const isDuplicateKey =
-          error?.code === 11000 ||
-          String(error?.message || '')
-            .includes('E11000');
+const getPublicBookingResult = (appointment) => (
+  appointment?.[BOOKING_METADATA]?.publicResult || {
+    id: appointment._id,
+    confirmationCode: appointment.confirmationCode,
+    patientName: appointment.patientName,
+    date: appointment.date,
+    startTime: appointment.startTime,
+    endTime: appointment.endTime,
+    status: appointment.status,
+    dentist: appointment.dentist,
+    service: appointment.service,
+    price: appointment.priceSnapshot,
+  }
+);
 
-        if (!isDuplicateKey) {
-          throw error;
-        }
 
-        const duplicateField =
-          Object.keys(
-            error?.keyPattern || {}
-          )[0];
+const getAppointmentResult = (id) => Appointment
+  .findById(id)
+  .populate(
+    'dentist',
+    'firstName lastName slug title translations'
+  )
+  .populate(
+    'service',
+    'name slug translations'
+  )
+  .lean();
 
-        if (
-          duplicateField ===
-          'confirmationCode'
-        ) {
-          continue;
-        }
 
-        throw new ApiError(
-          409,
-          'Selected time was just booked by another patient. Please choose another time.'
-        );
-      }
+const resolveIdempotentAppointment = async (
+  idempotencyKeyHash,
+  idempotencyRequestHash
+) => {
+  if (!idempotencyKeyHash) {
+    return null;
+  }
+
+  const now = new Date();
+  const record = await BookingIdempotency.findOne({
+    keyHash: idempotencyKeyHash,
+  })
+    .select('+keyHash +requestHash +responseSnapshot')
+    .lean();
+  if (record?.expiresAt <= now) {
+    await BookingIdempotency.deleteOne({
+      _id: record._id,
+      expiresAt: { $lte: now },
+    });
+  }
+  else if (record) {
+    if (record.requestHash !== idempotencyRequestHash) {
+      throw new ApiError(
+        409,
+        'Idempotency key was already used with a different booking request'
+      );
     }
-
+    const appointment = await getAppointmentResult(record.appointment);
     if (!appointment) {
       throw new ApiError(
-        500,
-        'Could not generate appointment confirmation code'
+        409,
+        'The original idempotent booking result is no longer available'
+      );
+    }
+    return attachBookingMetadata(appointment, {
+      replayed: true,
+      publicResult: record.responseSnapshot,
+    });
+  }
+
+  const existing = await Appointment.findOne({ idempotencyKeyHash })
+    .select('+idempotencyKeyHash +idempotencyRequestHash')
+    .lean();
+  if (!existing) {
+    return null;
+  }
+  if (existing.idempotencyRequestHash !== idempotencyRequestHash) {
+    throw new ApiError(
+      409,
+      'Idempotency key was already used with a different booking request'
+    );
+  }
+
+  const appointment = await getAppointmentResult(existing._id);
+  return attachBookingMetadata(appointment, {
+    replayed: true,
+    publicResult: getPublicBookingResult(appointment),
+  });
+};
+
+
+const mutationVersionPredicate = (value) => {
+  const version = Number.isInteger(value) ? value : 0;
+  return version === 0
+    ? {
+        $or: [
+          { mutationVersion: 0 },
+          { mutationVersion: { $exists: false } },
+        ],
+      }
+    : { mutationVersion: version };
+};
+
+
+const prepareAppointment = async ({
+  data,
+  context,
+  patientPhone,
+  appointmentId,
+}) => {
+  const availability = await availabilityService.getAvailability({
+    dentistId: data.dentistId,
+    serviceId: data.serviceId,
+    date: data.date,
+    includeBookingGuard: true,
+  });
+  const selectedSlot = availability.slots.find(
+    (slot) => slot.start === data.startTime
+  );
+  if (!selectedSlot) {
+    throw new ApiError(409, 'Selected time is no longer available');
+  }
+  const settings = availability._bookingSettings;
+  if (settings.requireEmail && !data.patientEmail) {
+    throw new ApiError(400, 'Email is required for booking');
+  }
+
+  const startMinute = timeToMinutes(selectedSlot.start);
+  const endMinute = timeToMinutes(selectedSlot.end);
+  const priceSnapshot = {
+    priceType: availability.service.priceType,
+    priceFrom: availability.service.priceFrom,
+    priceTo: availability.service.priceTo,
+    currency: availability.service.currency,
+  };
+  const payload = {
+    patientName: data.patientName,
+    patientPhone,
+    patientEmail: data.patientEmail || '',
+    dentist: availability.dentist.id,
+    service: availability.service.id,
+    dentistSnapshot: {
+      firstName: availability.dentist.firstName,
+      lastName: availability.dentist.lastName,
+      title: availability.dentist.title || '',
+      translations: availability.dentist.translations || {},
+    },
+    serviceSnapshot: {
+      name: availability.service.name,
+      durationMinutes: availability.service.durationMinutes,
+      translations: availability.service.translations || {},
+    },
+    priceSnapshot,
+    date: data.date,
+    startTime: selectedSlot.start,
+    endTime: selectedSlot.end,
+    startAt: new Date(selectedSlot.startAt),
+    endAt: new Date(selectedSlot.endAt),
+    bufferMinutes: availability.rules.bufferMinutes,
+    lockKeys: buildLockKeys(
+      data.date,
+      startMinute,
+      endMinute + availability.rules.bufferMinutes
+    ),
+    quotaReservationId: appointmentId,
+    status: settings.autoConfirmAppointments ? 'confirmed' : 'pending',
+    source: context.source || 'website',
+    patientComment: data.patientComment || '',
+    internalNote: context.internalNote || '',
+    privacyConsentAt: new Date(),
+    privacyConsentMethod: context.privacyConsentMethod || 'website',
+    privacyPolicyVersion: env.APPOINTMENT_PRIVACY_POLICY_VERSION,
+    createdBy: context.createdBy || null,
+  };
+  return { availability, settings, payload };
+};
+
+
+const createAppointment = async (data, context = {}) => {
+  const patientPhone = normalizePhone(data.patientPhone);
+  const idempotencyKey = validateBookingIdempotencyKey(context.idempotencyKey);
+  const idempotencyKeyHash = idempotencyKey
+    ? hashIdempotencyKey(idempotencyKey)
+    : null;
+  const idempotencyRequestHash = idempotencyKey
+    ? hashBookingRequest(data, patientPhone, idempotencyKey)
+    : null;
+  const idempotent = await resolveIdempotentAppointment(
+    idempotencyKeyHash,
+    idempotencyRequestHash
+  );
+  if (idempotent) {
+    return idempotent;
+  }
+
+  await Promise.all([
+    Appointment.init(),
+    BookingIdempotency.init(),
+    initializePhoneQuotaInfrastructure(),
+  ]);
+  await assertPhoneQuotaKeyIdentity();
+
+  const appointmentId = new mongoose.Types.ObjectId();
+  let bookingOutcome;
+  for (let attempt = 1; attempt <= 12; attempt += 1) {
+    const replayBeforeAdmission = await resolveIdempotentAppointment(
+      idempotencyKeyHash,
+      idempotencyRequestHash
+    );
+    if (replayBeforeAdmission) {
+      return replayBeforeAdmission;
+    }
+    let prepared;
+    try {
+      prepared = await prepareAppointment({
+        data,
+        context,
+        patientPhone,
+        appointmentId,
+      });
+    }
+    catch (error) {
+      const replayAfterPreparation = await resolveIdempotentAppointment(
+        idempotencyKeyHash,
+        idempotencyRequestHash
+      );
+      if (replayAfterPreparation) {
+        return replayAfterPreparation;
+      }
+      throw error;
+    }
+    try {
+      bookingOutcome = await runTransaction(async (session) => {
+        await touchBookingGuards(prepared.availability._bookingGuard, session);
+        await acquirePhoneDailyQuota({
+          patientPhone,
+          date: data.date,
+          reservationId: appointmentId,
+          limit: prepared.settings.maxAppointmentsPerPhonePerDay,
+          session,
+        });
+
+        const confirmationCode = generateConfirmationCode();
+        const [created] = await Appointment.create([{
+          _id: appointmentId,
+          ...prepared.payload,
+          confirmationCode,
+        }], { session });
+        const publicResult = {
+          id: appointmentId,
+          confirmationCode,
+          patientName: prepared.payload.patientName,
+          date: prepared.payload.date,
+          startTime: prepared.payload.startTime,
+          endTime: prepared.payload.endTime,
+          status: prepared.payload.status,
+          dentist: prepared.availability.dentist,
+          service: prepared.availability.service,
+          price: prepared.payload.priceSnapshot,
+        };
+        if (idempotencyKeyHash) {
+          await BookingIdempotency.create([{
+            keyHash: idempotencyKeyHash,
+            requestHash: idempotencyRequestHash,
+            appointment: appointmentId,
+            responseSnapshot: publicResult,
+            expiresAt: new Date(
+              Date.now() +
+              env.BOOKING_IDEMPOTENCY_TTL_HOURS * 60 * 60 * 1000
+            ),
+          }], { session });
+        }
+        return { appointment: created, publicResult };
+      });
+      break;
+    }
+    catch (error) {
+      if (error instanceof BookingGuardChangedError) {
+        continue;
+      }
+      const duplicate = error?.code === 11000 ||
+        String(error?.message || '').includes('E11000');
+      if (!duplicate) {
+        throw error;
+      }
+      const replay = await resolveIdempotentAppointment(
+        idempotencyKeyHash,
+        idempotencyRequestHash
+      );
+      if (replay) {
+        return replay;
+      }
+      if (Object.keys(error?.keyPattern || {})[0] === 'confirmationCode') {
+        continue;
+      }
+      throw new ApiError(
+        409,
+        'Selected time was just booked by another patient. Please choose another time.'
       );
     }
   }
-  catch (error) {
-    await releasePhoneDailyQuota({
-      patientPhone,
-      date: data.date,
-      reservationId: quotaReservationId,
-    }).catch(() => {});
 
-    throw error;
+  if (!bookingOutcome) {
+    throw new ApiError(
+      409,
+      'Booking settings changed repeatedly; reload availability and try again',
+      { code: 'BOOKING_SCHEDULE_CHANGED' }
+    );
   }
-
-  return Appointment
-    .findById(appointment._id)
-    .populate(
-      'dentist',
-      'firstName lastName slug title translations'
-    )
-    .populate(
-      'service',
-      'name slug translations'
-    )
-    .lean();
+  const appointment = await getAppointmentResult(bookingOutcome.appointment._id);
+  return attachBookingMetadata(appointment, {
+    replayed: false,
+    publicResult: bookingOutcome.publicResult,
+  });
 };
 
 
@@ -604,11 +745,13 @@ const updateStatus = async (
           _id: id,
           status:
             appointment.status,
-          updatedAt:
-            appointment.updatedAt,
+          ...mutationVersionPredicate(
+            appointment.mutationVersion
+          ),
         },
         {
           $set: update,
+          $inc: { mutationVersion: 1 },
         },
         {
           returnDocument:
@@ -635,105 +778,61 @@ const cancelAppointment = async (
   userId,
   reason
 ) => {
-  const appointment =
-    await Appointment
-      .findById(id)
-      .select(
-        '+lockKeys +quotaReservationId'
-      );
+  await initializePhoneQuotaInfrastructure();
 
+  const appointment = await Appointment.findById(id)
+    .select('+lockKeys +quotaReservationId');
 
   if (!appointment) {
-    throw new ApiError(
-      404,
-      'Appointment not found'
-    );
+    throw new ApiError(404, 'Appointment not found');
   }
-
-
-  if (
-    appointment.status ===
-    'cancelled'
-  ) {
-    throw new ApiError(
-      409,
-      'Appointment is already cancelled'
-    );
+  if (appointment.status === 'cancelled') {
+    throw new ApiError(409, 'Appointment is already cancelled');
   }
-
-
-  if (
-    appointment.status ===
-      'completed' ||
-    appointment.status ===
-      'no_show'
-  ) {
+  if (['completed', 'no_show'].includes(appointment.status)) {
     throw new ApiError(
       409,
       `Cannot cancel a ${appointment.status} appointment`
     );
   }
 
-
-  const cancelled =
-    await Appointment
-      .findOneAndUpdate(
-        {
-          _id: appointment._id,
-          status:
-            appointment.status,
-          updatedAt:
-            appointment.updatedAt,
-        },
-        {
-          $set: {
-            status: 'cancelled',
-            cancelledAt:
-              new Date(),
-            cancelledBy:
-              userId,
-            cancellationReason:
-              reason,
-            lockKeys: [
-              `released:${appointment._id}`,
-            ],
-          },
-        },
-        {
-          returnDocument:
-            'after',
-          runValidators: true,
-        }
-      );
-
-
-  if (!cancelled) {
-    throw new ApiError(
-      409,
-      'Appointment changed; reload and try again'
-    );
-  }
-
-  await releasePhoneDailyQuota({
-    patientPhone:
-      appointment.patientPhone,
-    date: appointment.date,
-    reservationId:
-      appointment.quotaReservationId ||
-      appointment._id,
-  }).catch((error) => {
-    logger.error(
-      'appointment_quota_release_failed',
+  return runTransaction(async (session) => {
+    const cancelled = await Appointment.findOneAndUpdate(
       {
-        appointmentId:
-          String(appointment._id),
-        error,
+        _id: appointment._id,
+        status: appointment.status,
+        ...mutationVersionPredicate(appointment.mutationVersion),
+      },
+      {
+        $set: {
+          status: 'cancelled',
+          cancelledAt: new Date(),
+          cancelledBy: userId,
+          cancellationReason: reason,
+          lockKeys: [`released:${appointment._id}`],
+        },
+        $inc: { mutationVersion: 1 },
+      },
+      {
+        returnDocument: 'after',
+        runValidators: true,
+        session,
       }
     );
+
+    if (!cancelled) {
+      throw new ApiError(409, 'Appointment changed; reload and try again');
+    }
+
+    await releasePhoneDailyQuota({
+      patientPhone: appointment.patientPhone,
+      date: appointment.date,
+      reservationId: appointment.quotaReservationId || appointment._id,
+      session,
+    });
+
+    return cancelled;
   });
-
-
-  return cancelled;
 };
 
 
@@ -763,7 +862,10 @@ const createAdminAppointment = async (
 
 const rescheduleAppointment = async (
   id,
-  data
+  data,
+  actorId = null,
+  bookingGuardRetry = 0,
+  expectedMutationVersion = null
 ) => {
   const appointment =
     await Appointment
@@ -779,6 +881,25 @@ const rescheduleAppointment = async (
       'Appointment not found'
     );
   }
+
+  const observedMutationVersion = Number.isInteger(
+    appointment.mutationVersion
+  )
+    ? appointment.mutationVersion
+    : 0;
+
+  if (
+    expectedMutationVersion !== null &&
+    observedMutationVersion !== expectedMutationVersion
+  ) {
+    throw new ApiError(
+      409,
+      'Appointment changed; reload and try again'
+    );
+  }
+
+  const retryMutationVersion = expectedMutationVersion ??
+    observedMutationVersion;
 
 
   if (
@@ -817,6 +938,8 @@ const rescheduleAppointment = async (
 
         excludeAppointmentId:
           appointment._id,
+
+        includeBookingGuard: true,
       });
 
 
@@ -967,71 +1090,100 @@ const rescheduleAppointment = async (
       targetReservationId,
   };
 
-  let acquiredTargetQuota = false;
-
-  if (
-    changesQuotaDate ||
-    !appointment.quotaReservationId
-  ) {
-    const clinic =
-      await clinicService.getClinic();
-
-    await acquirePhoneDailyQuota({
-      patientPhone:
-        appointment.patientPhone,
+  const historyEntry = {
+    actor: actorId,
+    reason: data.reason || '',
+    changedAt: new Date(),
+    from: {
+      dentist: appointment.dentist,
+      service: appointment.service,
+      date: appointment.date,
+      startTime: appointment.startTime,
+      endTime: appointment.endTime,
+    },
+    to: {
+      dentist: availability.dentist.id,
+      service: availability.service.id,
       date: data.date,
-      reservationId:
-        targetReservationId,
-      limit:
-        clinic.bookingSettings
-          .maxAppointmentsPerPhonePerDay,
-    });
+      startTime: selectedSlot.start,
+      endTime: selectedSlot.end,
+    },
+  };
 
-    acquiredTargetQuota =
-      changesQuotaDate;
-  }
-
-
+  await initializePhoneQuotaInfrastructure();
+  await assertPhoneQuotaKeyIdentity();
   try {
-    const updated =
-      await Appointment
-        .findOneAndUpdate(
+    await runTransaction(async (session) => {
+      await touchBookingGuards(availability._bookingGuard, session);
+      if (changesQuotaDate || !appointment.quotaReservationId) {
+        await acquirePhoneDailyQuota({
+          patientPhone: appointment.patientPhone,
+          date: data.date,
+          reservationId: targetReservationId,
+          limit:
+            availability._bookingSettings
+              .maxAppointmentsPerPhonePerDay,
+          session,
+        });
+      }
+
+      const updated = await Appointment.findOneAndUpdate(
           {
-            _id:
-              appointment._id,
-            status:
-              appointment.status,
-            updatedAt:
-              appointment.updatedAt,
+            _id: appointment._id,
+            status: appointment.status,
+            ...mutationVersionPredicate(appointment.mutationVersion),
           },
           {
             $set: update,
+            $inc: { mutationVersion: 1 },
+            $push: {
+              rescheduleHistory: {
+                $each: [historyEntry],
+                $slice: -100,
+              },
+            },
           },
           {
-            returnDocument:
-              'after',
+            returnDocument: 'after',
             runValidators: true,
+            session,
           }
         );
 
-    if (!updated) {
-      throw new ApiError(
-        409,
-        'Appointment changed; reload and try again'
-      );
-    }
+      if (!updated) {
+        throw new ApiError(
+          409,
+          'Appointment changed; reload and try again'
+        );
+      }
+
+      if (changesQuotaDate) {
+        await releasePhoneDailyQuota({
+          patientPhone: appointment.patientPhone,
+          date: appointment.date,
+          reservationId: currentReservationId,
+          session,
+        });
+      }
+    });
   }
   catch (error) {
-    if (acquiredTargetQuota) {
-      await releasePhoneDailyQuota({
-        patientPhone:
-          appointment.patientPhone,
-        date: data.date,
-        reservationId:
-          targetReservationId,
-      }).catch(() => {});
+    if (error instanceof BookingGuardChangedError) {
+      if (bookingGuardRetry < 5) {
+        return rescheduleAppointment(
+          id,
+          data,
+          actorId,
+          bookingGuardRetry + 1,
+          retryMutationVersion
+        );
+      }
+      throw new ApiError(
+        409,
+        'Booking schedule changed; reload availability and try again',
+        { code: 'BOOKING_SCHEDULE_CHANGED' }
+      );
     }
-
     const duplicate =
       error?.code === 11000 ||
       String(
@@ -1051,26 +1203,6 @@ const rescheduleAppointment = async (
     throw error;
   }
 
-  if (changesQuotaDate) {
-    await releasePhoneDailyQuota({
-      patientPhone:
-        appointment.patientPhone,
-      date: appointment.date,
-      reservationId:
-        currentReservationId,
-    }).catch((error) => {
-      logger.error(
-        'appointment_old_quota_release_failed',
-        {
-          appointmentId:
-            String(appointment._id),
-          error,
-        }
-      );
-    });
-  }
-
-
   return getAppointmentById(
     appointment._id
   );
@@ -1078,6 +1210,10 @@ const rescheduleAppointment = async (
 
 
 export {
+  hashBookingRequest,
+  validateBookingIdempotencyKey,
+  wasIdempotentBookingReplay,
+  getPublicBookingResult,
   createAppointment,
   createAdminAppointment,
   rescheduleAppointment,

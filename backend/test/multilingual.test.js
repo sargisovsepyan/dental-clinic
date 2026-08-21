@@ -27,8 +27,8 @@ after(disconnectTestDatabase);
 
 const admin = () => ({ Authorization: `Bearer ${staff.adminToken}` });
 
-test('public and admin catalog APIs expose explicit hy, ru, and en translations', async () => {
-  const response = await request(app)
+test('catalog rejects conflicting legacy/HY input and exposes explicit hy, ru, and en translations', async () => {
+  const conflicting = await request(app)
     .post('/api/v1/service-categories')
     .set(admin())
     .send({
@@ -50,8 +50,31 @@ test('public and admin catalog APIs expose explicit hy, ru, and en translations'
       },
     });
 
+  assert.equal(conflicting.status, 400);
+
+  const response = await request(app)
+    .post('/api/v1/service-categories')
+    .set(admin())
+    .send({
+      slug: 'localized-category',
+      translations: {
+        hy: {
+          name: 'Թերապիա',
+          description: 'Հայերեն նկարագրություն',
+        },
+        ru: {
+          name: 'Терапия',
+          description: 'Описание',
+        },
+        en: {
+          name: 'Therapy',
+          description: 'Description',
+        },
+      },
+    });
+
   assert.equal(response.status, 201);
-  assert.equal(response.body.data.category.name, 'Conflicting legacy label');
+  assert.equal(response.body.data.category.name, 'Թերապիա');
   assert.equal(response.body.data.category.translations.hy.name, 'Թերապիա');
   assert.deepEqual(
     Object.keys(response.body.data.category.translations).sort(),
@@ -88,7 +111,6 @@ test('unsupported translation locales and active records without Armenian conten
     .post('/api/v1/service-categories')
     .set(admin())
     .send({
-      name: 'Draft source',
       slug: 'missing-primary',
       translations: {
         en: { name: 'English only' },
@@ -100,7 +122,6 @@ test('unsupported translation locales and active records without Armenian conten
     .post('/api/v1/service-categories')
     .set(admin())
     .send({
-      name: 'Draft source',
       slug: 'english-draft',
       isActive: false,
       translations: {
@@ -120,8 +141,6 @@ test('partial locale updates preserve other locales and language-neutral fields'
   const originalSlug = core.service.slug;
   const originalPrice = core.service.priceFrom;
   const originalDuration = core.service.durationMinutes;
-  const originalHyShortDescription =
-    core.service.translations.hy.shortDescription;
 
   const update = await request(app)
     .patch(`/api/v1/services/${core.service._id}`)
@@ -151,7 +170,7 @@ test('partial locale updates preserve other locales and language-neutral fields'
   assert.equal(legacyCompatibility.body.data.service.shortDescription, 'Կարճ հայերեն նկարագրություն');
   assert.equal(
     legacyCompatibility.body.data.service.translations.hy.shortDescription,
-    originalHyShortDescription,
+    'Կարճ հայերեն նկարագրություն',
   );
   assert.equal(legacyCompatibility.body.data.service.translations.ru.name, 'Профессиональная чистка');
 
@@ -204,6 +223,49 @@ test('partial locale updates preserve other locales and language-neutral fields'
   assert.equal(clinic.body.data.clinic.bookingSettings.maxAppointmentsPerPhonePerDay, 20);
 });
 
+test('HY mirrors remain authoritative and concurrent RU/EN patches preserve both locales', async () => {
+  const originalSlug = core.service.slug;
+  const hyName = 'Թարմացված հայկական անուն';
+  const hyUpdate = await request(app)
+    .patch(`/api/v1/services/${core.service._id}`)
+    .set(admin())
+    .send({ translations: { hy: { name: hyName } } });
+  assert.equal(hyUpdate.status, 200);
+  assert.equal(hyUpdate.body.data.service.name, hyName);
+  assert.equal(hyUpdate.body.data.service.slug, originalSlug);
+
+  const compatibilityName = 'Համատեղելի հայկական անուն';
+  const compatibilityUpdate = await request(app)
+    .patch(`/api/v1/services/${core.service._id}`)
+    .set(admin())
+    .send({ name: compatibilityName });
+  assert.equal(compatibilityUpdate.status, 200);
+  assert.equal(
+    compatibilityUpdate.body.data.service.translations.hy.name,
+    compatibilityName
+  );
+  assert.equal(compatibilityUpdate.body.data.service.slug, originalSlug);
+
+  const [ru, en] = await Promise.all([
+    request(app)
+      .patch(`/api/v1/services/${core.service._id}`)
+      .set(admin())
+      .send({ translations: { ru: { name: 'Параллельное русское имя' } } }),
+    request(app)
+      .patch(`/api/v1/services/${core.service._id}`)
+      .set(admin())
+      .send({ translations: { en: { name: 'Concurrent English Name' } } }),
+  ]);
+  assert.equal(ru.status, 200);
+  assert.equal(en.status, 200);
+
+  const final = await request(app)
+    .get(`/api/v1/services/${originalSlug}`);
+  assert.equal(final.body.data.service.translations.ru.name, 'Параллельное русское имя');
+  assert.equal(final.body.data.service.translations.en.name, 'Concurrent English Name');
+  assert.equal(final.body.data.service.name, compatibilityName);
+});
+
 test('legacy migration is explicit, dry-run safe, idempotent, and preserves original fields', async () => {
   const inserted = await ServiceCategory.collection.insertOne({
     name: 'Legacy English Name',
@@ -246,5 +308,49 @@ test('legacy migration is explicit, dry-run safe, idempotent, and preserves orig
   await assert.rejects(
     localizedContentMigration.run({ legacyLocale: 'fr' }),
     /must be one of hy, ru, en/,
+  );
+});
+
+test('legacy localization migration never overwrites a concurrent editorial translation', async () => {
+  const inserted = await ServiceCategory.collection.insertOne({
+    name: 'Legacy Source Name',
+    slug: 'legacy-concurrent-source',
+    description: 'Legacy Source Description',
+    isActive: true,
+    sortOrder: 0,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  let mutated = false;
+
+  const applied = await localizedContentMigration.run({
+    legacyLocale: 'en',
+    dryRun: false,
+    beforeDocumentWrite: async ({ document }) => {
+      if (mutated || String(document._id) !== String(inserted.insertedId)) {
+        return;
+      }
+      mutated = true;
+      await ServiceCategory.collection.updateOne(
+        { _id: inserted.insertedId },
+        {
+          $set: {
+            name: 'Concurrent Legacy Name',
+            'translations.en.name': 'Concurrent Authored Name',
+          },
+        }
+      );
+    },
+  });
+
+  const stored = await ServiceCategory.collection.findOne({
+    _id: inserted.insertedId,
+  });
+  assert.equal(applied.serviceCategories.changed, 1);
+  assert.equal(stored.name, 'Concurrent Legacy Name');
+  assert.equal(stored.translations.en.name, 'Concurrent Authored Name');
+  assert.equal(
+    stored.translations.en.description,
+    'Legacy Source Description'
   );
 });
