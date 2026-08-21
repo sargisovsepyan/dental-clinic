@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
+import { assertSafeTestDatabaseConnection } from './database.js';
 
 let replSet;
 
@@ -26,14 +27,11 @@ const connectReplTestDatabase = async () => {
 
   await mongoose.connect(uri);
 
-  if (mongoose.connection.name !== 'dental_clinic_test') {
-    throw new Error(
-      'Connected database did not pass the test database guard'
-    );
-  }
+  assertSafeTestDatabaseConnection();
 };
 
 const clearReplTestDatabase = async () => {
+  assertSafeTestDatabaseConnection();
   const collections = Object.values(
     mongoose.connection.collections
   );

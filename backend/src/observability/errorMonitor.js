@@ -3,7 +3,9 @@ import logger, { redactText } from './logger.js';
 
 
 const pendingReports = new Set();
+const MAX_PENDING_REPORTS = 100;
 let testReporter = null;
+let queueFullWarningEmitted = false;
 
 
 const setErrorReporterForTests = (reporter) => {
@@ -41,6 +43,16 @@ const deliver = async (payload) => {
 
 
 const reportError = (error, context = {}) => {
+  if (pendingReports.size >= MAX_PENDING_REPORTS) {
+    if (!queueFullWarningEmitted) {
+      queueFullWarningEmitted = true;
+      logger.warn('error_monitor_queue_full', {
+        requestId: context.requestId,
+      });
+    }
+    return;
+  }
+
   const payload = {
     timestamp: new Date().toISOString(),
     service: 'dental-clinic-api',
@@ -64,7 +76,12 @@ const reportError = (error, context = {}) => {
         requestId: context.requestId,
       });
     })
-    .finally(() => pendingReports.delete(report));
+    .finally(() => {
+      pendingReports.delete(report);
+      if (pendingReports.size < MAX_PENDING_REPORTS) {
+        queueFullWarningEmitted = false;
+      }
+    });
   pendingReports.add(report);
 };
 
@@ -75,6 +92,7 @@ const flushErrorReports = async () => {
 
 
 export {
+  MAX_PENDING_REPORTS,
   reportError,
   flushErrorReports,
   setErrorReporterForTests,

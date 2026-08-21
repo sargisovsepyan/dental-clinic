@@ -3,6 +3,7 @@
 import {
   assertSupportedTranslationKeys,
 } from '../i18n/localization.js';
+import env from '../config/env.js';
 
 const validate = (schema) => {
   return (req, res, next) => {
@@ -27,6 +28,10 @@ const validate = (schema) => {
         {
           abortEarly: false,
           stripUnknown: true,
+          context: {
+            challengeRequired:
+              env.PUBLIC_BOOKING_CHALLENGE_PROVIDER !== 'disabled',
+          },
         }
       );
 

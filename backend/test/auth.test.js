@@ -18,6 +18,9 @@ const { seedStaff } = await import('../test-support/fixtures.js');
 const { default: app } = await import('../src/app.js');
 const { default: User } = await import('../src/modules/users/user.model.js');
 const { default: Session } = await import('../src/modules/sessions/session.model.js');
+const { default: RefreshReplayHistory } = await import(
+  '../src/modules/sessions/refreshReplayHistory.model.js'
+);
 const { default: AuditLog } = await import('../src/modules/audit/audit.model.js');
 const { hashToken } = await import('../src/utils/refreshToken.js');
 
@@ -31,6 +34,7 @@ before(async () => {
 
 beforeEach(async () => {
   await Session.deleteMany({});
+  await RefreshReplayHistory.deleteMany({});
   await AuditLog.deleteMany({});
   await User.updateMany({}, {
     $set: {
@@ -163,6 +167,26 @@ test('access-token verification only accepts HS256', async () => {
   assert.equal(response.status, 401);
 });
 
+test('RBAC ignores a forged JWT role claim and uses the current database role', async () => {
+  const receptionist = await User.findById(staff.receptionist._id)
+    .select('+authVersion');
+  const forgedRoleToken = jwt.sign(
+    {
+      sub: String(receptionist._id),
+      role: 'admin',
+      ver: receptionist.authVersion,
+    },
+    process.env.JWT_SECRET,
+    { algorithm: 'HS256', expiresIn: '5m' }
+  );
+
+  const response = await request(app)
+    .get('/api/v1/audit-logs')
+    .set('Authorization', `Bearer ${forgedRoleToken}`);
+
+  assert.equal(response.status, 403);
+});
+
 test('RBAC permits admin and rejects receptionist and dentist on admin-only routes', async () => {
   const endpoint = '/api/v1/audit-logs';
   const adminResponse = await request(app).get(endpoint).set('Authorization', `Bearer ${staff.adminToken}`);
@@ -222,8 +246,11 @@ test('expired and inactive-user sessions cannot refresh', async () => {
   const expiredToken = 'expired-refresh-token';
   await Session.create({
     user: staff.admin._id,
+    familyId: '00000000-0000-4000-8000-000000000001',
     tokenHash: hashToken(expiredToken),
     expiresAt: new Date(Date.now() - 1_000),
+    absoluteExpiresAt: new Date(Date.now() + 60_000),
+    issuedAuthVersion: 0,
   });
   assert.equal((await request(app).post('/api/v1/auth/refresh').set('Cookie', `refresh_token=${expiredToken}`)).status, 401);
 

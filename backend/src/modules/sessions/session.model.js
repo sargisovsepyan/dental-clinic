@@ -25,22 +25,31 @@ const sessionSchema = new mongoose.Schema(
             index: true,
         },
 
-        consumedTokenHashes: {
-            type: [{
-                type: String,
-                minlength: 64,
-                maxlength: 64,
-            }],
-            default: [],
-            select: false,
-        },
-
         expiresAt: {
             type: Date,
             required: true,
         },
 
+        absoluteExpiresAt: {
+            type: Date,
+            required: true,
+            immutable: true,
+        },
+
+        issuedAuthVersion: {
+            type: Number,
+            required: true,
+            min: 0,
+            immutable: true,
+            select: false,
+        },
+
         revokedAt: {
+            type: Date,
+            default: null,
+        },
+
+        compromisedAt: {
             type: Date,
             default: null,
         },
@@ -66,10 +75,6 @@ sessionSchema.index({
     user: 1,
     revokedAt: 1,
     createdAt: -1,
-});
-
-sessionSchema.index({
-    consumedTokenHashes: 1,
 });
 
 const Session = mongoose.model(

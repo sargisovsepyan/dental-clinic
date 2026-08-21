@@ -2,11 +2,13 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
-import mongoose from 'mongoose';
 
 import env from './config/env.js';
 import apiRoutes from './routes/index.js';
-import { apiLimiter } from './middlewares/rateLimiter.js';
+import {
+  apiLimiter,
+  readinessLimiter,
+} from './middlewares/rateLimiter.js';
 import rejectNoSqlOperators from './middlewares/security.js';
 import notFound from './middlewares/notFound.js';
 import errorHandler from './middlewares/errorHandler.js';
@@ -14,13 +16,18 @@ import ApiError from './utils/ApiError.js';
 import requestId from './middlewares/requestId.js';
 import requestLogger from './middlewares/requestLogger.js';
 import { enforceHttps } from './middlewares/transportSecurity.js';
-import { isRedisReady } from './infrastructure/redis.js';
+import { checkReadiness } from './infrastructure/readiness.js';
 
 
 const app = express();
 
 app.disable('x-powered-by');
-app.set('trust proxy', env.TRUST_PROXY_HOPS);
+app.set(
+  'trust proxy',
+  env.TRUST_PROXY_CIDRS.length
+    ? env.TRUST_PROXY_CIDRS
+    : env.TRUST_PROXY_HOPS
+);
 
 app.use(requestId);
 app.use(requestLogger);
@@ -40,7 +47,11 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'Idempotency-Key',
+  ],
   maxAge: 600,
 }));
 
@@ -58,27 +69,8 @@ const liveResponse = (_req, res) => {
 
 app.get('/api/v1/health', liveResponse);
 app.get('/api/v1/health/live', liveResponse);
-app.get('/api/v1/health/ready', async (_req, res) => {
-  let mongoReady = false;
-  if (mongoose.connection.readyState === 1) {
-    try {
-      await Promise.race([
-        mongoose.connection.db.command({ ping: 1 }),
-        new Promise((_, reject) => {
-          setTimeout(
-            () => reject(new Error('MongoDB health check timed out')),
-            env.HEALTH_CHECK_TIMEOUT_MS
-          ).unref();
-        }),
-      ]);
-      mongoReady = true;
-    }
-    catch {
-      mongoReady = false;
-    }
-  }
-  const redisReady = await isRedisReady();
-  const ready = mongoReady && redisReady;
+app.get('/api/v1/health/ready', readinessLimiter, async (_req, res) => {
+  const { ready } = await checkReadiness();
   res.status(ready ? 200 : 503).json({
     success: ready,
     status: ready ? 'ready' : 'not_ready',

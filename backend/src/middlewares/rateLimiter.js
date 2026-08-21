@@ -6,6 +6,10 @@ import { RedisStore } from 'rate-limit-redis';
 import env from '../config/env.js';
 import { sendRedisCommand } from '../infrastructure/redis.js';
 import logger from '../observability/logger.js';
+import normalizePhone from '../utils/normalizePhone.js';
+import {
+  getRefreshTokenFamilyId,
+} from '../utils/refreshToken.js';
 
 
 const hmac = (value) => crypto
@@ -29,19 +33,24 @@ const accountKey = (req) => {
 
 const tokenKey = (req) => {
   const token = req.body?.token || req.cookies?.refresh_token || '';
+  const refreshFamilyId = getRefreshTokenFamilyId(token);
   return token
-    ? hmac(token)
+    ? hmac(refreshFamilyId || token)
     : requestIpKey(req);
 };
 
 
 const bookingKey = (req) => {
-  const phone = typeof req.body?.patientPhone === 'string'
-    ? req.body.patientPhone.replace(/\D/g, '')
-    : '';
-  return phone
-    ? hmac(phone)
-    : requestIpKey(req);
+  if (typeof req.body?.patientPhone !== 'string') {
+    return requestIpKey(req);
+  }
+
+  try {
+    return hmac(normalizePhone(req.body.patientPhone));
+  }
+  catch {
+    return requestIpKey(req);
+  }
 };
 
 
@@ -171,6 +180,17 @@ const mediaUploadLimiter = createLimiter('media-upload', {
 });
 
 
+const readinessLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 60,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: createHandler(
+    'Too many readiness checks. Please try again later.'
+  ),
+});
+
+
 export {
   apiLimiter,
   authLimiter,
@@ -178,7 +198,10 @@ export {
   refreshLimiter,
   bookingLimiter,
   mediaUploadLimiter,
+  readinessLimiter,
   passwordRecoveryLimiter,
   passwordSetupLimiter,
   createRedisRateLimitStore,
+  bookingKey,
+  tokenKey,
 };

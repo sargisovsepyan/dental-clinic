@@ -41,7 +41,7 @@ const sendStaffInvitation = async ({
     '/staff/setup-password',
     env.FRONTEND_URL
   );
-  link.searchParams.set('token', token);
+  link.hash = new URLSearchParams({ token }).toString();
 
   await getMailAdapter().send({
     to: email,
@@ -59,7 +59,7 @@ const sendPasswordReset = async ({
     '/staff/reset-password',
     env.FRONTEND_URL
   );
-  link.searchParams.set('token', token);
+  link.hash = new URLSearchParams({ token }).toString();
 
   await getMailAdapter().send({
     to: email,

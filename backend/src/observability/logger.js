@@ -21,13 +21,17 @@ const SENSITIVE_KEY_PARTS = [
 
 
 const redactText = (value) => String(value)
+  .replace(
+    /([a-z][a-z0-9+.-]*:\/\/)[^/\s:@]+:[^@/\s]+@/gi,
+    '$1[REDACTED]@'
+  )
   .replace(/Bearer\s+[^\s]+/gi, 'Bearer [REDACTED]')
   .replace(
     /([?&](?:token|key|secret|password)=)[^&\s]+/gi,
     '$1[REDACTED]'
   )
   .replace(
-    /\b[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
+    /\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
     '[REDACTED_JWT]'
   )
   .slice(0, 2000);

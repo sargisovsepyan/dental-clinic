@@ -1,4 +1,6 @@
 import dotenv from 'dotenv';
+import { isIP } from 'node:net';
+
 import Joi from 'joi';
 
 
@@ -25,6 +27,15 @@ const timeZone = Joi.string()
   });
 
 
+const accessTokenLifetime = Joi.string()
+  .pattern(/^[1-9][0-9]*(?:s|m|h)$/)
+  .default('15m');
+
+
+const policyVersion = Joi.string()
+  .pattern(/^[0-9]{4}-[0-9]{2}(?:\.[0-9]+)?$/);
+
+
 const envSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid('development', 'test', 'production')
@@ -33,13 +44,23 @@ const envSchema = Joi.object({
   MONGO_URI: Joi.string().required(),
 
   JWT_SECRET: Joi.string().min(32).required(),
-  JWT_EXPIRES_IN: Joi.string().default('15m'),
+  JWT_EXPIRES_IN: accessTokenLifetime,
   REFRESH_TOKEN_TTL_DAYS: Joi.number()
     .integer().min(1).max(30).default(7),
+  SESSION_ABSOLUTE_TTL_DAYS: Joi.number()
+    .integer().min(1).max(90).default(30),
   APPOINTMENT_QUOTA_SECRET: Joi.string()
     .allow('').min(32).default(''),
+  APPOINTMENT_QUOTA_KEY_VERSION: Joi.string()
+    .pattern(/^v[1-9][0-9]{0,5}$/).default('v1'),
   RATE_LIMIT_KEY_SECRET: Joi.string()
     .allow('').min(32).default(''),
+  AUDIT_PSEUDONYM_SECRET: Joi.string()
+    .allow('').min(32).default(''),
+  APPOINTMENT_PRIVACY_POLICY_VERSION:
+    policyVersion.default('2026-01'),
+  BOOKING_IDEMPOTENCY_TTL_HOURS: Joi.number()
+    .integer().min(1).max(168).default(24),
 
   CLIENT_URL: Joi.string().required(),
   CORS_ORIGINS: Joi.string().required(),
@@ -48,6 +69,7 @@ const envSchema = Joi.object({
   REQUIRE_HTTPS: Joi.boolean().required(),
   TRUST_PROXY_HOPS: Joi.number()
     .integer().min(0).max(10).required(),
+  TRUST_PROXY_CIDRS: Joi.string().allow('').default(''),
   REFRESH_COOKIE_SECURE: Joi.boolean().required(),
   REFRESH_COOKIE_SAME_SITE: Joi.string()
     .valid('strict', 'lax', 'none').default('strict'),
@@ -84,9 +106,16 @@ const envSchema = Joi.object({
   SMTP_HOST: Joi.string().allow('').default(''),
   SMTP_PORT: Joi.number().integer().min(1).max(65535).default(587),
   SMTP_SECURE: Joi.boolean().default(false),
+  SMTP_REQUIRE_TLS: Joi.boolean().default(true),
   SMTP_USER: Joi.string().allow('').default(''),
   SMTP_PASSWORD: Joi.string().allow('').default(''),
-  MAIL_FROM: Joi.string().allow('').default(''),
+  MAIL_FROM: Joi.string()
+    .email({ tlds: { allow: false } })
+    .max(254).allow('').default(''),
+  SMTP_CONNECTION_TIMEOUT_MS: Joi.number()
+    .integer().min(100).max(30000).default(5000),
+  SMTP_SOCKET_TIMEOUT_MS: Joi.number()
+    .integer().min(1000).max(120000).default(15000),
 
   CLINIC_TIMEZONE: timeZone.default('Asia/Yerevan'),
   CLOUDINARY_CLOUD_NAME: Joi.string().allow('').default(''),
@@ -99,8 +128,19 @@ const envSchema = Joi.object({
     .uri({ scheme: ['https'] }).allow('').default(''),
   HEALTH_CHECK_TIMEOUT_MS: Joi.number()
     .integer().min(100).max(10000).default(1500),
+  READINESS_CACHE_MS: Joi.number()
+    .integer().min(100).max(30000).default(3000),
+  READINESS_FAILURE_CACHE_MS: Joi.number()
+    .integer().min(100).max(10000).default(1000),
   GRACEFUL_SHUTDOWN_TIMEOUT_MS: Joi.number()
     .integer().min(1000).max(120000).default(15000),
+
+  PUBLIC_BOOKING_CHALLENGE_PROVIDER: Joi.string()
+    .valid('disabled', 'turnstile').default('disabled'),
+  PUBLIC_BOOKING_CHALLENGE_SECRET: Joi.string()
+    .min(20).allow('').default(''),
+  PUBLIC_BOOKING_CHALLENGE_TIMEOUT_MS: Joi.number()
+    .integer().min(100).max(10000).default(2000),
 })
   .unknown(true);
 
@@ -174,9 +214,62 @@ const validateRedisUrl = (url, production) => {
     throw new Error('REDIS_URL must use redis:// or rediss://');
   }
 
+  if (!parsed.hostname) {
+    throw new Error('REDIS_URL must include a host');
+  }
+
   if (production && parsed.protocol !== 'rediss:') {
     throw new Error('Production REDIS_URL must use TLS (rediss://)');
   }
+  if (production && !parsed.password) {
+    throw new Error('Production REDIS_URL must include authentication');
+  }
+};
+
+
+const durationSeconds = (value) => {
+  const match = /^(\d+)(s|m|h)$/.exec(value);
+  if (!match) {
+    return NaN;
+  }
+  const multipliers = { s: 1, m: 60, h: 3600 };
+  return Number(match[1]) * multipliers[match[2]];
+};
+
+
+const isUnsafeProductionSecret = (value) => {
+  const normalized = String(value || '').toLowerCase();
+  return (
+    value.length < 48 ||
+    new Set(value).size < 8 ||
+    /(replace|change|example|placeholder|test-only|development)/.test(normalized)
+  );
+};
+
+
+const isTrustedProxyEntry = (entry) => {
+  if (['loopback', 'linklocal', 'uniquelocal'].includes(entry)) {
+    return true;
+  }
+
+  const [address, prefix, ...extra] = entry.split('/');
+  if (extra.length > 0) {
+    return false;
+  }
+
+  const family = isIP(address);
+  if (!family) {
+    return false;
+  }
+  if (prefix === undefined) {
+    return true;
+  }
+  if (!/^(?:0|[1-9][0-9]*)$/.test(prefix)) {
+    return false;
+  }
+
+  const numericPrefix = Number(prefix);
+  return numericPrefix <= (family === 4 ? 32 : 128);
 };
 
 
@@ -245,12 +338,20 @@ const validateEnvironment = (rawEnvironment) => {
     parseOrigin(origin, 'CORS_ORIGINS')
   );
   const clientOrigin = parseOrigin(value.CLIENT_URL, 'CLIENT_URL');
-  const frontend = new URL(value.FRONTEND_URL);
+  const frontend = parseOrigin(value.FRONTEND_URL, 'FRONTEND_URL');
   if (!origins.includes(clientOrigin.origin)) {
     throw new Error('CLIENT_URL must be listed in CORS_ORIGINS');
   }
   if (!origins.includes(frontend.origin)) {
     throw new Error('FRONTEND_URL origin must be listed in CORS_ORIGINS');
+  }
+
+  const trustedProxyCidrs = value.TRUST_PROXY_CIDRS
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (trustedProxyCidrs.some((entry) => !isTrustedProxyEntry(entry))) {
+    throw new Error('TRUST_PROXY_CIDRS contains an invalid subnet');
   }
 
   if (value.NODE_ENV === 'test') {
@@ -287,6 +388,11 @@ const validateEnvironment = (rawEnvironment) => {
   if (value.REFRESH_COOKIE_SAME_SITE === 'none' && !value.REFRESH_COOKIE_SECURE) {
     throw new Error('SameSite=None refresh cookies must be Secure');
   }
+  if (value.SESSION_ABSOLUTE_TTL_DAYS < value.REFRESH_TOKEN_TTL_DAYS) {
+    throw new Error(
+      'SESSION_ABSOLUTE_TTL_DAYS cannot be shorter than the refresh idle TTL'
+    );
+  }
   if (
     value.MEDIA_CLEANUP_BACKOFF_BASE_SECONDS >
     value.MEDIA_CLEANUP_BACKOFF_MAX_SECONDS
@@ -298,17 +404,21 @@ const validateEnvironment = (rawEnvironment) => {
 
   const quotaSecret = value.APPOINTMENT_QUOTA_SECRET || value.JWT_SECRET;
   const rateLimitSecret = value.RATE_LIMIT_KEY_SECRET || quotaSecret;
+  const auditSecret = value.AUDIT_PSEUDONYM_SECRET || rateLimitSecret;
 
   if (isProduction) {
     validateMongoTransport(value.MONGO_URI);
 
-    if (!value.REQUIRE_HTTPS || value.TRUST_PROXY_HOPS < 1) {
+    if (!value.REQUIRE_HTTPS || trustedProxyCidrs.length === 0) {
       throw new Error(
-        'Production requires HTTPS enforcement and at least one trusted proxy hop'
+        'Production requires HTTPS enforcement and explicit trusted proxy CIDRs'
       );
     }
     if (!value.REFRESH_COOKIE_SECURE) {
       throw new Error('Production refresh cookies must be Secure');
+    }
+    if (value.REFRESH_COOKIE_DOMAIN) {
+      throw new Error('Production refresh cookies must be host-only');
     }
     if (value.RATE_LIMIT_STORE !== 'redis') {
       throw new Error('Production requires the shared Redis rate-limit store');
@@ -322,21 +432,35 @@ const validateEnvironment = (rawEnvironment) => {
     if (
       !value.APPOINTMENT_QUOTA_SECRET ||
       !value.RATE_LIMIT_KEY_SECRET ||
+      !value.AUDIT_PSEUDONYM_SECRET ||
       new Set([
         value.JWT_SECRET,
         value.APPOINTMENT_QUOTA_SECRET,
         value.RATE_LIMIT_KEY_SECRET,
-      ]).size !== 3
+        value.AUDIT_PSEUDONYM_SECRET,
+      ]).size !== 4 ||
+      [
+        value.JWT_SECRET,
+        value.APPOINTMENT_QUOTA_SECRET,
+        value.RATE_LIMIT_KEY_SECRET,
+        value.AUDIT_PSEUDONYM_SECRET,
+      ].some(isUnsafeProductionSecret)
     ) {
       throw new Error(
-        'Production JWT, appointment quota, and rate-limit secrets must be independent'
+        'Production application secrets must be strong, non-placeholder, and independent'
       );
+    }
+    if (durationSeconds(value.JWT_EXPIRES_IN) > 3600) {
+      throw new Error('Production access tokens cannot live longer than one hour');
     }
     if (
       !value.SMTP_HOST || !value.SMTP_USER ||
       !value.SMTP_PASSWORD || !value.MAIL_FROM
     ) {
       throw new Error('Production SMTP configuration is incomplete');
+    }
+    if (!value.SMTP_SECURE && !value.SMTP_REQUIRE_TLS) {
+      throw new Error('Production SMTP must use implicit TLS or require STARTTLS');
     }
     if (
       !value.CLOUDINARY_CLOUD_NAME ||
@@ -353,6 +477,27 @@ const validateEnvironment = (rawEnvironment) => {
         'Production BEFORE_AFTER_CONSENT_VERSION must be explicitly configured'
       );
     }
+    if (!rawEnvironment.APPOINTMENT_PRIVACY_POLICY_VERSION) {
+      throw new Error(
+        'Production APPOINTMENT_PRIVACY_POLICY_VERSION must be explicitly configured'
+      );
+    }
+    if (!rawEnvironment.APPOINTMENT_QUOTA_KEY_VERSION) {
+      throw new Error(
+        'Production APPOINTMENT_QUOTA_KEY_VERSION must be explicitly configured'
+      );
+    }
+    if (
+      value.PUBLIC_BOOKING_CHALLENGE_PROVIDER !== 'turnstile' ||
+      !value.PUBLIC_BOOKING_CHALLENGE_SECRET ||
+      /(replace|example|placeholder)/i.test(
+        value.PUBLIC_BOOKING_CHALLENGE_SECRET
+      )
+    ) {
+      throw new Error(
+        'Production public booking requires a configured bot challenge provider'
+      );
+    }
   }
 
   return Object.freeze({
@@ -362,13 +507,21 @@ const validateEnvironment = (rawEnvironment) => {
     JWT_SECRET: value.JWT_SECRET,
     JWT_EXPIRES_IN: value.JWT_EXPIRES_IN,
     REFRESH_TOKEN_TTL_DAYS: value.REFRESH_TOKEN_TTL_DAYS,
+    SESSION_ABSOLUTE_TTL_DAYS: value.SESSION_ABSOLUTE_TTL_DAYS,
     APPOINTMENT_QUOTA_SECRET: quotaSecret,
+    APPOINTMENT_QUOTA_KEY_VERSION: value.APPOINTMENT_QUOTA_KEY_VERSION,
     RATE_LIMIT_KEY_SECRET: rateLimitSecret,
+    AUDIT_PSEUDONYM_SECRET: auditSecret,
+    APPOINTMENT_PRIVACY_POLICY_VERSION:
+      value.APPOINTMENT_PRIVACY_POLICY_VERSION,
+    BOOKING_IDEMPOTENCY_TTL_HOURS:
+      value.BOOKING_IDEMPOTENCY_TTL_HOURS,
     CLIENT_URL: value.CLIENT_URL,
     CORS_ORIGINS: Object.freeze(origins),
     FRONTEND_URL: value.FRONTEND_URL,
     REQUIRE_HTTPS: value.REQUIRE_HTTPS,
     TRUST_PROXY_HOPS: value.TRUST_PROXY_HOPS,
+    TRUST_PROXY_CIDRS: Object.freeze(trustedProxyCidrs),
     REFRESH_COOKIE_SECURE: value.REFRESH_COOKIE_SECURE,
     REFRESH_COOKIE_SAME_SITE: value.REFRESH_COOKIE_SAME_SITE,
     REFRESH_COOKIE_DOMAIN: value.REFRESH_COOKIE_DOMAIN,
@@ -391,9 +544,12 @@ const validateEnvironment = (rawEnvironment) => {
     SMTP_HOST: value.SMTP_HOST,
     SMTP_PORT: value.SMTP_PORT,
     SMTP_SECURE: value.SMTP_SECURE,
+    SMTP_REQUIRE_TLS: value.SMTP_REQUIRE_TLS,
     SMTP_USER: value.SMTP_USER,
     SMTP_PASSWORD: value.SMTP_PASSWORD,
     MAIL_FROM: value.MAIL_FROM,
+    SMTP_CONNECTION_TIMEOUT_MS: value.SMTP_CONNECTION_TIMEOUT_MS,
+    SMTP_SOCKET_TIMEOUT_MS: value.SMTP_SOCKET_TIMEOUT_MS,
     CLINIC_TIMEZONE: value.CLINIC_TIMEZONE,
     CLOUDINARY_CLOUD_NAME: value.CLOUDINARY_CLOUD_NAME,
     CLOUDINARY_API_KEY: value.CLOUDINARY_API_KEY,
@@ -401,7 +557,15 @@ const validateEnvironment = (rawEnvironment) => {
     LOG_LEVEL: value.LOG_LEVEL,
     ERROR_MONITOR_WEBHOOK_URL: value.ERROR_MONITOR_WEBHOOK_URL,
     HEALTH_CHECK_TIMEOUT_MS: value.HEALTH_CHECK_TIMEOUT_MS,
+    READINESS_CACHE_MS: value.READINESS_CACHE_MS,
+    READINESS_FAILURE_CACHE_MS: value.READINESS_FAILURE_CACHE_MS,
     GRACEFUL_SHUTDOWN_TIMEOUT_MS: value.GRACEFUL_SHUTDOWN_TIMEOUT_MS,
+    PUBLIC_BOOKING_CHALLENGE_PROVIDER:
+      value.PUBLIC_BOOKING_CHALLENGE_PROVIDER,
+    PUBLIC_BOOKING_CHALLENGE_SECRET:
+      value.PUBLIC_BOOKING_CHALLENGE_SECRET,
+    PUBLIC_BOOKING_CHALLENGE_TIMEOUT_MS:
+      value.PUBLIC_BOOKING_CHALLENGE_TIMEOUT_MS,
   });
 };
 

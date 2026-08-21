@@ -145,12 +145,20 @@ const auditAction = (
           : {};
 
 
+      const resolvedAction = typeof action === 'function'
+        ? action(req, responseBody, res)
+        : action;
+
+      if (!resolvedAction) {
+        return;
+      }
+
       await logAuditEvent({
         req,
 
         actorId,
 
-        action,
+        action: resolvedAction,
 
         entityType,
 

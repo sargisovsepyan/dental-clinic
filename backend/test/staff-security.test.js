@@ -83,7 +83,9 @@ const login = (email, password) => request(app)
 
 const tokenFromMail = (mail) => {
   const url = mail.text.match(/https:\/\/\S+/)[0];
-  return new URL(url).searchParams.get('token');
+  const parsed = new URL(url);
+  assert.equal(parsed.search, '');
+  return new URLSearchParams(parsed.hash.slice(1)).get('token');
 };
 
 test('password policy accepts six, rejects five and bcrypt-truncating UTF-8 inputs, and never trims', async () => {

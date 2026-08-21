@@ -2,13 +2,16 @@
 import mongoose from 'mongoose';
 
 import connectDB from '../config/db.js';
+import { redactText } from '../observability/logger.js';
 import User from '../modules/users/user.model.js';
 import {
   validateNewPassword,
 } from '../security/passwordPolicy.js';
+import { assertMaintenanceSafety } from '../scripts/maintenanceGuard.js';
 
 const createAdmin = async () => {
   try {
+    assertMaintenanceSafety();
     await connectDB();
 
     const name = process.env.ADMIN_NAME?.trim();
@@ -20,10 +23,22 @@ const createAdmin = async () => {
     const password =
       process.env.ADMIN_PASSWORD;
 
+    if (
+      process.env.NODE_ENV === 'production' &&
+      process.env.ADMIN_BOOTSTRAP_ACKNOWLEDGED !== 'true'
+    ) {
+      throw new Error(
+        'Production bootstrap requires ADMIN_BOOTSTRAP_ACKNOWLEDGED=true'
+      );
+    }
+
     if (!name || !email || !password) {
       throw new Error(
         'ADMIN_NAME, ADMIN_EMAIL and ADMIN_PASSWORD must be defined in .env'
       );
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error('ADMIN_EMAIL must be a valid email address');
     }
 
     const passwordError =
@@ -40,13 +55,13 @@ const createAdmin = async () => {
 
     if (existingUser) {
       console.log(
-        `Admin already exists: ${email}`
+        'Admin already exists; no bootstrap change was made'
       );
 
       return;
     }
 
-    const admin = await User.create({
+    await User.create({
       name,
       email,
       password,
@@ -55,11 +70,11 @@ const createAdmin = async () => {
     });
 
     console.log(
-      `Admin created successfully: ${admin.email}`
+      'Admin created successfully'
     );
   } catch (error) {
     console.error(
-      `Failed to create admin: ${error.message}`
+      `Failed to create admin: ${redactText(error.message)}`
     );
 
     process.exitCode = 1;

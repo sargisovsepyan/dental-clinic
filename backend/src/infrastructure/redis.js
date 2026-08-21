@@ -5,15 +5,28 @@ import logger from '../observability/logger.js';
 
 
 let client = null;
-let resolveConnection;
-let rejectConnection;
-const connectionReady = new Promise((resolve, reject) => {
-  resolveConnection = resolve;
-  rejectConnection = reject;
-});
+
+
+const setRedisClientForTests = (redisClient) => {
+  if (env.NODE_ENV !== 'test') {
+    throw new Error('Redis client injection is only allowed in tests');
+  }
+  client = redisClient;
+};
+
+
+const resetRedisClientForTests = () => {
+  if (env.NODE_ENV !== 'test') {
+    throw new Error('Redis client reset is only allowed in tests');
+  }
+  client = null;
+};
 
 
 const getRedisClient = () => {
+  if (client) {
+    return client;
+  }
   if (env.RATE_LIMIT_STORE !== 'redis') {
     return null;
   }
@@ -21,54 +34,97 @@ const getRedisClient = () => {
     throw new Error('Tests are not allowed to create a Redis client');
   }
 
-  if (!client) {
-    client = createClient({
-      url: env.REDIS_URL,
-      socket: {
-        connectTimeout: env.REDIS_CONNECT_TIMEOUT_MS,
-        reconnectStrategy: (retries) => Math.min(100 + retries * 200, 3000),
-      },
-    });
-    client.on('error', (error) => {
-      logger.error('redis_client_error', { error });
-    });
-    client.on('reconnecting', () => {
-      logger.warn('redis_client_reconnecting');
-    });
-  }
+  client = createClient({
+    url: env.REDIS_URL,
+    socket: {
+      connectTimeout: env.REDIS_CONNECT_TIMEOUT_MS,
+      reconnectStrategy: (retries) => Math.min(100 + retries * 200, 3000),
+    },
+    disableOfflineQueue: true,
+  });
+  client.on('error', (error) => {
+    logger.error('redis_client_error', { error });
+  });
+  client.on('reconnecting', () => {
+    logger.warn('redis_client_reconnecting');
+  });
 
   return client;
 };
 
 
-const connectRedis = async () => {
+const withTimeout = async (operation, timeoutMs, message) => {
+  let timeout;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeout = setTimeout(
+      () => reject(new Error(message)),
+      timeoutMs
+    );
+  });
+
+  try {
+    return await Promise.race([operation, timeoutPromise]);
+  }
+  finally {
+    clearTimeout(timeout);
+  }
+};
+
+
+const destroyFailedClient = (redisClient) => {
+  try {
+    redisClient.destroy?.();
+  }
+  catch (error) {
+    logger.warn('redis_client_destroy_failed', { error });
+  }
+  if (client === redisClient) {
+    client = null;
+  }
+};
+
+
+const connectRedis = async ({
+  timeoutMs = env.REDIS_CONNECT_TIMEOUT_MS,
+} = {}) => {
   const redisClient = getRedisClient();
   if (!redisClient) {
     return;
   }
-  try {
+
+  const startupAttempt = Promise.resolve().then(async () => {
     if (!redisClient.isOpen) {
       await redisClient.connect();
     }
     await redisClient.ping();
-    resolveConnection();
+  });
+
+  try {
+    await withTimeout(
+      startupAttempt,
+      timeoutMs,
+      'Redis startup connection timed out'
+    );
     logger.info('redis_connected');
   }
   catch (error) {
-    rejectConnection(error);
+    destroyFailedClient(redisClient);
     throw error;
   }
 };
 
 
 const sendRedisCommand = async (args) => {
-  await connectionReady;
-  return getRedisClient().sendCommand(args);
+  const redisClient = getRedisClient();
+  if (!redisClient?.isReady) {
+    throw new Error('Redis is not ready');
+  }
+  return redisClient.sendCommand(args);
 };
 
 
 const isRedisReady = async () => {
-  if (env.RATE_LIMIT_STORE !== 'redis') {
+  if (env.RATE_LIMIT_STORE !== 'redis' && !client) {
     return true;
   }
   const redisClient = getRedisClient();
@@ -94,10 +150,12 @@ const isRedisReady = async () => {
 
 
 const closeRedis = async () => {
-  if (!client?.isOpen) {
+  const redisClient = client;
+  client = null;
+  if (!redisClient?.isOpen) {
     return;
   }
-  await client.quit();
+  await redisClient.quit();
 };
 
 
@@ -107,4 +165,6 @@ export {
   connectRedis,
   isRedisReady,
   closeRedis,
+  setRedisClientForTests,
+  resetRedisClientForTests,
 };

@@ -1,15 +1,17 @@
 import env from '../config/env.js';
 import logger from '../observability/logger.js';
 import { reportError } from '../observability/errorMonitor.js';
+import ApiError from '../utils/ApiError.js';
 
 
 const normalizeError = (err) => {
-  const errorStatus = err.statusCode || err.status;
-  let statusCode = Number.isInteger(errorStatus) &&
-    errorStatus >= 400 && errorStatus <= 599
-    ? errorStatus
-    : 500;
-  let message = err.message || 'Internal server error';
+  const isApiError = err instanceof ApiError;
+  let statusCode = isApiError ? err.statusCode : 500;
+  let message = isApiError
+    ? err.message
+    : 'Internal server error';
+  let code = isApiError ? err.code : undefined;
+  let details = isApiError ? err.details : undefined;
 
   if (err.code === 11000) {
     statusCode = 409;
@@ -21,9 +23,7 @@ const normalizeError = (err) => {
   }
   if (err.name === 'ValidationError') {
     statusCode = 400;
-    message = Object.values(err.errors)
-      .map((error) => error.message)
-      .join(', ');
+    message = 'Invalid request data';
   }
   if (err.type === 'entity.parse.failed') {
     statusCode = 400;
@@ -34,12 +34,22 @@ const normalizeError = (err) => {
     message = 'Request body is too large';
   }
 
-  return { statusCode, message };
+  if (!isApiError) {
+    code = undefined;
+    details = undefined;
+  }
+
+  return { statusCode, message, code, details };
 };
 
 
 const buildErrorBody = (err, production = env.NODE_ENV === 'production') => {
-  const { statusCode, message } = normalizeError(err);
+  const {
+    statusCode,
+    message,
+    code,
+    details,
+  } = normalizeError(err);
   return {
     statusCode,
     body: {
@@ -47,6 +57,8 @@ const buildErrorBody = (err, production = env.NODE_ENV === 'production') => {
       message: production && statusCode >= 500
         ? 'Internal server error'
         : message,
+      ...(code && statusCode < 500 ? { code } : {}),
+      ...(details && statusCode < 500 ? { details } : {}),
       ...(!production && { stack: err.stack }),
     },
   };

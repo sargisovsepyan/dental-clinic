@@ -1,7 +1,8 @@
-import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 
 import User from '../users/user.model.js';
 import Session from '../sessions/session.model.js';
+import RefreshReplayHistory from '../sessions/refreshReplayHistory.model.js';
 import OneTimeToken from './oneTimeToken.model.js';
 
 import ApiError from '../../utils/ApiError.js';
@@ -14,9 +15,12 @@ import {
   getTokenExpiry,
 } from '../../utils/oneTimeToken.js';
 import {
+  generateRefreshTokenFamilyId,
   generateRefreshToken,
+  getRefreshTokenFamilyId,
   hashToken,
   getRefreshTokenExpiry,
+  getSessionAbsoluteExpiry,
 } from '../../utils/refreshToken.js';
 import {
   sendPasswordReset,
@@ -25,6 +29,26 @@ import {
   logAuditEvent,
 } from '../audit/audit.service.js';
 import logger from '../../observability/logger.js';
+
+
+const DUMMY_PASSWORD_HASH =
+  '$2b$12$tmCB9kkL5ESD/QEjWRa5SORnNYf0bScrh7eMydkrnY.XcbVCaUATa';
+const FORGOT_PASSWORD_MIN_RESPONSE_MS = 250;
+
+
+const delay = (milliseconds) => new Promise((resolve) => {
+  setTimeout(resolve, milliseconds);
+});
+
+
+const compareLoginPassword = (
+  user,
+  password,
+  compare = bcrypt.compare
+) => compare(
+  password,
+  user?.password || DUMMY_PASSWORD_HASH
+);
 
 const formatUser = (user) => ({
   id: user._id,
@@ -69,17 +93,12 @@ const login = async (
     isSetupComplete: { $ne: false },
   }).select('+password +authVersion');
 
-  if (!user) {
-    throw new ApiError(
-      401,
-      'Invalid email or password'
-    );
-  }
+  const passwordIsCorrect = await compareLoginPassword(
+    user,
+    password
+  );
 
-  const passwordIsCorrect =
-    await user.comparePassword(password);
-
-  if (!passwordIsCorrect) {
+  if (!user || !passwordIsCorrect) {
     throw new ApiError(
       401,
       'Invalid email or password'
@@ -87,13 +106,18 @@ const login = async (
   }
 
   const accessToken = generateToken(user);
-  const refreshToken = generateRefreshToken();
+  const familyId = generateRefreshTokenFamilyId();
+  const refreshToken = generateRefreshToken(familyId);
+  const now = new Date();
+  const absoluteExpiresAt = getSessionAbsoluteExpiry(now);
 
   await Session.create({
     user: user._id,
-    familyId: crypto.randomUUID(),
+    familyId,
     tokenHash: hashToken(refreshToken),
-    expiresAt: getRefreshTokenExpiry(),
+    expiresAt: getRefreshTokenExpiry(now, absoluteExpiresAt),
+    absoluteExpiresAt,
+    issuedAuthVersion: user.authVersion ?? 0,
     userAgent,
   });
 
@@ -130,19 +154,45 @@ const handleRefreshReuse = async (
   tokenHash,
   req
 ) => {
-  const reused = await Session.findOne({
-    consumedTokenHashes: tokenHash,
-  }).select('user familyId');
+  const reused = await RefreshReplayHistory.findOne({
+    tokenHash,
+  }).select('user familyId').lean();
 
   if (!reused) {
     return false;
   }
 
-  await runTransaction((session) =>
-    revokeUserSecurity(reused.user, session)
-  );
+  const invalidated = await runTransaction(async (session) => {
+    const now = new Date();
+    const compromised = await Session.findOneAndUpdate(
+      {
+        familyId: reused.familyId,
+        compromisedAt: null,
+        revokedAt: null,
+        expiresAt: { $gt: now },
+        absoluteExpiresAt: { $gt: now },
+      },
+      {
+        $set: {
+          compromisedAt: now,
+          revokedAt: now,
+        },
+      },
+      {
+        returnDocument: 'after',
+        session,
+      }
+    );
 
-  if (req) {
+    if (!compromised) {
+      return false;
+    }
+
+    await revokeUserSecurity(reused.user, session);
+    return true;
+  });
+
+  if (invalidated && req) {
     await logAuditEvent({
       req,
       actorId: reused.user,
@@ -170,30 +220,98 @@ const refresh = async (
   }
 
   const tokenHash = hashToken(currentRefreshToken);
-  const nextRefreshToken = generateRefreshToken();
+  const presentedFamilyId = getRefreshTokenFamilyId(
+    currentRefreshToken
+  );
 
-  const session = await Session.findOneAndUpdate(
-    {
+  const result = await runTransaction(async (mongoSession) => {
+    const now = new Date();
+    const current = await Session.findOne({
       tokenHash,
       revokedAt: null,
-      expiresAt: { $gt: new Date() },
-    },
-    {
-      $set: {
-        tokenHash: hashToken(nextRefreshToken),
-        expiresAt: getRefreshTokenExpiry(),
+      expiresAt: { $gt: now },
+      absoluteExpiresAt: { $gt: now },
+    })
+      .select('+issuedAuthVersion')
+      .session(mongoSession);
+
+    if (!current) {
+      return null;
+    }
+
+    const user = await User.findById(current.user)
+      .select('+authVersion')
+      .session(mongoSession);
+    const currentVersion = user?.authVersion ?? 0;
+    const familyMatches = !presentedFamilyId ||
+      presentedFamilyId === current.familyId;
+
+    if (
+      !user ||
+      !user.isActive ||
+      user.isSetupComplete === false ||
+      !Number.isInteger(current.issuedAuthVersion) ||
+      current.issuedAuthVersion !== currentVersion ||
+      !familyMatches
+    ) {
+      await Session.updateOne(
+        {
+          _id: current._id,
+          tokenHash,
+          revokedAt: null,
+        },
+        { $set: { revokedAt: now } },
+        { session: mongoSession }
+      );
+      return { invalid: true };
+    }
+
+    const nextRefreshToken = generateRefreshToken(
+      current.familyId
+    );
+    const nextExpiry = getRefreshTokenExpiry(
+      now,
+      current.absoluteExpiresAt
+    );
+    const rotated = await Session.findOneAndUpdate(
+      {
+        _id: current._id,
+        tokenHash,
+        revokedAt: null,
+        expiresAt: { $gt: now },
+        absoluteExpiresAt: { $gt: now },
       },
-      $push: {
-        consumedTokenHashes: tokenHash,
+      {
+        $set: {
+          tokenHash: hashToken(nextRefreshToken),
+          expiresAt: nextExpiry,
+        },
       },
-    },
-    { returnDocument: 'after' }
-  ).populate({
-    path: 'user',
-    select: '+authVersion',
+      {
+        returnDocument: 'after',
+        session: mongoSession,
+      }
+    );
+
+    if (!rotated) {
+      return null;
+    }
+
+    await RefreshReplayHistory.create([{
+      tokenHash,
+      user: current.user,
+      familyId: current.familyId,
+      expiresAt: current.absoluteExpiresAt,
+    }], { session: mongoSession });
+
+    return {
+      invalid: false,
+      nextRefreshToken,
+      user,
+    };
   });
 
-  if (!session) {
+  if (!result) {
     await handleRefreshReuse(tokenHash, req);
 
     throw new ApiError(
@@ -202,16 +320,7 @@ const refresh = async (
     );
   }
 
-  if (
-    !session.user ||
-    !session.user.isActive ||
-    session.user.isSetupComplete === false
-  ) {
-    await Session.updateOne(
-      { _id: session._id },
-      { $set: { revokedAt: new Date() } }
-    );
-
+  if (result.invalid) {
     throw new ApiError(
       401,
       'Invalid or expired session'
@@ -219,9 +328,9 @@ const refresh = async (
   }
 
   return {
-    accessToken: generateToken(session.user),
-    refreshToken: nextRefreshToken,
-    user: formatUser(session.user),
+    accessToken: generateToken(result.user),
+    refreshToken: result.nextRefreshToken,
+    user: formatUser(result.user),
   };
 };
 
@@ -244,8 +353,13 @@ const issueOneTimeToken = async ({
   purpose,
   createdBy = null,
   ttlMinutes,
+  beforePersist = null,
 }) => {
   const token = generateOneTimeToken();
+
+  if (beforePersist) {
+    await beforePersist();
+  }
 
   await runTransaction(async (session) => {
     await OneTimeToken.updateMany(
@@ -270,7 +384,14 @@ const issueOneTimeToken = async ({
   return token;
 };
 
-const forgotPassword = async (email) => {
+const forgotPassword = async (
+  email,
+  {
+    now = Date.now,
+    wait = delay,
+  } = {}
+) => {
+  const startedAt = now();
   const user = await User.findOne({
     email: email.trim().toLowerCase(),
     isActive: true,
@@ -278,26 +399,37 @@ const forgotPassword = async (email) => {
   });
 
   if (!user) {
-    return;
-  }
-
-  const token = await issueOneTimeToken({
-    user,
-    purpose: 'password_reset',
-    ttlMinutes: env.RESET_TOKEN_TTL_MINUTES,
-  });
-
-  try {
-    await sendPasswordReset({
-      email: user.email,
-      token,
+    await OneTimeToken.exists({
+      tokenHash: hashOneTimeToken(
+        generateOneTimeToken()
+      ),
     });
   }
-  catch (error) {
-    logger.error(
-      'password_reset_email_failed',
-      { error }
-    );
+  else {
+    const token = await issueOneTimeToken({
+      user,
+      purpose: 'password_reset',
+      ttlMinutes: env.RESET_TOKEN_TTL_MINUTES,
+    });
+
+    void sendPasswordReset({
+      email: user.email,
+      token,
+    })
+      .catch((error) => {
+        logger.error(
+          'password_reset_email_failed',
+          { error }
+        );
+      });
+  }
+
+  const remainingFloor = Math.max(
+    0,
+    FORGOT_PASSWORD_MIN_RESPONSE_MS - (now() - startedAt)
+  );
+  if (remainingFloor > 0) {
+    await wait(remainingFloor);
   }
 };
 
@@ -333,7 +465,8 @@ const consumePasswordToken = async ({
 
   if (
     !user ||
-    (purpose === 'invite' && user.isSetupComplete) ||
+    (purpose === 'invite' &&
+      (user.isSetupComplete || user.deactivatedAt)) ||
     (purpose === 'password_reset' &&
       (!user.isActive || !user.isSetupComplete))
   ) {
@@ -346,6 +479,10 @@ const consumePasswordToken = async ({
   user.password = password;
   user.isSetupComplete = true;
   user.isActive = true;
+  if (purpose === 'invite') {
+    user.deactivatedAt = null;
+    user.deactivatedBy = null;
+  }
   user.authVersion += 1;
   await user.save({ session });
 
@@ -414,6 +551,9 @@ const changePassword = async (
 });
 
 export {
+  DUMMY_PASSWORD_HASH,
+  FORGOT_PASSWORD_MIN_RESPONSE_MS,
+  compareLoginPassword,
   formatUser,
   revokeUserSecurity,
   issueOneTimeToken,

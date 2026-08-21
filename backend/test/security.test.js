@@ -19,6 +19,14 @@ const {
 } = await import('../src/middlewares/errorHandler.js');
 const { sanitizeValue, logAuditEvent } = await import('../src/modules/audit/audit.service.js');
 const { default: AuditLog } = await import('../src/modules/audit/audit.model.js');
+const {
+  MAX_PENDING_REPORTS,
+  reportError,
+  flushErrorReports,
+  setErrorReporterForTests,
+  resetErrorReporterForTests,
+} = await import('../src/observability/errorMonitor.js');
+const { redactText } = await import('../src/observability/logger.js');
 
 before(async () => {
   await connectTestDatabase();
@@ -30,6 +38,30 @@ test('unknown routes return 404 rather than leaking through as 500', async () =>
   const response = await request(app).get('/api/v1/does-not-exist');
   assert.equal(response.status, 404);
   assert.equal(response.body.message, 'Route not found');
+});
+
+test('error monitoring bounds in-flight delivery during a slow endpoint burst', async () => {
+  const releases = [];
+  setErrorReporterForTests(() => new Promise((resolve) => {
+    releases.push(resolve);
+  }));
+
+  try {
+    for (let index = 0; index < MAX_PENDING_REPORTS + 25; index += 1) {
+      reportError(new Error('sensitive internal detail'), {
+        requestId: `burst-${index}`,
+      });
+    }
+    assert.equal(releases.length, MAX_PENDING_REPORTS);
+
+    for (const release of releases) {
+      release();
+    }
+    await flushErrorReports();
+  }
+  finally {
+    resetErrorReporterForTests();
+  }
 });
 
 test('malformed and oversized JSON bodies map to 400 and 413', async () => {
@@ -135,6 +167,34 @@ test('audit sanitizer removes sensitive keys case-insensitively and recursively'
   assert.deepEqual(sanitized, { nested: { safe: 'retained' }, safe: true });
 });
 
+test('log text redaction removes credentials embedded in service URLs', () => {
+  const username = 'service-operator';
+  const password = 'example-password';
+  const credentialedUri = [
+    'rediss://',
+    username,
+    ':',
+    password,
+    '@cache.example.test:6380/0',
+  ].join('');
+
+  const redacted = redactText(`Connection failed for ${credentialedUri}`);
+
+  assert.equal(redacted.includes(username), false);
+  assert.equal(redacted.includes(password), false);
+  assert.equal(
+    redacted,
+    'Connection failed for rediss://[REDACTED]@cache.example.test:6380/0',
+  );
+
+  const jwtLikeValue = [
+    'eyJhbGciOiJIUzI1NiJ9',
+    'eyJzdWIiOiIxMjM0NTY3ODkwIn0',
+    'signaturesegment',
+  ].join('.');
+  assert.equal(redactText(jwtLikeValue), '[REDACTED_JWT]');
+});
+
 test('stored audit metadata never contains sensitive values', async () => {
   await AuditLog.deleteMany({});
   const secret = 'stored-secret-value';
@@ -169,4 +229,25 @@ test('production error responses suppress stacks and unexpected internal message
   assert.equal(response.body.stack, undefined);
   assert.equal(response.body.message, 'Internal server error');
   assert.equal(JSON.stringify(response.body).includes('internal.example'), false);
+
+  const disguised = new Error('upstream secret detail');
+  disguised.status = 400;
+  const disguisedResponse = buildErrorBody(disguised, true);
+  assert.equal(disguisedResponse.statusCode, 500);
+  assert.equal(disguisedResponse.body.message, 'Internal server error');
+
+  const validationError = new Error('validation failed');
+  validationError.name = 'ValidationError';
+  validationError.errors = {
+    patientEmail: {
+      message: 'Rejected value patient-private@example.test for patientEmail',
+    },
+  };
+  const validationResponse = buildErrorBody(validationError, true);
+  assert.equal(validationResponse.statusCode, 400);
+  assert.equal(validationResponse.body.message, 'Invalid request data');
+  assert.doesNotMatch(
+    JSON.stringify(validationResponse.body),
+    /patient-private@example\.test/
+  );
 });

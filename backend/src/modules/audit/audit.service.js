@@ -8,7 +8,7 @@ import logger from '../../observability/logger.js';
 
 const pseudonymize = (value) => value
   ? crypto
-    .createHmac('sha256', env.RATE_LIMIT_KEY_SECRET)
+    .createHmac('sha256', env.AUDIT_PSEUDONYM_SECRET)
     .update(String(value))
     .digest('hex')
   : '';

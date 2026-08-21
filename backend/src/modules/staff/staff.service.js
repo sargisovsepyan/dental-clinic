@@ -1,5 +1,6 @@
 import User from '../users/user.model.js';
 import Session from '../sessions/session.model.js';
+import OneTimeToken from '../auth/oneTimeToken.model.js';
 import AdminInvariant from './adminInvariant.model.js';
 
 import ApiError from '../../utils/ApiError.js';
@@ -98,6 +99,29 @@ const inviteStaff = async (data, actorId) => {
       invitedBy: actorId,
     });
   }
+  else {
+    user = await User.findOneAndUpdate(
+      {
+        _id: user._id,
+        isSetupComplete: false,
+      },
+      {
+        $set: {
+          deactivatedAt: null,
+          deactivatedBy: null,
+          invitedBy: actorId,
+        },
+      },
+      { returnDocument: 'after' }
+    );
+
+    if (!user) {
+      throw new ApiError(
+        409,
+        'A staff account with this email already exists'
+      );
+    }
+  }
 
   const token = await issueOneTimeToken({
     user,
@@ -164,6 +188,19 @@ const revokeSessionsInTransaction = (
   { session }
 );
 
+
+const consumeOutstandingOneTimeTokens = (
+  userId,
+  session
+) => OneTimeToken.updateMany(
+  {
+    user: userId,
+    consumedAt: null,
+  },
+  { $set: { consumedAt: new Date() } },
+  { session }
+);
+
 const updateStaffRole = async (
   id,
   role,
@@ -213,17 +250,19 @@ const deactivateStaff = async (
       'Administrators cannot deactivate themselves'
     );
   }
-  if (!user.isActive) {
+  await ensureNotLastAdmin(user, session);
+  await revokeSessionsInTransaction(user._id, session);
+  await consumeOutstandingOneTimeTokens(user._id, session);
+
+  if (!user.isActive && user.deactivatedAt) {
     return safeStaff(user);
   }
 
-  await ensureNotLastAdmin(user, session);
   user.isActive = false;
   user.deactivatedAt = new Date();
   user.deactivatedBy = actorId;
   user.authVersion += 1;
   await user.save({ session });
-  await revokeSessionsInTransaction(user._id, session);
   return safeStaff(user);
 });
 
