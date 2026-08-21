@@ -10,13 +10,13 @@
 ## Attacker-oriented controls
 
 - Unauthenticated attacker: validation, request limits, nested Mongo-operator rejection, generic production errors, enumeration-safe recovery, and public data minimization.
-- Booking bot: global/IP and HMAC-phone limits plus a database-hard phone/date quota; slot and overlap uniqueness remains authoritative.
-- Stolen refresh cookie: single-use rotation, consumed-token detection, user-wide refresh revocation, and immediate bearer invalidation.
+- Booking bot: global/IP and HMAC-phone limits, server-side challenge verification, database-hard phone/date quota, and required database-backed idempotency; slot and overlap uniqueness remains authoritative.
+- Stolen refresh cookie: single-use rotation, separate TTL consumed-token detection bounded by the family absolute lifetime, user-wide refresh revocation, and immediate bearer invalidation.
 - Compromised receptionist: appointment operations only; no staff, catalog, audit, cleanup, or consent-governance access.
 - Compromised dentist account: authenticated profile only; no patient appointment or administrative access.
 - Malicious/accidental admin: explicit validation and audit, last-admin protection, soft lifecycle, consent confirmation phrase, reference-guarded cleanup, and non-destructive index tooling.
 - Upload attacker: small in-memory limits, allowed magic bytes, MIME/extension agreement, Cloudinary image-only mode, admin authorization, and upload throttling.
-- Concurrency attacker: unique indexes, compare-and-set writes, serialized last-admin transactions, and repeatable parallel tests.
+- Concurrency attacker: unique indexes, monotonic category/service/clinic/dentist admission guards, compare-and-set writes, serialized last-admin transactions, and repeatable parallel tests.
 
 ## Credential rules
 

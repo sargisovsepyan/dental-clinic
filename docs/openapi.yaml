@@ -259,7 +259,7 @@ paths:
       operationId: createServiceCategory
       description: Admin only.
       security: [{ bearerAuth: [] }]
-      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      requestBody: { $ref: '#/components/requestBodies/ServiceCategoryCreate' }
       responses: { '201': { $ref: '#/components/responses/Success' }, '400': { $ref: '#/components/responses/Error' }, '409': { $ref: '#/components/responses/Error' } }
   /service-categories/admin/all:
     get:
@@ -269,24 +269,26 @@ paths:
       security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/Success' } }
   /service-categories/{identifier}:
-    parameters: [{ $ref: '#/components/parameters/Identifier' }]
     get:
       tags: [Catalog]
       operationId: getServiceCategory
       description: The GET operation interprets the identifier as a canonical slug.
+      parameters: [{ $ref: '#/components/parameters/SlugIdentifier' }]
       responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
     patch:
       tags: [Catalog]
       operationId: updateServiceCategory
       description: Admin only; interprets the identifier as a MongoDB ObjectId.
       security: [{ bearerAuth: [] }]
-      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      parameters: [{ $ref: '#/components/parameters/ObjectIdIdentifier' }]
+      requestBody: { $ref: '#/components/requestBodies/ServiceCategoryUpdate' }
       responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
     delete:
       tags: [Catalog]
       operationId: disableServiceCategory
       description: Admin only; interprets the identifier as a MongoDB ObjectId and soft-disables the category.
       security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ObjectIdIdentifier' }]
       responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
   /service-categories/{id}/restore:
     parameters: [{ $ref: '#/components/parameters/Id' }]
@@ -308,7 +310,7 @@ paths:
       tags: [Catalog]
       operationId: createService
       security: [{ bearerAuth: [] }]
-      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      requestBody: { $ref: '#/components/requestBodies/ServiceCreate' }
       responses: { '201': { $ref: '#/components/responses/Success' }, '400': { $ref: '#/components/responses/Error' } }
   /services/admin/all:
     get:
@@ -317,24 +319,26 @@ paths:
       security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/Success' } }
   /services/{identifier}:
-    parameters: [{ $ref: '#/components/parameters/Identifier' }]
     get:
       tags: [Catalog]
       operationId: getService
       description: The GET operation interprets the identifier as a canonical slug.
+      parameters: [{ $ref: '#/components/parameters/SlugIdentifier' }]
       responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
     patch:
       tags: [Catalog]
       operationId: updateService
       description: Admin only; interprets the identifier as a MongoDB ObjectId.
       security: [{ bearerAuth: [] }]
-      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      parameters: [{ $ref: '#/components/parameters/ObjectIdIdentifier' }]
+      requestBody: { $ref: '#/components/requestBodies/ServiceUpdate' }
       responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
     delete:
       tags: [Catalog]
       operationId: disableService
       description: Admin only; interprets the identifier as a MongoDB ObjectId.
       security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ObjectIdIdentifier' }]
       responses: { '200': { $ref: '#/components/responses/Success' } }
   /services/{id}/restore:
     parameters: [{ $ref: '#/components/parameters/Id' }]
@@ -356,7 +360,7 @@ paths:
       tags: [Catalog]
       operationId: createDentist
       security: [{ bearerAuth: [] }]
-      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      requestBody: { $ref: '#/components/requestBodies/DentistCreate' }
       responses: { '201': { $ref: '#/components/responses/Success' }, '400': { $ref: '#/components/responses/Error' } }
   /dentists/admin/all:
     get:
@@ -365,24 +369,31 @@ paths:
       security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/Success' } }
   /dentists/{identifier}:
-    parameters: [{ $ref: '#/components/parameters/Identifier' }]
     get:
       tags: [Catalog]
       operationId: getDentist
       description: The GET operation interprets the identifier as a canonical slug.
+      parameters: [{ $ref: '#/components/parameters/SlugIdentifier' }]
       responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
     patch:
       tags: [Catalog]
       operationId: updateDentist
-      description: Admin only; interprets the identifier as a MongoDB ObjectId.
+      description: >-
+        Admin only; interprets the identifier as a MongoDB ObjectId. A weekly
+        schedule change requires the current schedule revision and may require
+        replay with the exact conflict acknowledgement returned by a 409.
       security: [{ bearerAuth: [] }]
-      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
-      responses: { '200': { $ref: '#/components/responses/Success' } }
+      parameters: [{ $ref: '#/components/parameters/ObjectIdIdentifier' }]
+      requestBody: { $ref: '#/components/requestBodies/DentistUpdate' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '409': { $ref: '#/components/responses/ScheduleConflict' }
     delete:
       tags: [Catalog]
       operationId: disableDentist
       description: Admin only; interprets the identifier as a MongoDB ObjectId.
       security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ObjectIdIdentifier' }]
       responses: { '200': { $ref: '#/components/responses/Success' } }
   /dentists/{id}/restore:
     parameters: [{ $ref: '#/components/parameters/Id' }]
@@ -410,12 +421,21 @@ paths:
       operationId: upsertDentistScheduleException
       security: [{ bearerAuth: [] }]
       requestBody: { $ref: '#/components/requestBodies/DentistScheduleException' }
-      responses: { '200': { $ref: '#/components/responses/Success' }, '400': { $ref: '#/components/responses/Error' } }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/ScheduleConflict' }
     delete:
       tags: [Scheduling]
       operationId: deleteDentistScheduleException
       security: [{ bearerAuth: [] }]
-      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+      parameters:
+        - { $ref: '#/components/parameters/ExpectedScheduleRevision' }
+        - { $ref: '#/components/parameters/ScheduleConflictAcknowledgement' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/ScheduleConflict' }
   /clinic:
     get:
       tags: [Catalog]
@@ -425,8 +445,15 @@ paths:
       tags: [Catalog]
       operationId: updateClinic
       security: [{ bearerAuth: [] }]
-      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
-      responses: { '200': { $ref: '#/components/responses/Success' }, '400': { $ref: '#/components/responses/Error' } }
+      description: >-
+        Admin only. Updating weeklySchedule requires expectedScheduleRevision.
+        A 409 may return an exact acknowledgement token for the same proposal.
+        Booking-setting changes are serialized with booking admission.
+      requestBody: { $ref: '#/components/requestBodies/ClinicUpdate' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/ScheduleConflict' }
   /clinic/closures:
     get:
       tags: [Scheduling]
@@ -443,12 +470,20 @@ paths:
       operationId: upsertClinicClosure
       security: [{ bearerAuth: [] }]
       requestBody: { $ref: '#/components/requestBodies/ClinicScheduleException' }
-      responses: { '200': { $ref: '#/components/responses/Success' } }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '409': { $ref: '#/components/responses/ScheduleConflict' }
     delete:
       tags: [Scheduling]
       operationId: deleteClinicClosure
       security: [{ bearerAuth: [] }]
-      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+      parameters:
+        - { $ref: '#/components/parameters/ExpectedScheduleRevision' }
+        - { $ref: '#/components/parameters/ScheduleConflictAcknowledgement' }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/ScheduleConflict' }
   /availability:
     get:
       tags: [Scheduling]
@@ -458,9 +493,10 @@ paths:
         - { name: serviceId, in: query, required: true, schema: { $ref: '#/components/schemas/ObjectId' } }
         - { name: date, in: query, required: true, schema: { $ref: '#/components/schemas/LocalDate' } }
       responses:
-        '200': { $ref: '#/components/responses/Success' }
+        '200': { $ref: '#/components/responses/AvailabilitySuccess' }
         '400': { $ref: '#/components/responses/Error' }
-        '409': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /appointments:
     get:
       tags: [Appointments]
@@ -471,23 +507,36 @@ paths:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Limit' }
         - { name: date, in: query, schema: { $ref: '#/components/schemas/LocalDate' } }
+        - { $ref: '#/components/parameters/FromDate' }
+        - { $ref: '#/components/parameters/ToDate' }
         - { name: dentistId, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
         - { name: serviceId, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
         - { name: status, in: query, schema: { $ref: '#/components/schemas/AppointmentStatus' } }
-      responses: { '200': { $ref: '#/components/responses/Success' } }
+        - { name: phone, in: query, schema: { type: string, maxLength: 30 } }
+      responses: { '200': { $ref: '#/components/responses/AppointmentListSuccess' } }
     post:
       tags: [Appointments]
       operationId: createPublicAppointment
+      description: >-
+        Public booking. Idempotency-Key is mandatory. Production also requires
+        challengeToken. A successful retry with the same key and semantic body
+        returns the original immutable public result with status 201; reuse with
+        a different body returns 409. Successful records expire after the
+        configured 1-168 hour idempotency window (24 hours by default), after
+        which the key may create a new booking.
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: '#/components/schemas/PublicBookingRequest' }
       responses:
-        '201': { $ref: '#/components/responses/Success' }
+        '201': { $ref: '#/components/responses/PublicBookingSuccess' }
         '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
         '429': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /appointments/admin:
     post:
       tags: [Appointments]
@@ -499,7 +548,12 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/AdminBookingRequest' }
-      responses: { '201': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+      responses:
+        '201': { $ref: '#/components/responses/AppointmentSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /appointments/{id}:
     parameters: [{ $ref: '#/components/parameters/Id' }]
     get:
@@ -507,7 +561,7 @@ paths:
       operationId: getAppointment
       description: Admin or receptionist.
       security: [{ bearerAuth: [] }]
-      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+      responses: { '200': { $ref: '#/components/responses/AppointmentSuccess' }, '404': { $ref: '#/components/responses/Error' } }
   /appointments/{id}/reschedule:
     parameters: [{ $ref: '#/components/parameters/Id' }]
     patch:
@@ -520,7 +574,11 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/RescheduleRequest' }
-      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+      responses:
+        '200': { $ref: '#/components/responses/AppointmentSuccess' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /appointments/{id}/status:
     parameters: [{ $ref: '#/components/parameters/Id' }]
     patch:
@@ -533,7 +591,10 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/AppointmentStatusRequest' }
-      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+      responses:
+        '200': { $ref: '#/components/responses/AppointmentSuccess' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
   /appointments/{id}/cancel:
     parameters: [{ $ref: '#/components/parameters/Id' }]
     post:
@@ -550,7 +611,10 @@ paths:
               additionalProperties: false
               required: [reason]
               properties: { reason: { type: string, minLength: 2, maxLength: 500 } }
-      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+      responses:
+        '200': { $ref: '#/components/responses/AppointmentSuccess' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
   /media/gallery:
     get:
       tags: [Media]
@@ -575,7 +639,7 @@ paths:
       tags: [Media]
       operationId: updateGalleryImage
       security: [{ bearerAuth: [] }]
-      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      requestBody: { $ref: '#/components/requestBodies/GalleryUpdate' }
       responses: { '200': { $ref: '#/components/responses/Success' } }
     delete:
       tags: [Media]
@@ -673,7 +737,7 @@ paths:
       tags: [BeforeAfter]
       operationId: updateBeforeAfterCase
       security: [{ bearerAuth: [] }]
-      requestBody: { $ref: '#/components/requestBodies/LocalizedCatalog' }
+      requestBody: { $ref: '#/components/requestBodies/BeforeAfterUpdate' }
       responses: { '200': { $ref: '#/components/responses/Success' } }
     delete:
       tags: [BeforeAfter]
@@ -765,12 +829,18 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/ObjectId' }
-    Identifier:
+    SlugIdentifier:
       name: identifier
       in: path
       required: true
-      description: Canonical slug for GET; MongoDB ObjectId for administrative PATCH or DELETE.
-      schema: { type: string, minLength: 1, maxLength: 180 }
+      description: Canonical lowercase public slug; never interpreted as a database ID.
+      schema: { $ref: '#/components/schemas/Slug' }
+    ObjectIdIdentifier:
+      name: identifier
+      in: path
+      required: true
+      description: MongoDB ObjectId used by an authenticated administrative mutation.
+      schema: { $ref: '#/components/schemas/ObjectId' }
     DatePath:
       name: date
       in: path
@@ -791,23 +861,84 @@ components:
     Limit:
       name: limit
       in: query
-      schema: { type: integer, minimum: 1, maximum: 100 }
+      schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >-
+        Fresh UUIDv4 identifying one intended public booking. Reuse for the same
+        semantic request replays the original successful public response within
+        the configured idempotency window; reuse for a different request is 409.
+      schema:
+        type: string
+        format: uuid
+        pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$'
+    ExpectedScheduleRevision:
+      name: expectedScheduleRevision
+      in: query
+      required: true
+      description: Current non-negative schedule revision observed by the administrator.
+      schema: { type: integer, minimum: 0 }
+    ScheduleConflictAcknowledgement:
+      name: scheduleConflictAcknowledgement
+      in: query
+      required: false
+      description: >-
+        Exact 64-character token returned by the preceding 409 for this revision,
+        proposal, scope, and affected appointment set.
+      schema: { $ref: '#/components/schemas/ScheduleAcknowledgementToken' }
     Origin:
       name: Origin
       in: header
       required: true
       schema: { type: string, format: uri }
   requestBodies:
-    LocalizedCatalog:
+    ServiceCategoryCreate:
       required: true
       content:
         application/json:
-          schema:
-            type: object
-            description: Endpoint-specific fields plus explicit hy, ru, and en translations.
-            properties:
-              translations: { $ref: '#/components/schemas/Translations' }
-            additionalProperties: true
+          schema: { $ref: '#/components/schemas/ServiceCategoryCreateRequest' }
+    ServiceCategoryUpdate:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ServiceCategoryUpdateRequest' }
+    ServiceCreate:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ServiceCreateRequest' }
+    ServiceUpdate:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ServiceUpdateRequest' }
+    DentistCreate:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DentistCreateRequest' }
+    ClinicUpdate:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ClinicUpdateRequest' }
+    DentistUpdate:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DentistUpdateRequest' }
+    GalleryUpdate:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/GalleryUpdateRequest' }
+    BeforeAfterUpdate:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/BeforeAfterUpdateRequest' }
     ClinicScheduleException:
       required: true
       content:
@@ -815,11 +946,14 @@ components:
           schema:
             type: object
             additionalProperties: false
-            required: [isOpen]
+            required: [expectedScheduleRevision, isOpen]
             properties:
+              expectedScheduleRevision: { type: integer, minimum: 0 }
+              scheduleConflictAcknowledgement: { $ref: '#/components/schemas/ScheduleAcknowledgementToken' }
               isOpen: { type: boolean }
               shifts:
                 type: array
+                maxItems: 6
                 items: { $ref: '#/components/schemas/Shift' }
               note: { type: string, maxLength: 300 }
     DentistScheduleException:
@@ -829,11 +963,14 @@ components:
           schema:
             type: object
             additionalProperties: false
-            required: [isWorking]
+            required: [expectedScheduleRevision, isWorking]
             properties:
+              expectedScheduleRevision: { type: integer, minimum: 0 }
+              scheduleConflictAcknowledgement: { $ref: '#/components/schemas/ScheduleAcknowledgementToken' }
               isWorking: { type: boolean }
               shifts:
                 type: array
+                maxItems: 6
                 items: { $ref: '#/components/schemas/Shift' }
               note: { type: string, maxLength: 300 }
     ImageUpload:
@@ -916,6 +1053,82 @@ components:
                     properties:
                       accessToken: { type: string }
                       user: { $ref: '#/components/schemas/StaffUser' }
+    AvailabilitySuccess:
+      description: Computed public availability
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [success, data]
+            properties:
+              success: { type: boolean, const: true }
+              data:
+                type: object
+                additionalProperties: false
+                required: [availability]
+                properties:
+                  availability: { $ref: '#/components/schemas/Availability' }
+    PublicBookingSuccess:
+      description: New or idempotently replayed public booking; both use status 201.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [success, message, data]
+            properties:
+              success: { type: boolean, const: true }
+              message: { type: string }
+              data:
+                type: object
+                additionalProperties: false
+                required: [appointment]
+                properties:
+                  appointment: { $ref: '#/components/schemas/AppointmentPublicResult' }
+    AppointmentSuccess:
+      description: Authorized appointment result containing administrative fields.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [success, data]
+            properties:
+              success: { type: boolean, const: true }
+              message: { type: string }
+              data:
+                type: object
+                additionalProperties: false
+                required: [appointment]
+                properties:
+                  appointment: { $ref: '#/components/schemas/AppointmentAdmin' }
+    AppointmentListSuccess:
+      description: Authorized paginated appointment list.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [success, data]
+            properties:
+              success: { type: boolean, const: true }
+              data:
+                type: object
+                additionalProperties: false
+                required: [appointments, pagination]
+                properties:
+                  appointments:
+                    type: array
+                    items: { $ref: '#/components/schemas/AppointmentAdmin' }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+    ScheduleConflict:
+      description: >-
+        Schedule revision conflict, bounded conflict preview requiring exact
+        acknowledgement, or conservative scan-limit refusal.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ScheduleConflictError' }
     Error:
       description: Error response
       content:
@@ -925,6 +1138,16 @@ components:
     ObjectId:
       type: string
       pattern: '^[0-9a-fA-F]{24}$'
+    Slug:
+      type: string
+      minLength: 2
+      maxLength: 180
+      pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+    ScheduleAcknowledgementToken:
+      type: string
+      minLength: 64
+      maxLength: 64
+      pattern: '^[0-9a-fA-F]{64}$'
     LocalDate:
       type: string
       pattern: '^\d{4}-\d{2}-\d{2}$'
@@ -953,6 +1176,8 @@ components:
       properties:
         success: { type: boolean, const: false }
         message: { type: string }
+        code: { type: string }
+        details: { type: object, additionalProperties: true }
     StaffUser:
       type: object
       additionalProperties: false
@@ -1018,6 +1243,250 @@ components:
         hy: { $ref: '#/components/schemas/TranslationText' }
         ru: { $ref: '#/components/schemas/TranslationText' }
         en: { $ref: '#/components/schemas/TranslationText' }
+    ServiceCategoryTranslation:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 2, maxLength: 100 }
+        description: { type: string, maxLength: 500 }
+    ServiceCategoryTranslations:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        hy: { $ref: '#/components/schemas/ServiceCategoryTranslation' }
+        ru: { $ref: '#/components/schemas/ServiceCategoryTranslation' }
+        en: { $ref: '#/components/schemas/ServiceCategoryTranslation' }
+    ServiceCategoryCreateRequest:
+      type: object
+      additionalProperties: false
+      anyOf:
+        - { required: [name] }
+        - { required: [translations] }
+      properties:
+        name: { type: string, minLength: 2, maxLength: 100 }
+        translations: { $ref: '#/components/schemas/ServiceCategoryTranslations' }
+        slug:
+          type: string
+          minLength: 2
+          maxLength: 120
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        description: { type: string, maxLength: 500 }
+        sortOrder: { type: integer, minimum: 0, maximum: 10000, default: 0 }
+        isActive: { type: boolean, default: true }
+    ServiceCategoryUpdateRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Slug, image URL, and publication state are not mutable through this operation.
+      properties:
+        name: { type: string, minLength: 2, maxLength: 100 }
+        translations: { $ref: '#/components/schemas/ServiceCategoryTranslations' }
+        description: { type: string, maxLength: 500 }
+        sortOrder: { type: integer, minimum: 0, maximum: 10000 }
+    ServiceTranslation:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 2, maxLength: 150 }
+        shortDescription: { type: string, maxLength: 300 }
+        description: { type: string, maxLength: 5000 }
+    ServiceTranslations:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        hy: { $ref: '#/components/schemas/ServiceTranslation' }
+        ru: { $ref: '#/components/schemas/ServiceTranslation' }
+        en: { $ref: '#/components/schemas/ServiceTranslation' }
+    ServiceCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [category]
+      anyOf:
+        - { required: [name] }
+        - { required: [translations] }
+      properties:
+        name: { type: string, minLength: 2, maxLength: 150 }
+        translations: { $ref: '#/components/schemas/ServiceTranslations' }
+        category: { $ref: '#/components/schemas/ObjectId' }
+        slug: { $ref: '#/components/schemas/Slug' }
+        shortDescription: { type: string, maxLength: 300 }
+        description: { type: string, maxLength: 5000 }
+        priceType: { type: string, enum: [fixed, from, range, on_request], default: on_request }
+        priceFrom:
+          anyOf:
+            - { type: number, minimum: 0 }
+            - { type: 'null' }
+        priceTo:
+          anyOf:
+            - { type: number, minimum: 0 }
+            - { type: 'null' }
+        currency: { type: string, const: AMD }
+        durationMinutes: { type: integer, minimum: 15, maximum: 480, default: 60 }
+        isFeatured: { type: boolean }
+        bookingEnabled: { type: boolean }
+        sortOrder: { type: integer, minimum: 0, maximum: 10000 }
+        isActive: { type: boolean, default: true }
+    ServiceUpdateRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: Slug, image URL, and publication state are not mutable through this operation.
+      properties:
+        name: { type: string, minLength: 2, maxLength: 150 }
+        translations: { $ref: '#/components/schemas/ServiceTranslations' }
+        category: { $ref: '#/components/schemas/ObjectId' }
+        shortDescription: { type: string, maxLength: 300 }
+        description: { type: string, maxLength: 5000 }
+        priceType: { type: string, enum: [fixed, from, range, on_request] }
+        priceFrom:
+          anyOf:
+            - { type: number, minimum: 0 }
+            - { type: 'null' }
+        priceTo:
+          anyOf:
+            - { type: number, minimum: 0 }
+            - { type: 'null' }
+        currency: { type: string, const: AMD }
+        durationMinutes: { type: integer, minimum: 15, maximum: 480 }
+        isFeatured: { type: boolean }
+        bookingEnabled: { type: boolean }
+        sortOrder: { type: integer, minimum: 0, maximum: 10000 }
+    DentistTranslation:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 2, maxLength: 150 }
+        bio: { type: string, maxLength: 5000 }
+        specializations:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items: { type: string, minLength: 2, maxLength: 100 }
+    DentistTranslations:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        hy: { $ref: '#/components/schemas/DentistTranslation' }
+        ru: { $ref: '#/components/schemas/DentistTranslation' }
+        en: { $ref: '#/components/schemas/DentistTranslation' }
+    DentistCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [firstName, lastName]
+      properties:
+        firstName: { type: string, minLength: 2, maxLength: 80 }
+        lastName: { type: string, minLength: 2, maxLength: 80 }
+        slug: { $ref: '#/components/schemas/Slug' }
+        title: { type: string, maxLength: 150 }
+        translations: { $ref: '#/components/schemas/DentistTranslations' }
+        specializations:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items: { type: string, minLength: 2, maxLength: 100 }
+        bio: { type: string, maxLength: 5000 }
+        experienceYears: { type: integer, minimum: 0, maximum: 70, default: 0 }
+        languages:
+          type: array
+          uniqueItems: true
+          default: []
+          items: { type: string, enum: [hy, ru, en, fr, de, other] }
+        services:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          default: []
+          items: { $ref: '#/components/schemas/ObjectId' }
+        weeklySchedule:
+          type: array
+          maxItems: 7
+          default: []
+          items: { $ref: '#/components/schemas/DentistWorkingDay' }
+        isFeatured: { type: boolean, default: false }
+        bookingEnabled: { type: boolean, default: true }
+        isActive: { type: boolean, default: true }
+        sortOrder: { type: integer, minimum: 0, maximum: 10000, default: 0 }
+    GalleryTranslation:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        altText: { type: string, minLength: 1, maxLength: 200 }
+        caption: { type: string, maxLength: 500 }
+    GalleryTranslations:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        hy: { $ref: '#/components/schemas/GalleryTranslation' }
+        ru: { $ref: '#/components/schemas/GalleryTranslation' }
+        en: { $ref: '#/components/schemas/GalleryTranslation' }
+    GalleryUpdateRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        altText: { type: string, maxLength: 200 }
+        caption: { type: string, maxLength: 500 }
+        translations: { $ref: '#/components/schemas/GalleryTranslations' }
+        sortOrder: { type: integer, minimum: 0, maximum: 10000 }
+        isActive: { type: boolean }
+    BeforeAfterTranslation:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 2, maxLength: 200 }
+        description: { type: string, maxLength: 2000 }
+    BeforeAfterTranslations:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        hy: { $ref: '#/components/schemas/BeforeAfterTranslation' }
+        ru: { $ref: '#/components/schemas/BeforeAfterTranslation' }
+        en: { $ref: '#/components/schemas/BeforeAfterTranslation' }
+    BeforeAfterUpdateRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 2, maxLength: 200 }
+        translations: { $ref: '#/components/schemas/BeforeAfterTranslations' }
+        description: { type: string, maxLength: 2000 }
+        serviceId:
+          anyOf:
+            - { $ref: '#/components/schemas/ObjectId' }
+            - { type: string, const: '' }
+        dentistId:
+          anyOf:
+            - { $ref: '#/components/schemas/ObjectId' }
+            - { type: string, const: '' }
+        isFeatured: { type: boolean }
+        sortOrder: { type: integer, minimum: 0, maximum: 10000 }
+    ClinicTranslation:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        clinicName: { type: string, minLength: 2, maxLength: 150 }
+        tagline: { type: string, maxLength: 250 }
+        description: { type: string, maxLength: 5000 }
+        address: { type: string, maxLength: 300 }
+    ClinicTranslations:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        hy: { $ref: '#/components/schemas/ClinicTranslation' }
+        ru: { $ref: '#/components/schemas/ClinicTranslation' }
+        en: { $ref: '#/components/schemas/ClinicTranslation' }
     Shift:
       type: object
       additionalProperties: false
@@ -1025,22 +1494,468 @@ components:
       properties:
         start: { $ref: '#/components/schemas/LocalTime' }
         end: { $ref: '#/components/schemas/LocalTime' }
+    ClinicWorkingDay:
+      type: object
+      additionalProperties: false
+      required: [dayOfWeek, isOpen]
+      properties:
+        dayOfWeek: { type: integer, minimum: 1, maximum: 7 }
+        isOpen: { type: boolean }
+        shifts:
+          type: array
+          maxItems: 6
+          default: []
+          items: { $ref: '#/components/schemas/Shift' }
+    DentistWorkingDay:
+      type: object
+      additionalProperties: false
+      required: [dayOfWeek]
+      properties:
+        dayOfWeek: { type: integer, minimum: 1, maximum: 7 }
+        isWorking: { type: boolean, default: true }
+        shifts:
+          type: array
+          maxItems: 6
+          default: []
+          items: { $ref: '#/components/schemas/Shift' }
+    BookingSettings:
+      type: object
+      additionalProperties: false
+      description: >-
+        Active booking controls. The legacy cancellationNoticeHours property has
+        been removed: there is no patient self-cancellation route, and authorized
+        staff cancellation is governed by role and appointment state.
+      properties:
+        isBookingEnabled:
+          type: boolean
+          description: False makes public availability and appointment admission return 503.
+        slotIntervalMinutes: { type: integer, enum: [10, 15, 20, 30, 60] }
+        minBookingNoticeMinutes: { type: integer, minimum: 0, maximum: 10080 }
+        maxBookingDaysAhead: { type: integer, minimum: 1, maximum: 365 }
+        bufferMinutes:
+          type: integer
+          minimum: 0
+          maximum: 120
+          description: Added after treatment duration when fitting and locking a slot.
+        allowSameDayBooking: { type: boolean }
+        requireEmail: { type: boolean }
+        autoConfirmAppointments: { type: boolean }
+        maxAppointmentsPerPhonePerDay: { type: integer, minimum: 1, maximum: 20 }
+    ClinicUpdateRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      dependentRequired:
+        weeklySchedule: [expectedScheduleRevision]
+      properties:
+        expectedScheduleRevision: { type: integer, minimum: 0 }
+        scheduleConflictAcknowledgement: { $ref: '#/components/schemas/ScheduleAcknowledgementToken' }
+        clinicName: { type: string, minLength: 2, maxLength: 150 }
+        translations: { $ref: '#/components/schemas/ClinicTranslations' }
+        tagline: { type: string, maxLength: 250 }
+        description: { type: string, maxLength: 5000 }
+        phone: { type: string, maxLength: 30 }
+        secondaryPhone: { type: string, maxLength: 30 }
+        email:
+          anyOf:
+            - { type: string, format: email, maxLength: 254 }
+            - { type: string, const: '' }
+        address: { type: string, maxLength: 300 }
+        mapUrl:
+          type: string
+          pattern: '^(?:https://.*)?$'
+        latitude:
+          anyOf:
+            - { type: number, minimum: -90, maximum: 90 }
+            - { type: 'null' }
+        longitude:
+          anyOf:
+            - { type: number, minimum: -180, maximum: 180 }
+            - { type: 'null' }
+        socialLinks:
+          type: object
+          additionalProperties: false
+          properties:
+            instagram: { type: string, maxLength: 2048 }
+            facebook: { type: string, maxLength: 2048 }
+            whatsapp: { type: string, maxLength: 2048 }
+            telegram: { type: string, maxLength: 2048 }
+        weeklySchedule:
+          type: array
+          maxItems: 7
+          items: { $ref: '#/components/schemas/ClinicWorkingDay' }
+        bookingSettings: { $ref: '#/components/schemas/BookingSettings' }
+    DentistUpdateRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      dependentRequired:
+        weeklySchedule: [expectedScheduleRevision]
+      properties:
+        expectedScheduleRevision: { type: integer, minimum: 0 }
+        scheduleConflictAcknowledgement: { $ref: '#/components/schemas/ScheduleAcknowledgementToken' }
+        firstName: { type: string, minLength: 2, maxLength: 80 }
+        lastName: { type: string, minLength: 2, maxLength: 80 }
+        title: { type: string, maxLength: 150 }
+        translations: { $ref: '#/components/schemas/DentistTranslations' }
+        specializations:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items: { type: string, minLength: 2, maxLength: 100 }
+        bio: { type: string, maxLength: 5000 }
+        experienceYears: { type: integer, minimum: 0, maximum: 70 }
+        languages:
+          type: array
+          uniqueItems: true
+          items: { type: string, enum: [hy, ru, en, fr, de, other] }
+        services:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/ObjectId' }
+        weeklySchedule:
+          type: array
+          maxItems: 7
+          items: { $ref: '#/components/schemas/DentistWorkingDay' }
+        isFeatured: { type: boolean }
+        bookingEnabled: { type: boolean }
+        sortOrder: { type: integer, minimum: 0, maximum: 10000 }
+    PriceSnapshot:
+      type: object
+      additionalProperties: false
+      required: [priceType, currency]
+      properties:
+        priceType: { type: string, enum: [fixed, from, range, on_request] }
+        priceFrom:
+          anyOf:
+            - { type: number, minimum: 0 }
+            - { type: 'null' }
+        priceTo:
+          anyOf:
+            - { type: number, minimum: 0 }
+            - { type: 'null' }
+        currency: { type: string, const: AMD }
+    DentistPublicSummary:
+      type: object
+      additionalProperties: false
+      required: [id, firstName, lastName]
+      properties:
+        id: { $ref: '#/components/schemas/ObjectId' }
+        firstName: { type: string }
+        lastName: { type: string }
+        slug: { $ref: '#/components/schemas/Slug' }
+        title: { type: string }
+        translations: { $ref: '#/components/schemas/Translations' }
+    DentistAdminReference:
+      oneOf:
+        - { $ref: '#/components/schemas/ObjectId' }
+        - type: object
+          additionalProperties: false
+          required: [_id, firstName, lastName, slug]
+          properties:
+            _id: { $ref: '#/components/schemas/ObjectId' }
+            firstName: { type: string }
+            lastName: { type: string }
+            slug: { $ref: '#/components/schemas/Slug' }
+            title: { type: string }
+            translations: { $ref: '#/components/schemas/Translations' }
+    ServicePublicSummary:
+      type: object
+      additionalProperties: false
+      required: [id, name, durationMinutes]
+      properties:
+        id: { $ref: '#/components/schemas/ObjectId' }
+        name: { type: string }
+        slug: { $ref: '#/components/schemas/Slug' }
+        translations: { $ref: '#/components/schemas/Translations' }
+        durationMinutes: { type: integer, minimum: 1 }
+        priceType: { type: string, enum: [fixed, from, range, on_request] }
+        priceFrom:
+          anyOf:
+            - { type: number, minimum: 0 }
+            - { type: 'null' }
+        priceTo:
+          anyOf:
+            - { type: number, minimum: 0 }
+            - { type: 'null' }
+        currency: { type: string, const: AMD }
+    ServiceAdminReference:
+      oneOf:
+        - { $ref: '#/components/schemas/ObjectId' }
+        - type: object
+          additionalProperties: false
+          required: [_id, name, slug]
+          properties:
+            _id: { $ref: '#/components/schemas/ObjectId' }
+            name: { type: string }
+            slug: { $ref: '#/components/schemas/Slug' }
+            translations: { $ref: '#/components/schemas/Translations' }
+    AvailabilitySlot:
+      type: object
+      additionalProperties: false
+      required: [start, end, startAt, endAt]
+      properties:
+        start: { $ref: '#/components/schemas/LocalTime' }
+        end: { $ref: '#/components/schemas/LocalTime' }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+    Availability:
+      type: object
+      additionalProperties: false
+      required: [date, timezone, available, reason, dentist, service, rules, slots]
+      properties:
+        date: { $ref: '#/components/schemas/LocalDate' }
+        timezone: { type: string, description: Configured clinic IANA timezone. }
+        available: { type: boolean }
+        reason:
+          anyOf:
+            - type: string
+              enum: [SAME_DAY_BOOKING_DISABLED, CLINIC_CLOSED, DENTIST_NOT_WORKING, NO_COMMON_WORKING_TIME, FULLY_BOOKED]
+            - { type: 'null' }
+        dentist: { $ref: '#/components/schemas/DentistPublicSummary' }
+        service: { $ref: '#/components/schemas/ServicePublicSummary' }
+        rules:
+          type: object
+          additionalProperties: false
+          required: [slotIntervalMinutes, bufferMinutes, minBookingNoticeMinutes]
+          properties:
+            slotIntervalMinutes: { type: integer, enum: [10, 15, 20, 30, 60] }
+            bufferMinutes: { type: integer, minimum: 0, maximum: 120 }
+            minBookingNoticeMinutes: { type: integer, minimum: 0, maximum: 10080 }
+        schedule:
+          type: object
+          additionalProperties: false
+          description: Present when the effective clinic and dentist schedules were evaluated.
+          required: [clinicSource, dentistSource, clinicRevision, dentistRevision]
+          properties:
+            clinicSource: { type: string, enum: [weekly, exception] }
+            dentistSource: { type: string, enum: [weekly, exception] }
+            clinicRevision: { type: integer, minimum: 0 }
+            dentistRevision: { type: integer, minimum: 0 }
+        slots:
+          type: array
+          items: { $ref: '#/components/schemas/AvailabilitySlot' }
+    AppointmentPublicResult:
+      type: object
+      additionalProperties: false
+      description: >-
+        Safe result returned only to the public booking caller. It intentionally
+        excludes phone, email, comments, internal notes, consent evidence,
+        mutation history, lock keys, and idempotency internals.
+      required: [id, confirmationCode, patientName, date, startTime, endTime, status, dentist, service, price]
+      properties:
+        id: { $ref: '#/components/schemas/ObjectId' }
+        confirmationCode: { type: string, pattern: '^DC-[0-9A-F]{16}$' }
+        patientName: { type: string, minLength: 2, maxLength: 120 }
+        date: { $ref: '#/components/schemas/LocalDate' }
+        startTime: { $ref: '#/components/schemas/LocalTime' }
+        endTime: { $ref: '#/components/schemas/LocalTime' }
+        status: { $ref: '#/components/schemas/AppointmentStatus' }
+        dentist: { $ref: '#/components/schemas/DentistPublicSummary' }
+        service: { $ref: '#/components/schemas/ServicePublicSummary' }
+        price: { $ref: '#/components/schemas/PriceSnapshot' }
+    AppointmentSnapshotPoint:
+      type: object
+      additionalProperties: false
+      required: [dentist, service, date, startTime, endTime]
+      properties:
+        dentist: { $ref: '#/components/schemas/ObjectId' }
+        service: { $ref: '#/components/schemas/ObjectId' }
+        date: { $ref: '#/components/schemas/LocalDate' }
+        startTime: { $ref: '#/components/schemas/LocalTime' }
+        endTime: { $ref: '#/components/schemas/LocalTime' }
+    RescheduleHistoryEntry:
+      type: object
+      additionalProperties: false
+      required: [actor, reason, from, to, changedAt]
+      properties:
+        actor:
+          anyOf:
+            - { $ref: '#/components/schemas/ObjectId' }
+            - { type: 'null' }
+        reason: { type: string, maxLength: 500 }
+        from: { $ref: '#/components/schemas/AppointmentSnapshotPoint' }
+        to: { $ref: '#/components/schemas/AppointmentSnapshotPoint' }
+        changedAt: { type: string, format: date-time }
+    AppointmentAdmin:
+      type: object
+      additionalProperties: false
+      description: >-
+        Authorized administrative appointment. This includes patient contact
+        data, internal notes, reschedule history, and server-recorded privacy
+        evidence; it is never a public collection schema.
+      required:
+        - _id
+        - confirmationCode
+        - patientName
+        - patientPhone
+        - patientEmail
+        - dentist
+        - service
+        - dentistSnapshot
+        - serviceSnapshot
+        - priceSnapshot
+        - date
+        - startTime
+        - endTime
+        - startAt
+        - endAt
+        - bufferMinutes
+        - mutationVersion
+        - rescheduleHistory
+        - status
+        - source
+        - patientComment
+        - internalNote
+        - privacyConsentAt
+        - privacyConsentMethod
+        - privacyPolicyVersion
+        - createdAt
+        - updatedAt
+      properties:
+        _id: { $ref: '#/components/schemas/ObjectId' }
+        confirmationCode: { type: string, pattern: '^DC-[0-9A-F]{16}$' }
+        patientName: { type: string, minLength: 2, maxLength: 120 }
+        patientPhone: { type: string, maxLength: 20 }
+        patientEmail: { type: string, maxLength: 254 }
+        dentist: { $ref: '#/components/schemas/DentistAdminReference' }
+        service: { $ref: '#/components/schemas/ServiceAdminReference' }
+        dentistSnapshot:
+          type: object
+          additionalProperties: false
+          required: [firstName, lastName, title, translations]
+          properties:
+            firstName: { type: string }
+            lastName: { type: string }
+            title: { type: string }
+            translations: { $ref: '#/components/schemas/Translations' }
+        serviceSnapshot:
+          type: object
+          additionalProperties: false
+          required: [name, durationMinutes, translations]
+          properties:
+            name: { type: string }
+            durationMinutes: { type: integer, minimum: 1 }
+            translations: { $ref: '#/components/schemas/Translations' }
+        priceSnapshot: { $ref: '#/components/schemas/PriceSnapshot' }
+        date: { $ref: '#/components/schemas/LocalDate' }
+        startTime: { $ref: '#/components/schemas/LocalTime' }
+        endTime: { $ref: '#/components/schemas/LocalTime' }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        bufferMinutes: { type: integer, minimum: 0 }
+        mutationVersion: { type: integer, minimum: 0 }
+        rescheduleHistory:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/RescheduleHistoryEntry' }
+        status: { $ref: '#/components/schemas/AppointmentStatus' }
+        source: { type: string, enum: [website, phone, admin] }
+        patientComment: { type: string, maxLength: 1000 }
+        internalNote: { type: string, maxLength: 2000 }
+        privacyConsentAt: { type: string, format: date-time }
+        privacyConsentMethod: { type: string, enum: [website, phone, in_person] }
+        privacyPolicyVersion:
+          type: string
+          pattern: '^(?:[0-9]{4}-[0-9]{2}(?:\.[0-9]+)?|legacy-unverified)$'
+        createdBy:
+          anyOf:
+            - { $ref: '#/components/schemas/ObjectId' }
+            - { type: 'null' }
+        cancelledAt:
+          anyOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        cancelledBy:
+          anyOf:
+            - { $ref: '#/components/schemas/ObjectId' }
+            - { type: 'null' }
+        cancellationReason: { type: string, maxLength: 500 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Pagination:
+      type: object
+      additionalProperties: false
+      required: [page, limit, total, pages]
+      properties:
+        page: { type: integer, minimum: 1 }
+        limit: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, minimum: 0 }
+        pages: { type: integer, minimum: 0 }
+    ScheduleConflictAppointment:
+      type: object
+      additionalProperties: false
+      required: [appointmentId, date, startTime, endTime, dentistId, status]
+      properties:
+        appointmentId: { $ref: '#/components/schemas/ObjectId' }
+        date: { $ref: '#/components/schemas/LocalDate' }
+        startTime: { $ref: '#/components/schemas/LocalTime' }
+        endTime: { $ref: '#/components/schemas/LocalTime' }
+        dentistId: { $ref: '#/components/schemas/ObjectId' }
+        status: { $ref: '#/components/schemas/AppointmentStatus' }
+    ScheduleConflictError:
+      type: object
+      additionalProperties: false
+      required: [success, message]
+      properties:
+        success: { type: boolean, const: false }
+        message: { type: string }
+        code:
+          type: string
+          enum:
+            - SCHEDULE_REVISION_CONFLICT
+            - SCHEDULE_CONFLICT_ACKNOWLEDGEMENT_REQUIRED
+            - SCHEDULE_CONFLICT_SCAN_LIMIT
+        details:
+          type: object
+          additionalProperties: false
+          properties:
+            currentScheduleRevision: { type: integer, minimum: 0 }
+            conflictCount: { type: integer, minimum: 1 }
+            conflicts:
+              type: array
+              maxItems: 25
+              items: { $ref: '#/components/schemas/ScheduleConflictAppointment' }
+            conflictsTruncated: { type: boolean }
+            acknowledgementToken: { $ref: '#/components/schemas/ScheduleAcknowledgementToken' }
     PatientBookingFields:
       type: object
       required: [patientName, patientPhone, dentistId, serviceId, date, startTime, privacyAccepted]
       properties:
         patientName: { type: string, minLength: 2, maxLength: 120 }
         patientPhone: { type: string, minLength: 8, maxLength: 30 }
-        patientEmail: { type: string, format: email, maxLength: 254 }
+        patientEmail:
+          anyOf:
+            - { type: string, format: email, maxLength: 254 }
+            - { type: string, const: '' }
         dentistId: { $ref: '#/components/schemas/ObjectId' }
         serviceId: { $ref: '#/components/schemas/ObjectId' }
         date: { $ref: '#/components/schemas/LocalDate' }
         startTime: { $ref: '#/components/schemas/LocalTime' }
         patientComment: { type: string, maxLength: 1000 }
-        privacyAccepted: { type: boolean, const: true }
+        privacyAccepted:
+          type: boolean
+          const: true
+          description: >-
+            Acceptance of the server-configured current privacy policy. The server
+            records its own timestamp, method, and policy version; clients do not
+            submit those evidence fields.
     PublicBookingRequest:
       allOf:
         - { $ref: '#/components/schemas/PatientBookingFields' }
+        - type: object
+          required: [challengeToken]
+          properties:
+            challengeToken:
+              type: string
+              minLength: 10
+              maxLength: 4096
+              writeOnly: true
+              description: >-
+                Required in production for the configured bot-challenge provider.
+                It may be omitted only when challenge verification is explicitly
+                disabled in a non-production environment.
       unevaluatedProperties: false
     AdminBookingRequest:
       allOf:

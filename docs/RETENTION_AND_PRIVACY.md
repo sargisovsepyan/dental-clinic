@@ -6,9 +6,10 @@ No legal retention duration is hard-coded by this project. Clinic/legal must app
 |---|---|---|
 | Appointments/contact/consent | Retained as business history; cancellation does not delete | retention, access, correction/export/deletion handling |
 | Audit logs | Retained; admin-only; sensitive metadata minimized | retention and tamper/access review |
-| Refresh sessions | TTL at expiry; revocation retained until TTL | maximum/absolute session policy |
+| Refresh sessions/replay history | Idle expiry is capped by absolute family expiry; consumed hashes live in a separate TTL collection no longer than that boundary | approved maximum session policy |
 | Invite/reset tokens | Hashed, consumed atomically, TTL at expiry | operational incident review window if any |
 | Phone quota reservations | HMAC phone key; reconciled against appointments | cleanup schedule and HMAC-secret rotation plan |
+| Booking idempotency | Hashed key and immutable public success snapshot; TTL is configurable and capped at 24 hours | retry window support policy |
 | Before/after consent | Minimal evidence/history retained; withdrawal hides; purge tombstones | policy version approval, evidence retention, withdrawal SLA |
 | Cloudinary assets | Referenced assets retained; unreferenced assets deleted by durable jobs | provider retention/backups and purge verification |
 | Cleanup jobs | Completed/failed records currently retained | operational retention duration |
