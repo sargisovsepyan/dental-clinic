@@ -1,6 +1,12 @@
 ﻿import BeforeAfterCase from './beforeAfter.model.js';
 
+import {
+  VERIFIED_CONSENT_QUERY,
+  hasVerifiedConsent,
+} from './beforeAfter.consent.js';
+
 import Service from '../services/service.model.js';
+import ServiceCategory from '../serviceCategories/serviceCategory.model.js';
 
 import Dentist from '../dentists/dentist.model.js';
 
@@ -74,7 +80,7 @@ const validateRelations =
           serviceId
         )
           .select(
-            '_id isActive'
+            '_id isActive category'
           )
           .lean();
 
@@ -91,6 +97,19 @@ const validateRelations =
         throw new ApiError(
           409,
           'Service is inactive'
+        );
+      }
+
+      const activeCategory =
+        await ServiceCategory.exists({
+          _id: service.category,
+          isActive: true,
+        });
+
+      if (!activeCategory) {
+        throw new ApiError(
+          409,
+          'Service category is inactive or missing'
         );
       }
     }
@@ -137,6 +156,49 @@ const populateCase =
         'firstName lastName slug title translations photo'
       );
   };
+
+const populatePublicCase = (query) => query
+  .populate({
+    path: 'service',
+    match: { isActive: true },
+    select: 'name slug translations category',
+    populate: {
+      path: 'category',
+      match: { isActive: true },
+      select: '_id',
+    },
+  })
+  .populate({
+    path: 'dentist',
+    match: { isActive: true },
+    select: 'firstName lastName slug title translations photo',
+  });
+
+const sanitizePublicRelations = (item) => {
+  if (item?.service) {
+    if (!item.service.category) {
+      item.service = null;
+    }
+    else {
+      delete item.service.category;
+    }
+  }
+  return item;
+};
+
+const isPublicService = async (serviceId) => {
+  const service = await Service.findOne({
+    _id: serviceId,
+    isActive: true,
+  }).select('category').lean();
+  return Boolean(
+    service &&
+    await ServiceCategory.exists({
+      _id: service.category,
+      isActive: true,
+    })
+  );
+};
 
 
 const createCase =
@@ -310,10 +372,25 @@ const getPublicCases =
   async (
     query
   ) => {
+    if (
+      query.serviceId &&
+      !await isPublicService(query.serviceId)
+    ) {
+      return {
+        cases: [],
+        pagination: {
+          page: query.page || 1,
+          limit: query.limit || 24,
+          total: 0,
+          pages: 0,
+        },
+      };
+    }
+
     const filter = {
       isActive: true,
       publicationStatus: 'published',
-      consentStatus: 'active',
+      ...VERIFIED_CONSENT_QUERY,
       purgedAt: null,
     };
 
@@ -354,7 +431,7 @@ const getPublicCases =
       cases,
       total,
     ] = await Promise.all([
-      populateCase(
+      populatePublicCase(
         BeforeAfterCase
           .find(filter)
       )
@@ -387,7 +464,7 @@ const getPublicCases =
 
 
     return {
-      cases,
+      cases: cases.map(sanitizePublicRelations),
 
       pagination: {
         page,
@@ -408,12 +485,12 @@ const getPublicCaseById =
     id
   ) => {
     const item =
-      await populateCase(
+      await populatePublicCase(
         BeforeAfterCase.findOne({
           _id: id,
           isActive: true,
           publicationStatus: 'published',
-          consentStatus: 'active',
+          ...VERIFIED_CONSENT_QUERY,
           purgedAt: null,
         })
       )
@@ -439,7 +516,7 @@ const getPublicCaseById =
       );
     }
 
-    return item;
+    return sanitizePublicRelations(item);
   };
 
 
@@ -650,8 +727,8 @@ const replaceCaseImage =
       );
     }
 
-    if (item.consentStatus !== 'active' || item.purgedAt) {
-      throw new ApiError(409, 'Images cannot be changed after consent withdrawal');
+    if (!hasVerifiedConsent(item) || item.purgedAt) {
+      throw new ApiError(409, 'Images require verified active publication consent');
     }
 
 
@@ -697,7 +774,7 @@ const replaceCaseImage =
       const updated = await BeforeAfterCase.findOneAndUpdate(
         {
           _id: item._id,
-          consentStatus: 'active',
+          ...VERIFIED_CONSENT_QUERY,
           purgedAt: null,
           ...expectedImageFilter(field, previous),
         },
@@ -784,7 +861,7 @@ const restoreCase =
     const item = await BeforeAfterCase.findOneAndUpdate(
       {
         _id: id,
-        consentStatus: 'active',
+        ...VERIFIED_CONSENT_QUERY,
         withdrawnAt: null,
         purgedAt: null,
       },
@@ -806,6 +883,12 @@ const restoreCase =
     }
     if (existing.purgedAt || existing.consentStatus === 'purged') {
       throw new ApiError(409, 'Purged cases cannot be restored');
+    }
+    if (!hasVerifiedConsent(existing)) {
+      throw new ApiError(
+        409,
+        'Unverified historical consent cannot be published; record new consent separately'
+      );
     }
     throw new ApiError(
       409,

@@ -1,10 +1,12 @@
 import BeforeAfterCase from '../modules/beforeAfter/beforeAfter.model.js';
-import env from '../config/env.js';
+import {
+  UNVERIFIED_POLICY,
+} from '../modules/beforeAfter/beforeAfter.consent.js';
 
 
 const version = '20260814_004_before_after_consent';
 const description =
-  'Backfill explicit before/after publication consent governance fields';
+  'Quarantine legacy before/after rows with unverifiable consent history';
 
 
 const legacyFilter = {
@@ -12,7 +14,6 @@ const legacyFilter = {
     { consentStatus: { $exists: false } },
     { consentPolicyVersion: { $exists: false } },
     { consentMethod: { $exists: false } },
-    { consentRecordedBy: { $exists: false } },
     { publicationStatus: { $exists: false } },
   ],
 };
@@ -23,79 +24,40 @@ const run = async ({ dryRun = true }) => {
     legacyFilter
   );
 
-  const missingEvidence = await BeforeAfterCase.collection.findOne({
-    $and: [
-      legacyFilter,
-      {
-        $or: [
-          { createdBy: { $exists: false } },
-          { createdBy: null },
-          { consentConfirmedAt: { $exists: false } },
-          { consentConfirmedAt: null },
-        ],
-      },
-    ],
-  }, { projection: { _id: 1 } });
-  if (missingEvidence) {
-    throw new Error(
-      `Before/after case ${missingEvidence._id} lacks legacy consent evidence; migration refuses to invent evidence`
-    );
-  }
-
   let migrated = 0;
   if (!dryRun) {
-    const cursor = BeforeAfterCase.collection
-      .find(legacyFilter, {
-        projection: {
-          _id: 1,
-          isActive: 1,
-          createdBy: 1,
-          consentConfirmedAt: 1,
+    const result = await BeforeAfterCase.collection.updateMany(
+      legacyFilter,
+      {
+        $set: {
+          publicationStatus: 'draft',
+          consentStatus: 'unverified',
+          consentPolicyVersion: UNVERIFIED_POLICY,
+          consentMethod: 'legacy_unverified',
+          externalConsentReference: '',
+          isActive: false,
+          isFeatured: false,
+          consentHistory: [],
         },
-      })
-      .batchSize(250);
-
-    for await (const item of cursor) {
-      const occurredAt = item.consentConfirmedAt;
-      const result = await BeforeAfterCase.collection.updateOne(
-        {
-          _id: item._id,
-          ...legacyFilter,
+        $unset: {
+          consentRecordedBy: '',
         },
-        {
-          $set: {
-            publicationStatus: item.isActive === false ? 'draft' : 'published',
-            consentStatus: 'active',
-            consentPolicyVersion: env.BEFORE_AFTER_CONSENT_VERSION,
-            consentMethod: 'legacy_migrated',
-            consentRecordedBy: item.createdBy,
-            externalConsentReference: '',
-            withdrawnAt: null,
-            withdrawnBy: null,
-            withdrawalReason: '',
-            purgedAt: null,
-            purgedBy: null,
-            consentHistory: [{
-              action: 'confirmed',
-              policyVersion: env.BEFORE_AFTER_CONSENT_VERSION,
-              method: 'legacy_migrated',
-              actor: item.createdBy,
-              occurredAt,
-              reason: '',
-            }],
-          },
-        }
-      );
-      migrated += result.modifiedCount;
-    }
+      }
+    );
+    migrated = result.modifiedCount;
   }
 
   return {
     casesScanned,
     migrated,
-    policyVersion: env.BEFORE_AFTER_CONSENT_VERSION,
+    policyVersion: UNVERIFIED_POLICY,
   };
 };
 
 
-export { version, description, run };
+export {
+  version,
+  description,
+  UNVERIFIED_POLICY,
+  run,
+};

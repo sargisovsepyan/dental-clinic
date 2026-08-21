@@ -1,6 +1,9 @@
 ﻿import mongoose from 'mongoose';
 
 import imageAssetSchema from '../media/imageAsset.schema.js';
+import {
+  UNVERIFIED_POLICY,
+} from './beforeAfter.consent.js';
 
 import {
   createTranslationsSchema,
@@ -47,6 +50,7 @@ const consentHistorySchema = new mongoose.Schema(
         'verbal',
         'external',
         'legacy_migrated',
+        'legacy_unverified',
         'governance_action',
       ],
       required: true,
@@ -141,7 +145,7 @@ const beforeAfterCaseSchema =
 
       consentStatus: {
         type: String,
-        enum: ['active', 'withdrawn', 'purged'],
+        enum: ['active', 'unverified', 'withdrawn', 'purged'],
         default: 'active',
         index: true,
       },
@@ -155,20 +159,31 @@ const beforeAfterCaseSchema =
 
       consentMethod: {
         type: String,
-        enum: ['written', 'digital', 'verbal', 'external', 'legacy_migrated'],
+        enum: [
+          'written',
+          'digital',
+          'verbal',
+          'external',
+          'legacy_migrated',
+          'legacy_unverified',
+        ],
         required: true,
       },
 
       consentConfirmedAt: {
         type: Date,
-        required: true,
+        required() {
+          return this.consentStatus !== 'unverified';
+        },
         immutable: true,
       },
 
       consentRecordedBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
-        required: true,
+        required() {
+          return this.consentStatus !== 'unverified';
+        },
         immutable: true,
       },
 
@@ -274,6 +289,22 @@ beforeAfterCaseSchema.pre('validate', function () {
     this.invalidate(
       'publicationStatus',
       'Published cases require active consent and active publication'
+    );
+  }
+
+  if (
+    this.consentStatus === 'unverified' &&
+    (
+      this.consentPolicyVersion !== UNVERIFIED_POLICY ||
+      this.consentMethod !== 'legacy_unverified' ||
+      this.publicationStatus !== 'draft' ||
+      this.isActive ||
+      this.isFeatured
+    )
+  ) {
+    this.invalidate(
+      'consentStatus',
+      'Unverified historical consent must remain quarantined as a non-public draft'
     );
   }
 });

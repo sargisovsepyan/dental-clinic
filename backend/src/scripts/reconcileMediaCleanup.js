@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import connectDB from '../config/db.js';
 import { runDueMediaCleanup } from '../modules/media/mediaCleanup.service.js';
 import logger from '../observability/logger.js';
+import { assertMaintenanceSafety } from './maintenanceGuard.js';
 
 
 const limitArgument = process.argv.find((argument) => argument.startsWith('--limit='));
@@ -16,6 +17,7 @@ if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
 
 let exitCode = 0;
 try {
+  assertMaintenanceSafety();
   await connectDB();
   const results = await runDueMediaCleanup({
     limit,

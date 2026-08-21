@@ -24,18 +24,30 @@ const { default: MediaAsset } = await import('../src/modules/media/media.model.j
 const { default: BeforeAfterCase } = await import('../src/modules/beforeAfter/beforeAfter.model.js');
 const { default: Dentist } = await import('../src/modules/dentists/dentist.model.js');
 const { default: Service } = await import('../src/modules/services/service.model.js');
+const { default: ServiceCategory } = await import('../src/modules/serviceCategories/serviceCategory.model.js');
 const { default: AuditLog } = await import('../src/modules/audit/audit.model.js');
 const { default: MediaCleanupJob } = await import(
   '../src/modules/media/mediaCleanup.model.js'
 );
 const {
   enqueueMediaCleanup,
+  cancelMediaCleanup,
+  cleanupMediaAsset,
   processMediaCleanupJob,
   recoverHeldCleanupJobs,
 } = await import('../src/modules/media/mediaCleanup.service.js');
+const {
+  finishHeldCleanup,
+  uploadWithRollbackIntent,
+} = await import(
+  '../src/modules/media/mediaUpload.service.js'
+);
 const { uploadImageBuffer } = await import('../src/utils/cloudinaryImage.js');
 const consentMigration = await import(
   '../src/migrations/20260814_004_before_after_consent.js'
+);
+const consentCorrectionMigration = await import(
+  '../src/migrations/20260814_007_before_after_consent_correction.js'
 );
 
 const png = Buffer.from(
@@ -407,6 +419,46 @@ test('tests fail closed unless an explicit fake Cloudinary adapter is installed'
   installCloudinaryStub();
 });
 
+test('unexpected upload public ID cleans the returned asset without losing the allocated rollback hold', async () => {
+  setCloudinaryAdapterForTests({
+    allocatePublicId() {
+      return 'allocated-rollback-candidate';
+    },
+    async upload() {
+      return image('unexpected-returned-asset');
+    },
+    async delete(publicId) {
+      destroyCalls.push({ publicId });
+    },
+  });
+
+  await assert.rejects(
+    uploadWithRollbackIntent({
+      buffer: png,
+      folder: 'dental-clinic/gallery',
+      sourceType: 'gallery',
+    }),
+    /unexpected public ID/
+  );
+
+  assert.deepEqual(
+    destroyCalls.map(({ publicId }) => publicId).sort(),
+    ['allocated-rollback-candidate', 'unexpected-returned-asset']
+  );
+  const cleanupJobs = await MediaCleanupJob.find({
+    publicId: {
+      $in: ['allocated-rollback-candidate', 'unexpected-returned-asset'],
+    },
+  }).sort({ publicId: 1 }).lean();
+  assert.deepEqual(
+    cleanupJobs.map(({ publicId, status }) => ({ publicId, status })),
+    [
+      { publicId: 'allocated-rollback-candidate', status: 'completed' },
+      { publicId: 'unexpected-returned-asset', status: 'completed' },
+    ]
+  );
+});
+
 test('cleanup retries are operator-resettable, bounded, idempotent, and single-claim', async () => {
   destroyFailure = new Error('simulated storage outage');
   const job = await enqueueMediaCleanup({
@@ -493,6 +545,53 @@ test('cleanup never deletes referenced media and reconciles abandoned held jobs 
   assert.deepEqual(destroyCalls.map(({ publicId }) => publicId), [
     'abandoned-held-orphan',
   ]);
+});
+
+test('reference cancellation defeats stale held cleanup without blocking a later explicit deletion', async () => {
+  const publicId = 'cancel-wins-over-stale-held-cleanup';
+  await Dentist.updateOne(
+    { _id: core.dentist._id },
+    { $set: { photo: image(publicId) } }
+  );
+  const staleHeldJob = await enqueueMediaCleanup({
+    publicId,
+    reason: 'rollback',
+    sourceType: 'dentist',
+    sourceId: core.dentist._id,
+    held: true,
+  });
+
+  await cancelMediaCleanup(publicId);
+  const staleCompletion = await finishHeldCleanup(staleHeldJob);
+
+  assert.equal(staleCompletion.status, 'cancelled');
+  assert.equal(
+    (await MediaCleanupJob.findById(staleHeldJob._id)).status,
+    'cancelled'
+  );
+  assert.equal(
+    await MediaCleanupJob.countDocuments({ publicId, status: 'pending' }),
+    0
+  );
+  assert.equal(
+    await processMediaCleanupJob(staleHeldJob._id, { force: true }),
+    null
+  );
+  assert.deepEqual(destroyCalls, []);
+
+  await Dentist.updateOne(
+    { _id: core.dentist._id },
+    { $set: { photo: null } }
+  );
+  const explicitDeletion = await cleanupMediaAsset({
+    publicId,
+    reason: 'removal',
+    sourceType: 'dentist',
+    sourceId: core.dentist._id,
+  });
+
+  assert.equal(explicitDeletion.status, 'completed');
+  assert.deepEqual(destroyCalls, [{ publicId }]);
 });
 
 test('gallery soft delete hides publicly without Cloudinary deletion and restore reverses it', async () => {
@@ -939,79 +1038,227 @@ test('concurrent permanent purge is compare-and-set and deletes each asset once'
   assert.equal(final.consentHistory.filter(({ action }) => action === 'purged').length, 1);
 });
 
-test('consent migration is dry-run safe, explicit, and idempotent', async () => {
+test('consent migration quarantines unknown legacy history without inventing evidence', async () => {
   const legacyId = new mongoose.Types.ObjectId();
-  await BeforeAfterCase.collection.insertOne({
+  const evidenceFreeId = new mongoose.Types.ObjectId();
+  const historicalTime = new Date('2025-01-02T00:00:00Z');
+  await BeforeAfterCase.collection.insertMany([{
     _id: legacyId,
     title: 'Legacy governed case',
     translations: { hy: { title: 'Ժառանգված դեպք' } },
     beforeImage: image('legacy-before'),
     afterImage: image('legacy-after'),
-    consentConfirmedAt: new Date('2025-01-02T00:00:00Z'),
+    consentConfirmedAt: historicalTime,
     isActive: true,
     isFeatured: false,
     sortOrder: 0,
     createdBy: staff.admin._id,
     createdAt: new Date(),
     updatedAt: new Date(),
-  });
+  }, {
+    _id: evidenceFreeId,
+    title: 'Legacy case without evidence',
+    translations: { hy: { title: 'Ժառանգական դեպք' } },
+    beforeImage: image('legacy-no-evidence-before'),
+    afterImage: image('legacy-no-evidence-after'),
+    isActive: true,
+    isFeatured: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }]);
 
   const dryRun = await consentMigration.run({ dryRun: true });
-  assert.equal(dryRun.casesScanned, 1);
+  assert.equal(dryRun.casesScanned, 2);
   assert.equal(
     (await BeforeAfterCase.collection.findOne({ _id: legacyId }))
       .consentPolicyVersion,
     undefined
   );
   const applied = await consentMigration.run({ dryRun: false });
-  assert.equal(applied.migrated, 1);
+  assert.equal(applied.migrated, 2);
+
   const migrated = await BeforeAfterCase.collection.findOne({ _id: legacyId });
-  assert.equal(migrated.consentPolicyVersion, '2026-01');
-  assert.equal(migrated.consentMethod, 'legacy_migrated');
-  assert.equal(migrated.consentRecordedBy.toString(), staff.admin._id.toString());
-  assert.equal(migrated.consentHistory.length, 1);
+  assert.equal(migrated.consentPolicyVersion, 'legacy-history-unverified');
+  assert.equal(migrated.consentMethod, 'legacy_unverified');
+  assert.equal(migrated.consentStatus, 'unverified');
+  assert.equal(migrated.publicationStatus, 'draft');
+  assert.equal(migrated.isActive, false);
+  assert.equal(migrated.isFeatured, false);
+  assert.equal(migrated.consentRecordedBy, undefined);
+  assert.equal(migrated.consentConfirmedAt.toISOString(), historicalTime.toISOString());
+  assert.deepEqual(migrated.consentHistory, []);
+
+  const evidenceFree = await BeforeAfterCase.collection.findOne({
+    _id: evidenceFreeId,
+  });
+  assert.equal(evidenceFree.consentConfirmedAt, undefined);
+  assert.equal(evidenceFree.consentRecordedBy, undefined);
+  assert.equal(evidenceFree.consentStatus, 'unverified');
+  await assert.rejects(
+    beforeAfterService.getPublicCaseById(legacyId),
+    (error) => error.statusCode === 404
+  );
+  await assert.rejects(
+    beforeAfterService.restoreCase(legacyId),
+    (error) => error.statusCode === 409
+  );
+  await assert.rejects(
+    beforeAfterService.replaceCaseImage(legacyId, 'before', { buffer: png }),
+    (error) => error.statusCode === 409
+  );
+  assert.equal(uploadCalls.length, 0);
   assert.equal((await consentMigration.run({ dryRun: false })).migrated, 0);
 });
 
-test('consent migration refuses to invent missing legacy evidence', async () => {
+test('corrective consent migration quarantines fabricated and partial rows idempotently', async () => {
   const legacyId = new mongoose.Types.ObjectId();
-  const validLegacyId = new mongoose.Types.ObjectId();
-  await BeforeAfterCase.collection.insertOne({
-    _id: validLegacyId,
-    title: 'Valid legacy case',
-    translations: { hy: { title: 'Վավեր ժառանգական դեպք' } },
-    beforeImage: image('valid-legacy-before'),
-    afterImage: image('valid-legacy-after'),
+  const partialId = new mongoose.Types.ObjectId();
+  await BeforeAfterCase.collection.insertMany([{
+    _id: legacyId,
+    title: 'Fabricated legacy case',
+    translations: { hy: { title: 'Կեղծված ժառանգական դեպք' } },
+    beforeImage: image('fabricated-before'),
+    afterImage: image('fabricated-after'),
+    publicationStatus: 'published',
+    consentStatus: 'active',
+    consentPolicyVersion: '2026-01',
+    consentMethod: 'legacy_migrated',
     consentConfirmedAt: new Date('2025-01-01T00:00:00Z'),
+    consentRecordedBy: staff.admin._id,
+    consentHistory: [{
+      action: 'confirmed',
+      policyVersion: '2026-01',
+      method: 'legacy_migrated',
+      actor: staff.admin._id,
+      occurredAt: new Date('2025-01-01T00:00:00Z'),
+      reason: '',
+    }],
+    isActive: true,
+    isFeatured: true,
+    createdBy: staff.admin._id,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }, {
+    _id: partialId,
+    title: 'Partially migrated legacy case',
+    translations: { hy: { title: 'Մասնակի տեղափոխված դեպք' } },
+    beforeImage: image('partial-before'),
+    afterImage: image('partial-after'),
+    publicationStatus: 'published',
+    consentMethod: 'legacy_migrated',
     isActive: true,
     createdBy: staff.admin._id,
     createdAt: new Date(),
     updatedAt: new Date(),
-  });
+  }]);
+
+  await assert.rejects(
+    beforeAfterService.getPublicCaseById(legacyId),
+    (error) => error.statusCode === 404
+  );
+  const dryRun = await consentCorrectionMigration.run({ dryRun: true });
+  assert.equal(dryRun.casesScanned, 2);
+  const applied = await consentCorrectionMigration.run({ dryRun: false });
+  assert.equal(applied.corrected, 2);
+
+  for (const id of [legacyId, partialId]) {
+    const corrected = await BeforeAfterCase.collection.findOne({ _id: id });
+    assert.equal(corrected.publicationStatus, 'draft');
+    assert.equal(corrected.consentStatus, 'unverified');
+    assert.equal(corrected.consentPolicyVersion, 'legacy-history-unverified');
+    assert.equal(corrected.consentMethod, 'legacy_unverified');
+    assert.equal(corrected.isActive, false);
+    assert.equal(corrected.isFeatured, false);
+    assert.equal(corrected.consentRecordedBy, undefined);
+    assert.deepEqual(corrected.consentHistory, []);
+  }
+  assert.equal(
+    (await consentCorrectionMigration.run({ dryRun: false })).corrected,
+    0
+  );
+});
+
+test('corrective consent migration does not overwrite a concurrent explicit historical attestation', async () => {
+  const legacyId = new mongoose.Types.ObjectId();
+  const occurredAt = new Date('2024-06-01T00:00:00Z');
   await BeforeAfterCase.collection.insertOne({
     _id: legacyId,
-    title: 'Legacy case without evidence',
-    translations: { hy: { title: 'Ժառանգական դեպք' } },
-    beforeImage: image('legacy-no-evidence-before'),
-    afterImage: image('legacy-no-evidence-after'),
+    title: 'Concurrently attested legacy case',
+    translations: { hy: { title: 'Հաստատված պատմական դեպք' } },
+    beforeImage: image('attested-before'),
+    afterImage: image('attested-after'),
+    publicationStatus: 'published',
+    consentStatus: 'active',
+    consentPolicyVersion: '2026-01',
+    consentMethod: 'legacy_migrated',
+    consentConfirmedAt: occurredAt,
+    consentRecordedBy: staff.admin._id,
+    consentHistory: [{
+      action: 'confirmed',
+      policyVersion: '2026-01',
+      method: 'legacy_migrated',
+      actor: staff.admin._id,
+      occurredAt,
+      reason: '',
+    }],
     isActive: true,
+    isFeatured: false,
     createdBy: staff.admin._id,
     createdAt: new Date(),
     updatedAt: new Date(),
   });
 
-  await assert.rejects(
-    consentMigration.run({ dryRun: false }),
-    /refuses to invent evidence/
+  const collection = BeforeAfterCase.collection;
+  const originalUpdateOne = collection.updateOne;
+  let intercepted = false;
+  collection.updateOne = async function (filter, update, options) {
+    if (!intercepted && String(filter?._id) === String(legacyId)) {
+      intercepted = true;
+      await originalUpdateOne.call(
+        this,
+        { _id: legacyId },
+        {
+          $set: {
+            publicationStatus: 'draft',
+            consentStatus: 'active',
+            consentPolicyVersion: 'historical-policy-2024-02',
+            consentMethod: 'written',
+            consentConfirmedAt: occurredAt,
+            consentRecordedBy: staff.admin._id,
+            consentHistory: [{
+              action: 'confirmed',
+              policyVersion: 'historical-policy-2024-02',
+              method: 'written',
+              actor: staff.admin._id,
+              occurredAt,
+              reason: 'Operator-attested historical record',
+            }],
+            isActive: false,
+            isFeatured: false,
+          },
+        }
+      );
+    }
+    return originalUpdateOne.call(this, filter, update, options);
+  };
+
+  try {
+    const result = await consentCorrectionMigration.run({ dryRun: false });
+    assert.equal(result.corrected, 0);
+  }
+  finally {
+    collection.updateOne = originalUpdateOne;
+  }
+
+  const attested = await BeforeAfterCase.collection.findOne({ _id: legacyId });
+  assert.equal(attested.consentMethod, 'written');
+  assert.equal(attested.consentPolicyVersion, 'historical-policy-2024-02');
+  assert.equal(
+    (await consentCorrectionMigration.run({ dryRun: false })).corrected,
+    0
   );
-  const unchanged = await BeforeAfterCase.collection.findOne({ _id: legacyId });
-  assert.equal(unchanged.consentStatus, undefined);
-  assert.equal(unchanged.consentPolicyVersion, undefined);
-  const validUnchanged = await BeforeAfterCase.collection.findOne({
-    _id: validLegacyId,
-  });
-  assert.equal(validUnchanged.consentStatus, undefined);
-  assert.equal(validUnchanged.consentPolicyVersion, undefined);
+  await beforeAfterService.restoreCase(legacyId);
+  assert.equal((await beforeAfterService.getPublicCaseById(legacyId))._id.toString(), String(legacyId));
 });
 
 test('invalid before/after relations fail before any upload', async () => {
@@ -1026,6 +1273,27 @@ test('invalid before/after relations fail before any upload', async () => {
       userId: staff.admin._id,
     }),
     (error) => error.statusCode === 404,
+  );
+  assert.equal(uploadCalls.length, 0);
+});
+
+test('before/after relation validation rejects a service under an inactive category before upload', async () => {
+  await ServiceCategory.collection.updateOne(
+    { _id: core.category._id },
+    { $set: { isActive: false } }
+  );
+
+  await assert.rejects(
+    beforeAfterService.createCase({
+      data: {
+        ...localizedCase('Inactive category relation'),
+        serviceId: core.service._id,
+      },
+      beforeFile: { buffer: png },
+      afterFile: { buffer: png },
+      userId: staff.admin._id,
+    }),
+    (error) => error.statusCode === 409,
   );
   assert.equal(uploadCalls.length, 0);
 });

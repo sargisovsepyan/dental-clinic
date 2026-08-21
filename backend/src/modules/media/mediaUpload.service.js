@@ -36,6 +36,7 @@ const uploadWithRollbackIntent = async ({
     sourceId,
     held: true,
   });
+  let unexpectedRollbackJob = null;
 
   try {
     const uploaded = await uploadImageBuffer(buffer, {
@@ -44,6 +45,15 @@ const uploadWithRollbackIntent = async ({
       tags,
     });
     if (uploaded?.publicId !== publicId) {
+      if (uploaded?.publicId) {
+        unexpectedRollbackJob = await enqueueMediaCleanup({
+          publicId: uploaded.publicId,
+          reason: 'rollback',
+          sourceType,
+          sourceId,
+          held: true,
+        });
+      }
       throw new Error('Media adapter returned an unexpected public ID');
     }
     return { uploaded, rollbackJob };
@@ -51,6 +61,7 @@ const uploadWithRollbackIntent = async ({
   catch (error) {
     await Promise.allSettled([
       finishHeldCleanup(rollbackJob),
+      finishHeldCleanup(unexpectedRollbackJob),
     ]);
     throw error;
   }

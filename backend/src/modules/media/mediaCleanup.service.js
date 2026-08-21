@@ -106,24 +106,28 @@ const cancelMediaCleanup = async (publicId) => {
 };
 
 
-const activateMediaCleanup = async (publicId) => MediaCleanupJob.findOneAndUpdate(
-  {
-    publicId,
-    status: { $in: ['held', 'cancelled', 'failed'] },
-  },
-  {
-    $set: {
-      status: 'pending',
-      attempts: 0,
-      nextAttemptAt: new Date(),
-      lockedAt: null,
-      lockedBy: '',
-      lastErrorCode: '',
-      completedAt: null,
+const activateMediaCleanup = async (publicId) => {
+  const activated = await MediaCleanupJob.findOneAndUpdate(
+    {
+      publicId,
+      status: 'held',
     },
-  },
-  { returnDocument: 'after' }
-);
+    {
+      $set: {
+        status: 'pending',
+        attempts: 0,
+        nextAttemptAt: new Date(),
+        lockedAt: null,
+        lockedBy: '',
+        lastErrorCode: '',
+        completedAt: null,
+      },
+    },
+    { returnDocument: 'after' }
+  );
+
+  return activated || MediaCleanupJob.findOne({ publicId });
+};
 
 
 const processMediaCleanupJob = async (
