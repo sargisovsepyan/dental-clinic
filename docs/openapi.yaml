@@ -523,7 +523,9 @@ paths:
         returns the original immutable public result with status 201; reuse with
         a different body returns 409. Successful records expire after the
         configured 1-168 hour idempotency window (24 hours by default), after
-        which the key may create a new booking.
+        which the key may create a new booking. Notification jobs are committed
+        transactionally and delivered asynchronously; SMTP never controls booking
+        acceptance.
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: true
@@ -567,7 +569,10 @@ paths:
     patch:
       tags: [Appointments]
       operationId: rescheduleAppointment
-      description: Admin or receptionist. Old lock remains on any failure.
+      description: >-
+        Admin or receptionist. Only pending or confirmed appointments may be
+        rescheduled. The old lock remains on any failure; selecting the exact
+        current occurrence is a concurrency-fenced no-op.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -1803,6 +1808,8 @@ components:
         - endAt
         - bufferMinutes
         - mutationVersion
+        - scheduleRevision
+        - notificationLocale
         - rescheduleHistory
         - status
         - source
@@ -1846,6 +1853,18 @@ components:
         endAt: { type: string, format: date-time }
         bufferMinutes: { type: integer, minimum: 0 }
         mutationVersion: { type: integer, minimum: 0 }
+        scheduleRevision:
+          type: integer
+          minimum: 0
+          description: Increments only when the committed appointment occurrence changes.
+        notificationLocale:
+          description: >-
+            Persisted locale for future notifications. Null identifies a legacy
+            appointment for which no historical preference was recorded; delivery
+            then uses the documented Armenian fallback.
+          anyOf:
+            - { type: string, enum: [hy, ru, en] }
+            - { type: 'null' }
         rescheduleHistory:
           type: array
           maxItems: 100
@@ -1934,6 +1953,11 @@ components:
         date: { $ref: '#/components/schemas/LocalDate' }
         startTime: { $ref: '#/components/schemas/LocalTime' }
         patientComment: { type: string, maxLength: 1000 }
+        locale:
+          type: string
+          enum: [hy, ru, en]
+          default: hy
+          description: Language used for appointment notifications and reminders.
         privacyAccepted:
           type: boolean
           const: true

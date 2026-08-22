@@ -10,6 +10,8 @@ No legal retention duration is hard-coded by this project. Clinic/legal must app
 | Invite/reset tokens | Hashed, consumed atomically, TTL at expiry | operational incident review window if any |
 | Phone quota reservations | HMAC phone key; reconciled against appointments | cleanup schedule and HMAC-secret rotation plan |
 | Booking idempotency | Hashed key and immutable public success snapshot; TTL is configurable and capped at 24 hours | retry window support policy |
+| Notification outbox | Minimal event/revision/occurrence metadata; no recipient copy, rendered body, comments, notes, reasons, consent evidence, or raw provider response. Pending reminders survive until due; sent/failed/cancelled jobs receive configurable TTL (`NOTIFICATION_RETENTION_DAYS`, default 30) | approve operational retention and incident-hold procedure |
+| Delivered email | SMTP provider and recipient mailboxes retain the delivered patient/clinic message outside this database | provider agreement, mailbox access/retention/deletion policy |
 | Before/after consent | Minimal evidence/history retained; withdrawal hides; purge tombstones | policy version approval, evidence retention, withdrawal SLA |
 | Cloudinary assets | Referenced assets retained; unreferenced assets deleted by durable jobs | provider retention/backups and purge verification |
 | Cleanup jobs | Completed/failed records currently retained | operational retention duration |
@@ -18,4 +20,6 @@ No legal retention duration is hard-coded by this project. Clinic/legal must app
 
 Do not add diagnoses, histories, X-rays, prescriptions, clinical documents, or arbitrary patient files to this system. Any future expansion into medical records requires a separate privacy/security/legal architecture review.
 
-Changing retention must not add TTL indexes to appointments, audit, consent history, or tombstones without explicit approval and restore/audit impact analysis. TTL is appropriate only for ephemeral security records already modeled as such.
+Appointment email is operational booking fulfillment, not marketing. `privacyAccepted` records the booking privacy policy; it is never reinterpreted as marketing consent. The operational reception mailbox is deployment configuration and is deliberately separate from mutable public `Clinic.email`. Patient email/phone are resolved only at send time and are never included in notification logs, message subjects, dedupe keys, or stored delivery errors.
+
+Changing retention must not add TTL indexes to appointments, audit, consent history, or tombstones without explicit approval and restore/audit impact analysis. TTL is appropriate only for ephemeral security records and terminal notification jobs already modeled as such; it must never delete a pending/retry/processing reminder.

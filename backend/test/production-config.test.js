@@ -70,6 +70,8 @@ const productionEnvironment = (overrides = {}) => ({
   SMTP_USER: 'mailer',
   SMTP_PASSWORD: 'smtp-password',
   MAIL_FROM: 'clinic@example.test',
+  NOTIFICATIONS_ENABLED: 'true',
+  CLINIC_NOTIFICATION_EMAIL: 'reception@example.test',
   BEFORE_AFTER_CONSENT_VERSION: '2026-01',
   CLOUDINARY_CLOUD_NAME: 'clinic-cloud',
   CLOUDINARY_API_KEY: 'cloud-key',
@@ -99,13 +101,25 @@ test('valid production configuration is typed, exact-origin, and replica safe', 
 });
 
 
+test('disabled non-production notifications do not impose SMTP delivery lease coupling', () => {
+  const result = validateEnvironment(productionEnvironment({
+    NODE_ENV: 'development',
+    NOTIFICATIONS_ENABLED: 'false',
+    CLINIC_NOTIFICATION_EMAIL: '',
+    NOTIFICATION_WORKER_LEASE_MS: '10000',
+  }));
+  assert.equal(result.NOTIFICATIONS_ENABLED, false);
+  assert.equal(result.NOTIFICATION_WORKER_LEASE_MS, 10000);
+});
+
+
 test('importing the production app does not connect to external infrastructure', () => {
   const child = spawnSync(
     process.execPath,
     [
       '--input-type=module',
       '--eval',
-      "await import('./src/app.js'); process.stdout.write('imported')",
+      "await import('./src/app.js'); await import('./src/modules/notifications/notificationWorker.service.js'); process.stdout.write('imported')",
     ],
     {
       cwd: backendRoot,
@@ -206,6 +220,13 @@ test('production rejects unsafe transport, shared-state, credential, and secret 
     { SMTP_SECURE: 'false', SMTP_REQUIRE_TLS: 'false', SMTP_PORT: '587' },
     { MAIL_FROM: "clinic@example.test\r\nBcc:attacker@example.test" },
     { SMTP_PASSWORD: '' },
+    { NOTIFICATIONS_ENABLED: 'false' },
+    { CLINIC_NOTIFICATION_EMAIL: '' },
+    { NOTIFICATION_WORKER_LEASE_MS: '20000' },
+    {
+      NOTIFICATION_RETRY_BASE_SECONDS: '120',
+      NOTIFICATION_RETRY_MAX_SECONDS: '60',
+    },
     { CLOUDINARY_API_SECRET: '' },
     { ERROR_MONITOR_WEBHOOK_URL: '' },
     {
@@ -320,6 +341,8 @@ test('bot challenge verifier is provider-abstracted and uses only the fake reque
 test('SMTP adapter enforces STARTTLS and bounded transport timeouts', () => {
   const options = getSmtpTransportOptions();
   assert.equal(options.requireTLS, true);
+  assert.equal(options.dnsTimeout, options.connectionTimeout);
+  assert.equal(options.greetingTimeout, options.connectionTimeout);
   assert.ok(options.connectionTimeout <= 30_000);
   assert.ok(options.socketTimeout <= 120_000);
   assert.equal(options.disableFileAccess, true);

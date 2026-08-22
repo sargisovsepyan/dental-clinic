@@ -687,6 +687,7 @@ test('preflight rejects orphan and legacy appointment idempotency state', async 
     _id: orphanRecordId,
     keyHash: 'c'.repeat(64),
     requestHash: 'd'.repeat(64),
+    requestHashVersion: 'v1',
     appointment: new mongoose.Types.ObjectId(),
     responseSnapshot: { id: 'missing' },
     expiresAt: new Date(Date.now() + 60_000),

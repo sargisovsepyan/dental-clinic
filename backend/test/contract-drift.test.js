@@ -138,6 +138,9 @@ test('critical booking, schedule, identifier, and privacy contracts stay explici
   assert.match(publicBooking, /required: \[challengeToken\]/);
   assert.match(publicBooking, /minLength: 10/);
   assert.match(publicBooking, /maxLength: 4096/);
+  assert.match(openApi, /Language used for appointment notifications and reminders/);
+  assert.match(openApi, /notificationLocale:/);
+  assert.match(openApi, /scheduleRevision:/);
 
   const idempotencyKey = between(
     openApi,

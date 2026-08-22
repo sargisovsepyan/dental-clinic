@@ -16,6 +16,14 @@ import BeforeAfterCase from '../modules/beforeAfter/beforeAfter.model.js';
 import PhoneDailyQuota from '../modules/appointments/phoneDailyQuota.model.js';
 import Appointment from '../modules/appointments/appointment.model.js';
 import BookingIdempotency from '../modules/appointments/bookingIdempotency.model.js';
+import NotificationJob from '../modules/notifications/notificationJob.model.js';
+import { isSafeSingleMailbox } from '../mail/mail.validation.js';
+import {
+  isExactDate,
+  isObjectId,
+  isSupportedNotificationLocale,
+  isValidNotificationJobShape,
+} from '../modules/notifications/notificationIntegrity.js';
 import DentistScheduleException from '../modules/dentists/dentistScheduleException.model.js';
 import {
   exactPhoneQuotaKeyVersionExpression,
@@ -411,6 +419,356 @@ const countInvalidAppointmentMutationVersions = async () => (
 );
 
 
+const countInvalidBookingIdempotencyRows = async () => {
+  let invalid = 0;
+  const cursor = BookingIdempotency.collection.aggregate([
+    {
+      $project: {
+        keyHash: 1,
+        requestHash: 1,
+        requestHashVersion: 1,
+        appointment: 1,
+        expiresAt: 1,
+        responseSnapshotType: { $type: '$responseSnapshot' },
+      },
+    },
+  ]);
+  for await (const row of cursor) {
+    if (
+      typeof row.keyHash !== 'string' ||
+      !/^[a-f0-9]{64}$/i.test(row.keyHash) ||
+      typeof row.requestHash !== 'string' ||
+      !/^[a-f0-9]{64}$/i.test(row.requestHash) ||
+      typeof row.requestHashVersion !== 'string' ||
+      !['v1', 'v2'].includes(row.requestHashVersion) ||
+      !isObjectId(row.appointment) ||
+      !isExactDate(row.expiresAt) ||
+      row.responseSnapshotType === 'missing'
+    ) {
+      invalid += 1;
+    }
+  }
+  return invalid;
+};
+
+
+const countInvalidAppointmentPrivacyEvidence = async () => {
+  let invalid = 0;
+  const cursor = Appointment.collection.find(
+    {},
+    {
+      projection: {
+        privacyConsentAt: 1,
+        privacyConsentMethod: 1,
+        privacyPolicyVersion: 1,
+      },
+    }
+  );
+  for await (const appointment of cursor) {
+    if (appointment.privacyPolicyVersion === 'legacy-unverified') continue;
+    if (
+      !isExactDate(appointment.privacyConsentAt) ||
+      typeof appointment.privacyConsentMethod !== 'string' ||
+      !['website', 'phone', 'in_person'].includes(
+        appointment.privacyConsentMethod
+      ) ||
+      typeof appointment.privacyPolicyVersion !== 'string' ||
+      !/^(?:[0-9]{4}-[0-9]{2}(?:\.[0-9]+)?)$/.test(
+        appointment.privacyPolicyVersion
+      )
+    ) {
+      invalid += 1;
+    }
+  }
+  return invalid;
+};
+
+
+const countInvalidAppointmentNotificationLocales = async () => {
+  let invalid = 0;
+  const cursor = Appointment.collection.find(
+    {},
+    { projection: { notificationLocale: 1 } }
+  );
+  for await (const appointment of cursor) {
+    if (!isSupportedNotificationLocale(appointment.notificationLocale)) {
+      invalid += 1;
+    }
+  }
+  return invalid;
+};
+
+
+const countInvalidNotificationShapes = async (collection) => {
+  let invalid = 0;
+  const cursor = collection.find(
+    {},
+    {
+      projection: {
+        dedupeKey: 1,
+        appointment: 1,
+        eventType: 1,
+        eventRevision: 1,
+        scheduleRevision: 1,
+        channel: 1,
+        recipientKind: 1,
+        locale: 1,
+        dueAt: 1,
+        nextAttemptAt: 1,
+        status: 1,
+        attempts: 1,
+        maxAttempts: 1,
+        eventSnapshot: 1,
+      },
+    }
+  );
+  for await (const job of cursor) {
+    if (!isValidNotificationJobShape(job)) invalid += 1;
+  }
+  return invalid;
+};
+
+
+const countActionablePatientJobsWithUnsafeEmail = async (
+  collection,
+  actionable
+) => {
+  let invalid = 0;
+  const cursor = collection.aggregate([
+    {
+      $match: {
+        status: { $in: actionable },
+        recipientKind: 'appointment_patient',
+      },
+    },
+    {
+      $lookup: {
+        from: 'appointments',
+        let: { appointmentId: '$appointment' },
+        pipeline: [
+          { $match: { $expr: { $eq: ['$_id', '$$appointmentId'] } } },
+          { $project: { _id: 0, patientEmail: 1 } },
+        ],
+        as: 'appointments',
+      },
+    },
+    {
+      $project: {
+        patientEmail: { $arrayElemAt: ['$appointments.patientEmail', 0] },
+      },
+    },
+  ]);
+  for await (const row of cursor) {
+    if (!isSafeSingleMailbox(row.patientEmail)) invalid += 1;
+  }
+  return invalid;
+};
+
+
+const inspectNotificationStateShapes = async (
+  collection,
+  actionable,
+  terminal
+) => {
+  const result = {
+    invalidProcessingLeases: 0,
+    residualLeases: 0,
+    invalidTerminalRetention: 0,
+    actionableWithPurgeAt: 0,
+    exhaustedActionable: 0,
+    invalidMetadata: 0,
+  };
+  const absent = (value) => value === undefined || value === null;
+  const cursor = collection.find(
+    {},
+    {
+      projection: {
+        status: 1,
+        attempts: 1,
+        maxAttempts: 1,
+        leaseOwner: 1,
+        leaseToken: 1,
+        leaseExpiresAt: 1,
+        claimedAt: 1,
+        deliveryStartedAt: 1,
+        sentAt: 1,
+        failedAt: 1,
+        cancelledAt: 1,
+        purgeAt: 1,
+        cancellationCode: 1,
+        lastErrorCategory: 1,
+        lastErrorCode: 1,
+        lastResponseCode: 1,
+      },
+    }
+  );
+  for await (const job of cursor) {
+    if (job.status === 'processing') {
+      if (
+        typeof job.leaseOwner !== 'string' ||
+        job.leaseOwner.length < 1 ||
+        job.leaseOwner.length > 200 ||
+        typeof job.leaseToken !== 'string' ||
+        job.leaseToken.length < 1 ||
+        job.leaseToken.length > 100 ||
+        !isExactDate(job.leaseExpiresAt) ||
+        !isExactDate(job.claimedAt) ||
+        (!absent(job.deliveryStartedAt) && !isExactDate(job.deliveryStartedAt))
+      ) {
+        result.invalidProcessingLeases += 1;
+      }
+    }
+    else if (
+      !absent(job.leaseOwner) ||
+      !absent(job.leaseToken) ||
+      !absent(job.leaseExpiresAt) ||
+      !absent(job.claimedAt) ||
+      !absent(job.deliveryStartedAt)
+    ) {
+      result.residualLeases += 1;
+    }
+
+    if (terminal.includes(job.status)) {
+      const terminalTimestamp = job.status === 'sent'
+        ? job.sentAt
+        : (job.status === 'failed' ? job.failedAt : job.cancelledAt);
+      if (!isExactDate(job.purgeAt) || !isExactDate(terminalTimestamp)) {
+        result.invalidTerminalRetention += 1;
+      }
+    }
+    else if (actionable.includes(job.status) && !absent(job.purgeAt)) {
+      result.actionableWithPurgeAt += 1;
+    }
+
+    if (
+      ['pending', 'retry'].includes(job.status) &&
+      Number.isInteger(job.attempts) &&
+      Number.isInteger(job.maxAttempts) &&
+      job.attempts >= job.maxAttempts
+    ) {
+      result.exhaustedActionable += 1;
+    }
+
+    if (
+      (!absent(job.cancellationCode) && (
+        typeof job.cancellationCode !== 'string' ||
+        job.cancellationCode.length > 80 ||
+        /[\r\n\u0000]/.test(job.cancellationCode)
+      )) ||
+      (!absent(job.lastErrorCategory) && ![
+        '',
+        'timeout',
+        'connection',
+        'authentication',
+        'recipient_rejected',
+        'invalid_message',
+        'unsupported_channel',
+        'unknown',
+      ].includes(job.lastErrorCategory)) ||
+      (!absent(job.lastErrorCode) && (
+        typeof job.lastErrorCode !== 'string' ||
+        !/^[A-Za-z0-9_]{0,80}$/.test(job.lastErrorCode)
+      )) ||
+      (!absent(job.lastResponseCode) && (
+        !Number.isInteger(job.lastResponseCode) ||
+        job.lastResponseCode < 100 ||
+        job.lastResponseCode > 999
+      ))
+    ) {
+      result.invalidMetadata += 1;
+    }
+  }
+  return result;
+};
+
+
+const verifyNotificationOutbox = async ({ now = new Date() } = {}) => {
+  const collection = NotificationJob.collection;
+  const actionable = ['pending', 'processing', 'retry'];
+  const terminal = ['sent', 'failed', 'cancelled'];
+  const [
+    invalidShape,
+    orphanAppointments,
+    stateShapes,
+    unsupportedActiveSms,
+    patientJobsWithoutEmail,
+    activeProcessingLeases,
+    expiredProcessingLeases,
+    overdueJobs,
+    retryJobs,
+    terminalFailures,
+  ] = await Promise.all([
+    countInvalidNotificationShapes(collection),
+    collection.aggregate([
+      {
+        $lookup: {
+          from: 'appointments',
+          localField: 'appointment',
+          foreignField: '_id',
+          as: 'appointments',
+        },
+      },
+      { $match: { appointments: { $size: 0 } } },
+      { $count: 'count' },
+    ]).toArray().then(([result]) => result?.count || 0),
+    inspectNotificationStateShapes(collection, actionable, terminal),
+    collection.countDocuments({
+      status: { $in: actionable },
+      channel: 'sms',
+    }),
+    countActionablePatientJobsWithUnsafeEmail(collection, actionable),
+    collection.countDocuments({
+      status: 'processing',
+      leaseExpiresAt: { $gt: now },
+    }),
+    collection.countDocuments({
+      status: 'processing',
+      leaseExpiresAt: { $lte: now },
+    }),
+    collection.countDocuments({
+      status: { $in: ['pending', 'retry'] },
+      dueAt: { $lte: now },
+      nextAttemptAt: { $lte: now },
+    }),
+    collection.countDocuments({ status: 'retry' }),
+    collection.countDocuments({ status: 'failed' }),
+  ]);
+
+  const {
+    invalidProcessingLeases,
+    residualLeases,
+    invalidTerminalRetention,
+    actionableWithPurgeAt,
+    exhaustedActionable,
+    invalidMetadata,
+  } = stateShapes;
+
+  const invalid = {
+    invalidShape,
+    orphanAppointments,
+    invalidProcessingLeases,
+    residualLeases,
+    invalidTerminalRetention,
+    actionableWithPurgeAt,
+    exhaustedActionable,
+    invalidMetadata,
+    unsupportedActiveSms,
+    patientJobsWithoutEmail,
+    activeProcessingLeases,
+  };
+  return {
+    ok: Object.values(invalid).every((count) => count === 0),
+    ...invalid,
+    metrics: {
+      overdueJobs,
+      retryJobs,
+      terminalFailures,
+      expiredProcessingLeases,
+    },
+  };
+};
+
+
 const countInvalidRevisionState = async (Model, fields) => (
   Model.aggregate([
     {
@@ -624,6 +982,8 @@ const verifyDataInvariants = async () => {
     incompleteAppointmentLocks,
     invalidCancelledAppointmentLocks,
     invalidAppointmentMutationVersions,
+    invalidAppointmentScheduleRevisions,
+    invalidAppointmentNotificationLocales,
     invalidClinicScheduleRevisionState,
     invalidDentistScheduleRevisionState,
     invalidServiceBookingGuardState,
@@ -735,6 +1095,8 @@ const verifyDataInvariants = async () => {
       countIncompleteAppointmentLocks(),
       countInvalidCancelledAppointmentLocks(),
       countInvalidAppointmentMutationVersions(),
+      countInvalidRevisionState(Appointment, ['scheduleRevision']),
+      countInvalidAppointmentNotificationLocales(),
       countInvalidRevisionState(
         Clinic,
         ['scheduleRevision', 'bookingGuardVersion']
@@ -756,37 +1118,14 @@ const verifyDataInvariants = async () => {
       Appointment.countDocuments({
         privacyPolicyVersion: 'legacy-unverified',
       }),
-      Appointment.countDocuments({
-        privacyPolicyVersion: { $ne: 'legacy-unverified' },
-        $or: [
-          { privacyConsentAt: { $not: { $type: 'date' } } },
-          {
-            privacyConsentMethod: {
-              $nin: ['website', 'phone', 'in_person'],
-            },
-          },
-          {
-            privacyPolicyVersion: {
-              $not: /^(?:[0-9]{4}-[0-9]{2}(?:\.[0-9]+)?)$/,
-            },
-          },
-        ],
-      }),
+      countInvalidAppointmentPrivacyEvidence(),
       Appointment.countDocuments({
         $or: [
           { idempotencyKeyHash: { $type: 'string' } },
           { idempotencyRequestHash: { $type: 'string' } },
         ],
       }),
-      BookingIdempotency.countDocuments({
-        $or: [
-          { keyHash: { $not: /^[a-f0-9]{64}$/i } },
-          { requestHash: { $not: /^[a-f0-9]{64}$/i } },
-          { appointment: { $not: { $type: 'objectId' } } },
-          { expiresAt: { $not: { $type: 'date' } } },
-          { responseSnapshot: { $exists: false } },
-        ],
-      }),
+      countInvalidBookingIdempotencyRows(),
       BookingIdempotency.aggregate([
         {
           $lookup: {
@@ -847,6 +1186,8 @@ const verifyDataInvariants = async () => {
     incompleteAppointmentLocks,
     invalidCancelledAppointmentLocks,
     invalidAppointmentMutationVersions,
+    invalidAppointmentScheduleRevisions,
+    invalidAppointmentNotificationLocales,
     invalidClinicScheduleRevisionState,
     invalidDentistScheduleRevisionState,
     invalidServiceBookingGuardState,
@@ -910,11 +1251,15 @@ const runProductionPreflight = async (
     ...invariants,
   });
 
+  const notificationOutbox = await verifyNotificationOutbox();
+  checks.push({ name: 'notification_outbox', ...notificationOutbox });
+
   checks.push({
     name: 'production_integrations',
     ok: Boolean(
       env.REDIS_URL && env.SMTP_HOST && env.CLOUDINARY_CLOUD_NAME &&
-      env.ERROR_MONITOR_WEBHOOK_URL && env.BEFORE_AFTER_CONSENT_VERSION
+      env.ERROR_MONITOR_WEBHOOK_URL && env.BEFORE_AFTER_CONSENT_VERSION &&
+      env.NOTIFICATIONS_ENABLED && env.CLINIC_NOTIFICATION_EMAIL
     ),
   });
 
@@ -934,5 +1279,6 @@ export {
   countUsableActiveAdmins,
   dataInvariantsPass,
   verifyMigrationLedger,
+  verifyNotificationOutbox,
   runProductionPreflight,
 };

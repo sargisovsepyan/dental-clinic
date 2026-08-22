@@ -4,6 +4,13 @@ import mongoose from 'mongoose';
 
 import Appointment from './appointment.model.js';
 import BookingIdempotency from './bookingIdempotency.model.js';
+import NotificationJob from '../notifications/notificationJob.model.js';
+import {
+  scheduleCreatedNotifications,
+  reconcileStatusNotifications,
+  reconcileRescheduleNotifications,
+  reconcileCancellationNotifications,
+} from '../notifications/notificationOutbox.service.js';
 import {
   initializePhoneQuotaInfrastructure,
   assertPhoneQuotaKeyIdentity,
@@ -168,23 +175,40 @@ const validateBookingIdempotencyKey = (key, { required = false } = {}) => {
 };
 
 
-const hashBookingRequest = (data, patientPhone, idempotencyKey) => (
-  crypto
+const hashBookingRequest = (
+  data,
+  patientPhone,
+  idempotencyKey,
+  version = 'v2'
+) => {
+  if (!['v1', 'v2'].includes(version)) {
+    throw new Error('Unsupported booking request hash version');
+  }
+  const fingerprint = {
+    patientName: data.patientName,
+    patientPhone,
+    patientEmail: (data.patientEmail || '').toLowerCase(),
+    dentistId: String(data.dentistId),
+    serviceId: String(data.serviceId),
+    date: data.date,
+    startTime: data.startTime,
+    patientComment: data.patientComment || '',
+    privacyAccepted: data.privacyAccepted,
+  };
+  if (version === 'v2') {
+    fingerprint.locale = data.locale || 'hy';
+  }
+  return crypto
     .createHmac('sha256', idempotencyKey)
-    .update('booking-request-fingerprint\0', 'utf8')
-    .update(JSON.stringify({
-      patientName: data.patientName,
-      patientPhone,
-      patientEmail: (data.patientEmail || '').toLowerCase(),
-      dentistId: String(data.dentistId),
-      serviceId: String(data.serviceId),
-      date: data.date,
-      startTime: data.startTime,
-      patientComment: data.patientComment || '',
-      privacyAccepted: data.privacyAccepted,
-    }), 'utf8')
-    .digest('hex')
-);
+    .update(
+      version === 'v1'
+        ? 'booking-request-fingerprint\0'
+        : 'booking-request-fingerprint-v2\0',
+      'utf8'
+    )
+    .update(JSON.stringify(fingerprint), 'utf8')
+    .digest('hex');
+};
 
 
 const BOOKING_METADATA = Symbol('bookingMetadata');
@@ -238,7 +262,7 @@ const getAppointmentResult = (id) => Appointment
 
 const resolveIdempotentAppointment = async (
   idempotencyKeyHash,
-  idempotencyRequestHash
+  idempotencyRequestHashes
 ) => {
   if (!idempotencyKeyHash) {
     return null;
@@ -248,7 +272,7 @@ const resolveIdempotentAppointment = async (
   const record = await BookingIdempotency.findOne({
     keyHash: idempotencyKeyHash,
   })
-    .select('+keyHash +requestHash +responseSnapshot')
+    .select('+keyHash +requestHash +requestHashVersion +responseSnapshot')
     .lean();
   if (record?.expiresAt <= now) {
     await BookingIdempotency.deleteOne({
@@ -257,7 +281,8 @@ const resolveIdempotentAppointment = async (
     });
   }
   else if (record) {
-    if (record.requestHash !== idempotencyRequestHash) {
+    const requestHashVersion = record.requestHashVersion || 'v1';
+    if (record.requestHash !== idempotencyRequestHashes[requestHashVersion]) {
       throw new ApiError(
         409,
         'Idempotency key was already used with a different booking request'
@@ -282,7 +307,7 @@ const resolveIdempotentAppointment = async (
   if (!existing) {
     return null;
   }
-  if (existing.idempotencyRequestHash !== idempotencyRequestHash) {
+  if (existing.idempotencyRequestHash !== idempotencyRequestHashes.v1) {
     throw new ApiError(
       409,
       'Idempotency key was already used with a different booking request'
@@ -307,6 +332,24 @@ const mutationVersionPredicate = (value) => {
         ],
       }
     : { mutationVersion: version };
+};
+
+
+const isDuplicateKeyError = (error) => (
+  error?.code === 11000 || String(error?.message || '').includes('E11000')
+);
+
+
+const duplicateTargetsFieldOrIndex = (error, field, indexName) => (
+  Object.hasOwn(error?.keyPattern || {}, field) ||
+  String(error?.message || '').includes(indexName)
+);
+
+
+const initializeNotificationInfrastructure = async () => {
+  if (env.NOTIFICATIONS_ENABLED && env.NODE_ENV !== 'production') {
+    await NotificationJob.init();
+  }
 };
 
 
@@ -371,6 +414,8 @@ const prepareAppointment = async ({
       endMinute + availability.rules.bufferMinutes
     ),
     quotaReservationId: appointmentId,
+    scheduleRevision: 0,
+    notificationLocale: data.locale || 'hy',
     status: settings.autoConfirmAppointments ? 'confirmed' : 'pending',
     source: context.source || 'website',
     patientComment: data.patientComment || '',
@@ -390,12 +435,15 @@ const createAppointment = async (data, context = {}) => {
   const idempotencyKeyHash = idempotencyKey
     ? hashIdempotencyKey(idempotencyKey)
     : null;
-  const idempotencyRequestHash = idempotencyKey
-    ? hashBookingRequest(data, patientPhone, idempotencyKey)
-    : null;
+  const idempotencyRequestHashes = idempotencyKey
+    ? {
+        v1: hashBookingRequest(data, patientPhone, idempotencyKey, 'v1'),
+        v2: hashBookingRequest(data, patientPhone, idempotencyKey, 'v2'),
+      }
+    : { v1: null, v2: null };
   const idempotent = await resolveIdempotentAppointment(
     idempotencyKeyHash,
-    idempotencyRequestHash
+    idempotencyRequestHashes
   );
   if (idempotent) {
     return idempotent;
@@ -404,6 +452,9 @@ const createAppointment = async (data, context = {}) => {
   await Promise.all([
     Appointment.init(),
     BookingIdempotency.init(),
+    ...(env.NOTIFICATIONS_ENABLED && env.NODE_ENV !== 'production'
+      ? [NotificationJob.init()]
+      : []),
     initializePhoneQuotaInfrastructure(),
   ]);
   await assertPhoneQuotaKeyIdentity();
@@ -413,7 +464,7 @@ const createAppointment = async (data, context = {}) => {
   for (let attempt = 1; attempt <= 12; attempt += 1) {
     const replayBeforeAdmission = await resolveIdempotentAppointment(
       idempotencyKeyHash,
-      idempotencyRequestHash
+      idempotencyRequestHashes
     );
     if (replayBeforeAdmission) {
       return replayBeforeAdmission;
@@ -430,7 +481,7 @@ const createAppointment = async (data, context = {}) => {
     catch (error) {
       const replayAfterPreparation = await resolveIdempotentAppointment(
         idempotencyKeyHash,
-        idempotencyRequestHash
+        idempotencyRequestHashes
       );
       if (replayAfterPreparation) {
         return replayAfterPreparation;
@@ -454,6 +505,11 @@ const createAppointment = async (data, context = {}) => {
           ...prepared.payload,
           confirmationCode,
         }], { session });
+        const notificationNow = new Date();
+        await scheduleCreatedNotifications(created, {
+          session,
+          now: notificationNow,
+        });
         const publicResult = {
           id: appointmentId,
           confirmationCode,
@@ -469,7 +525,8 @@ const createAppointment = async (data, context = {}) => {
         if (idempotencyKeyHash) {
           await BookingIdempotency.create([{
             keyHash: idempotencyKeyHash,
-            requestHash: idempotencyRequestHash,
+            requestHash: idempotencyRequestHashes.v2,
+            requestHashVersion: 'v2',
             appointment: appointmentId,
             responseSnapshot: publicResult,
             expiresAt: new Date(
@@ -486,20 +543,26 @@ const createAppointment = async (data, context = {}) => {
       if (error instanceof BookingGuardChangedError) {
         continue;
       }
-      const duplicate = error?.code === 11000 ||
-        String(error?.message || '').includes('E11000');
+      const duplicate = isDuplicateKeyError(error);
       if (!duplicate) {
         throw error;
       }
       const replay = await resolveIdempotentAppointment(
         idempotencyKeyHash,
-        idempotencyRequestHash
+        idempotencyRequestHashes
       );
       if (replay) {
         return replay;
       }
       if (Object.keys(error?.keyPattern || {})[0] === 'confirmationCode') {
         continue;
+      }
+      if (!duplicateTargetsFieldOrIndex(
+        error,
+        'lockKeys',
+        'unique_dentist_booking_lock'
+      )) {
+        throw error;
       }
       throw new ApiError(
         409,
@@ -738,9 +801,10 @@ const updateStatus = async (
   }
 
 
-  const updated =
-    await Appointment
-      .findOneAndUpdate(
+  await initializeNotificationInfrastructure();
+  return runTransaction(async (session) => {
+    const updated =
+      await Appointment.findOneAndUpdate(
         {
           _id: id,
           status:
@@ -757,6 +821,7 @@ const updateStatus = async (
           returnDocument:
             'after',
           runValidators: true,
+          session,
         }
       );
 
@@ -768,8 +833,14 @@ const updateStatus = async (
     );
   }
 
-
-  return updated;
+    await reconcileStatusNotifications({
+      before: appointment,
+      after: updated,
+      session,
+      now: new Date(),
+    });
+    return updated;
+  });
 };
 
 
@@ -779,6 +850,7 @@ const cancelAppointment = async (
   reason
 ) => {
   await initializePhoneQuotaInfrastructure();
+  await initializeNotificationInfrastructure();
 
   const appointment = await Appointment.findById(id)
     .select('+lockKeys +quotaReservationId');
@@ -823,6 +895,13 @@ const cancelAppointment = async (
     if (!cancelled) {
       throw new ApiError(409, 'Appointment changed; reload and try again');
     }
+
+    await reconcileCancellationNotifications({
+      before: appointment,
+      after: cancelled,
+      session,
+      now: new Date(),
+    });
 
     await releasePhoneDailyQuota({
       patientPhone: appointment.patientPhone,
@@ -902,15 +981,7 @@ const rescheduleAppointment = async (
     observedMutationVersion;
 
 
-  if (
-    [
-      'cancelled',
-      'completed',
-      'no_show',
-    ].includes(
-      appointment.status
-    )
-  ) {
+  if (!['pending', 'confirmed'].includes(appointment.status)) {
     throw new ApiError(
       409,
       `Cannot reschedule a ${appointment.status} appointment`
@@ -956,6 +1027,37 @@ const rescheduleAppointment = async (
       409,
       'Selected time is not available'
     );
+  }
+
+  const materialScheduleChange =
+    String(availability.dentist.id) !== String(appointment.dentist) ||
+    String(availability.service.id) !== String(appointment.service) ||
+    new Date(selectedSlot.startAt).getTime() !==
+      new Date(appointment.startAt).getTime() ||
+    new Date(selectedSlot.endAt).getTime() !==
+      new Date(appointment.endAt).getTime();
+  if (!materialScheduleChange) {
+    const unchanged = await Appointment.findOne({
+      _id: appointment._id,
+      status: appointment.status,
+      ...mutationVersionPredicate(appointment.mutationVersion),
+    })
+      .populate(
+        'dentist',
+        'firstName lastName slug title translations'
+      )
+      .populate(
+        'service',
+        'name slug translations'
+      )
+      .lean();
+    if (!unchanged) {
+      throw new ApiError(
+        409,
+        'Appointment changed; reload and try again'
+      );
+    }
+    return unchanged;
   }
 
 
@@ -1111,6 +1213,7 @@ const rescheduleAppointment = async (
   };
 
   await initializePhoneQuotaInfrastructure();
+  await initializeNotificationInfrastructure();
   await assertPhoneQuotaKeyIdentity();
   try {
     await runTransaction(async (session) => {
@@ -1135,7 +1238,10 @@ const rescheduleAppointment = async (
           },
           {
             $set: update,
-            $inc: { mutationVersion: 1 },
+            $inc: {
+              mutationVersion: 1,
+              scheduleRevision: 1,
+            },
             $push: {
               rescheduleHistory: {
                 $each: [historyEntry],
@@ -1156,6 +1262,13 @@ const rescheduleAppointment = async (
           'Appointment changed; reload and try again'
         );
       }
+
+      await reconcileRescheduleNotifications({
+        before: appointment,
+        after: updated,
+        session,
+        now: new Date(),
+      });
 
       if (changesQuotaDate) {
         await releasePhoneDailyQuota({
@@ -1184,16 +1297,17 @@ const rescheduleAppointment = async (
         { code: 'BOOKING_SCHEDULE_CHANGED' }
       );
     }
-    const duplicate =
-      error?.code === 11000 ||
-      String(
-        error?.message || ''
-      ).includes(
-        'E11000'
-      );
+    const duplicate = isDuplicateKeyError(error);
 
 
-    if (duplicate) {
+    if (
+      duplicate &&
+      duplicateTargetsFieldOrIndex(
+        error,
+        'lockKeys',
+        'unique_dentist_booking_lock'
+      )
+    ) {
       throw new ApiError(
         409,
         'Selected time was just booked by another patient'

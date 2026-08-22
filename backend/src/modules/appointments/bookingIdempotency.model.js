@@ -20,6 +20,13 @@ const bookingIdempotencySchema = new mongoose.Schema(
       immutable: true,
       select: false,
     },
+    requestHashVersion: {
+      type: String,
+      enum: ['v1', 'v2'],
+      default: 'v2',
+      immutable: true,
+      select: false,
+    },
     appointment: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Appointment',

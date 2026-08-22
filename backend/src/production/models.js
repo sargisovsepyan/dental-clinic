@@ -18,6 +18,7 @@ import MediaCleanupJob from '../modules/media/mediaCleanup.model.js';
 import BeforeAfterCase from '../modules/beforeAfter/beforeAfter.model.js';
 import Migration from '../modules/migrations/migration.model.js';
 import AdminInvariant from '../modules/staff/adminInvariant.model.js';
+import NotificationJob from '../modules/notifications/notificationJob.model.js';
 
 
 const productionModels = Object.freeze([
@@ -41,6 +42,7 @@ const productionModels = Object.freeze([
   BeforeAfterCase,
   Migration,
   AdminInvariant,
+  NotificationJob,
 ]);
 
 

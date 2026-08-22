@@ -148,6 +148,7 @@ test('apply bootstraps unique migration indexes before the first concurrent clai
     'migrations',
     'refreshreplayhistories',
     'bookingidempotencies',
+    'notificationjobs',
   ]) {
     await Migration.db.db.dropCollection(name).catch((error) => {
       if (error?.code !== 26 && error?.codeName !== 'NamespaceNotFound') {
@@ -166,6 +167,7 @@ test('apply bootstraps unique migration indexes before the first concurrent clai
       'migrations',
       'refreshreplayhistories',
       'bookingidempotencies',
+      'notificationjobs',
     ].includes(name)),
     false
   );
@@ -203,6 +205,7 @@ test('apply bootstraps unique migration indexes before the first concurrent clai
     ['migrations', 'version'],
     ['refreshreplayhistories', 'tokenHash'],
     ['bookingidempotencies', 'keyHash'],
+    ['notificationjobs', 'dedupeKey'],
   ]) {
     const index = (await Migration.db.db
       .collection(collectionName)
@@ -210,6 +213,9 @@ test('apply bootstraps unique migration indexes before the first concurrent clai
       .toArray())
       .find((candidateIndex) => candidateIndex.key[field] === 1);
     assert.equal(index?.unique, true);
+    if (collectionName === 'notificationjobs') {
+      assert.equal(index?.name, 'unique_notification_logical_event');
+    }
   }
   const bookingTtl = (await Migration.db.db
     .collection('bookingidempotencies')

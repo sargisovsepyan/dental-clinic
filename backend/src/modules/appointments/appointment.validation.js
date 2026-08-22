@@ -56,6 +56,11 @@ const patientFields = {
       .max(1000)
       .allow('')
       .default(''),
+
+  locale:
+    Joi.string()
+      .valid('hy', 'ru', 'en')
+      .default('hy'),
 };
 
 

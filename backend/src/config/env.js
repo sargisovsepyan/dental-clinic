@@ -117,6 +117,25 @@ const envSchema = Joi.object({
   SMTP_SOCKET_TIMEOUT_MS: Joi.number()
     .integer().min(1000).max(120000).default(15000),
 
+  NOTIFICATIONS_ENABLED: Joi.boolean().default(false),
+  CLINIC_NOTIFICATION_EMAIL: Joi.string()
+    .email({ tlds: { allow: false } })
+    .max(254).allow('').default(''),
+  NOTIFICATION_WORKER_POLL_INTERVAL_MS: Joi.number()
+    .integer().min(100).max(60000).default(2000),
+  NOTIFICATION_WORKER_LEASE_MS: Joi.number()
+    .integer().min(10000).max(600000).default(120000),
+  NOTIFICATION_WORKER_CONCURRENCY: Joi.number()
+    .integer().min(1).max(20).default(4),
+  NOTIFICATION_MAX_ATTEMPTS: Joi.number()
+    .integer().min(1).max(50).default(8),
+  NOTIFICATION_RETRY_BASE_SECONDS: Joi.number()
+    .integer().min(1).max(86400).default(60),
+  NOTIFICATION_RETRY_MAX_SECONDS: Joi.number()
+    .integer().min(60).max(604800).default(21600),
+  NOTIFICATION_RETENTION_DAYS: Joi.number()
+    .integer().min(1).max(365).default(30),
+
   CLINIC_TIMEZONE: timeZone.default('Asia/Yerevan'),
   CLOUDINARY_CLOUD_NAME: Joi.string().allow('').default(''),
   CLOUDINARY_API_KEY: Joi.string().allow('').default(''),
@@ -377,6 +396,37 @@ const validateEnvironment = (rawEnvironment) => {
   if (smtpValues.some(Boolean) && !smtpValues.every(Boolean)) {
     throw new Error('SMTP configuration must be either complete or empty');
   }
+  if (value.NOTIFICATIONS_ENABLED && !value.CLINIC_NOTIFICATION_EMAIL) {
+    throw new Error(
+      'CLINIC_NOTIFICATION_EMAIL is required when notifications are enabled'
+    );
+  }
+  if (
+    value.NOTIFICATIONS_ENABLED &&
+    value.NODE_ENV !== 'test' &&
+    !smtpValues.every(Boolean)
+  ) {
+    throw new Error('Enabled notifications require complete SMTP configuration');
+  }
+  if (
+    value.NOTIFICATION_RETRY_BASE_SECONDS >
+    value.NOTIFICATION_RETRY_MAX_SECONDS
+  ) {
+    throw new Error(
+      'NOTIFICATION_RETRY_BASE_SECONDS cannot exceed its maximum'
+    );
+  }
+  if (
+    value.NOTIFICATIONS_ENABLED &&
+    value.NOTIFICATION_WORKER_LEASE_MS <=
+    3 * value.SMTP_CONNECTION_TIMEOUT_MS +
+      value.SMTP_SOCKET_TIMEOUT_MS +
+      5000
+  ) {
+    throw new Error(
+      'Notification worker lease must exceed the bounded SMTP delivery window'
+    );
+  }
   const cloudinaryValues = [
     value.CLOUDINARY_CLOUD_NAME,
     value.CLOUDINARY_API_KEY,
@@ -461,6 +511,15 @@ const validateEnvironment = (rawEnvironment) => {
     }
     if (!value.SMTP_SECURE && !value.SMTP_REQUIRE_TLS) {
       throw new Error('Production SMTP must use implicit TLS or require STARTTLS');
+    }
+    if (
+      rawEnvironment.NOTIFICATIONS_ENABLED === undefined ||
+      value.NOTIFICATIONS_ENABLED !== true ||
+      !value.CLINIC_NOTIFICATION_EMAIL
+    ) {
+      throw new Error(
+        'Production notifications must be explicitly enabled with a clinic recipient'
+      );
     }
     if (
       !value.CLOUDINARY_CLOUD_NAME ||
@@ -550,6 +609,19 @@ const validateEnvironment = (rawEnvironment) => {
     MAIL_FROM: value.MAIL_FROM,
     SMTP_CONNECTION_TIMEOUT_MS: value.SMTP_CONNECTION_TIMEOUT_MS,
     SMTP_SOCKET_TIMEOUT_MS: value.SMTP_SOCKET_TIMEOUT_MS,
+    NOTIFICATIONS_ENABLED: value.NOTIFICATIONS_ENABLED,
+    CLINIC_NOTIFICATION_EMAIL: value.CLINIC_NOTIFICATION_EMAIL,
+    NOTIFICATION_WORKER_POLL_INTERVAL_MS:
+      value.NOTIFICATION_WORKER_POLL_INTERVAL_MS,
+    NOTIFICATION_WORKER_LEASE_MS: value.NOTIFICATION_WORKER_LEASE_MS,
+    NOTIFICATION_WORKER_CONCURRENCY:
+      value.NOTIFICATION_WORKER_CONCURRENCY,
+    NOTIFICATION_MAX_ATTEMPTS: value.NOTIFICATION_MAX_ATTEMPTS,
+    NOTIFICATION_RETRY_BASE_SECONDS:
+      value.NOTIFICATION_RETRY_BASE_SECONDS,
+    NOTIFICATION_RETRY_MAX_SECONDS:
+      value.NOTIFICATION_RETRY_MAX_SECONDS,
+    NOTIFICATION_RETENTION_DAYS: value.NOTIFICATION_RETENTION_DAYS,
     CLINIC_TIMEZONE: value.CLINIC_TIMEZONE,
     CLOUDINARY_CLOUD_NAME: value.CLOUDINARY_CLOUD_NAME,
     CLOUDINARY_API_KEY: value.CLOUDINARY_API_KEY,

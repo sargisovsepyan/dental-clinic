@@ -69,9 +69,15 @@ const sendPasswordReset = async ({
   });
 };
 
+
+const sendNotificationEmail = async (message) => {
+  await getMailAdapter().send(message);
+};
+
 export {
   setMailAdapterForTests,
   resetMailAdapterForTests,
   sendStaffInvitation,
   sendPasswordReset,
+  sendNotificationEmail,
 };

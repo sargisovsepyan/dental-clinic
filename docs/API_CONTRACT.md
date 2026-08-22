@@ -27,6 +27,8 @@ Editorial entities return an explicit `translations` object whose only permitted
 
 Armenian is the required primary locale for active/public content. Russian and English are optional. The API does not silently substitute values: the frontend selects the requested locale and may explicitly fall back to `hy`. Partial locale updates merge into the existing object and do not remove other locales. Slugs, IDs, prices, currency, duration, booking state, dates, schedules, patient data, and consent state remain language-neutral.
 
+Appointment notification language is an explicit, separate contract. Public and administrative booking accept optional `locale: hy | ru | en` (default `hy`) and persist it for later reminders. Legacy appointments with no recorded notification locale remain `null`; notification delivery uses a documented Armenian fallback for those rows only and does not claim that Armenian was the patient's historical preference.
+
 Localized fields are:
 
 - service category: `name`, `description`
@@ -79,7 +81,7 @@ Availability is advisory; MongoDB is authoritative. Each appointment owns every 
 
 The normalized-phone/local-date quota is a separate atomic reservation document keyed by an HMAC of the phone number and date. Concurrent bookings cannot exceed the configured limit. Cancellation releases quota. Cross-date reschedule reserves the target quota before the appointment compare-and-set and releases the source only after success. Failure can temporarily under-allow if cleanup fails, never over-allow; `npm run reconcile:appointment-quota` repairs stale/missing reservations.
 
-Appointment states are `pending`, `confirmed`, `checked_in`, `in_progress`, `completed`, `cancelled`, and `no_show`. The normal path is `pending -> confirmed -> checked_in -> in_progress -> completed`; `pending` or `confirmed` may become `no_show`; cancellation uses its dedicated route; terminal states reject further transition/reschedule.
+Appointment states are `pending`, `confirmed`, `checked_in`, `in_progress`, `completed`, `cancelled`, and `no_show`. The normal path is `pending -> confirmed -> checked_in -> in_progress -> completed`; `pending` or `confirmed` may become `no_show`; cancellation uses its dedicated route. Reschedule is intentionally limited to `pending` or `confirmed`; once care has begun (`checked_in` or `in_progress`) the occurrence cannot be rewritten.
 
 `GET /appointments` is restricted to administrators and receptionists. It supports `date`, `from`, `to`, `dentistId`, `serviceId`, `status`, normalized `phone`, `page` (default 1), and `limit` (default 25, maximum 100). If `from` or `to` is supplied, that range takes precedence over `date`.
 
@@ -88,6 +90,8 @@ Appointment states are `pending`, `confirmed`, `checked_in`, `in_progress`, `com
 `POST /appointments` requires a fresh UUIDv4 `Idempotency-Key` header. Production also requires a `challengeToken`; non-production may omit it only when challenge verification is explicitly disabled. Provider/network failure is `503`, while a rejected or missing required challenge is `400`. Challenge verification happens before idempotent lookup, so replay does not bypass bot defense.
 
 Only a successful booking creates a database-backed idempotency record. Concurrent requests with the same key and semantic body produce one appointment and the same immutable public result. A successful replay still returns `201`; it is audited as `appointment.booking.replay`, not as another creation. The same key with a different body returns `409`, and replay consumes no additional phone quota. Records expire after `BOOKING_IDEMPOTENCY_TTL_HOURS` (1-168 hours, default 24). After expiry, reusing the key may create a new appointment even though the old appointment remains, so clients must use one fresh UUID per intended booking and retain it only for retries of that booking.
+
+New idempotency fingerprints are version `v2` and include the notification locale. Migration 011 marks still-active pre-deployment fingerprints as `v1`; those records continue comparing the historical locale-free body so a retry across deployment does not become a false `409`. Such a replay always returns the original committed result and cannot change its notification locale.
 
 The public result contains only `id`, `confirmationCode`, `patientName`, date/times/status, dentist/service summaries, and the price snapshot. It never returns phone, email, comments, internal notes, privacy evidence, reschedule history, lock keys, quota identifiers, or idempotency hashes.
 
@@ -114,6 +118,27 @@ Every active `bookingSettings` field has the following current meaning:
 Booking-setting updates are serialized with booking/reschedule admission through database booking guards, so a request cannot commit using a mixture of old and new settings.
 
 The legacy `cancellationNoticeHours` setting has been removed from the active model and request schema and is explicitly unset by migration. There is no public patient self-cancellation endpoint. Authorized staff cancellation is governed by role and appointment state, not by an implied patient notice window.
+
+## Appointment notifications
+
+Appointment mutation transactions write notification jobs to a MongoDB outbox; they never call SMTP. A booking/status/reschedule/cancellation response therefore reflects only the authoritative appointment commit. SMTP unavailability cannot reject or roll back a valid booking. No public or administrative arbitrary-send/job endpoint exists.
+
+Deterministic behavior is:
+
+- A pending online booking with an email schedules `appointment_received`, using request-received wording that does not claim confirmation.
+- An auto-confirmed online booking schedules only `appointment_confirmed`, not both received and confirmed.
+- A successful later `pending -> confirmed` transition supersedes any unsent received/reschedule lifecycle mail and schedules one confirmation.
+- A successful material reschedule increments appointment `scheduleRevision`, supersedes older unsent patient lifecycle/reminder jobs, stores minimal immutable before/after occurrence snapshots, and schedules one reschedule message plus the new reminder when eligible. Rescheduling to the exact current occurrence is a `200` no-op with no revision/history/job churn.
+- A successful cancellation supersedes actionable patient lifecycle/reminder jobs and schedules one cancellation. CAS losers and rolled-back mutations create no notification effect.
+- Checked-in, in-progress, completed, and no-show transitions invalidate actionable reminder/lifecycle jobs.
+- A clinic/reception job is created only for a committed `source=website` booking. Its recipient is the deployment-only `CLINIC_NOTIFICATION_EMAIL`, never mutable public `Clinic.email`. The fixed subject contains no patient data; the body contains only the confirmation code, name/phone needed for reception follow-up, occurrence, service, and dentist. Staff-created phone/admin bookings do not notify reception or send a creation lifecycle email.
+- Patient jobs are scheduled only when the appointment has a valid email. Email remains optional unless `requireEmail=true`. Staff-created appointments with an email may receive a reminder and later confirmed/rescheduled/cancelled lifecycle mail.
+
+The reminder due instant is the authoritative `startAt` minus exactly 24 elapsed hours. Clinic timezone is used only to format the message. A create/reschedule strictly inside that window schedules no late “24-hour” reminder; an exact boundary is eligible. At send time the worker requires a confirmed, future appointment with the exact bound `scheduleRevision` and `startAt`. Pending, cancelled, checked-in, in-progress, completed, no-show, missing, or superseded occurrences are terminally skipped.
+
+MongoDB uniqueness provides exactly-once logical scheduling. Workers use atomic token-fenced leases, bounded retries, expired-lease reclamation, and terminal retention. SMTP delivery is at-least-once: a process can fail after the provider accepts a message but before MongoDB records `sent`. A deterministic opaque `Message-ID` reduces duplicate risk but cannot make the external boundary mathematically exactly once. Cancellation/reschedule fence processing jobs and the worker rechecks immediately before delivery, but a narrow final-check-to-provider race remains.
+
+HY/RU/EN templates are centralized and authored explicitly. Subjects are fixed and PII-free; dynamic values are single-line normalized and HTML-escaped. Messages contain no patient/staff comments, internal notes, mutation reasons, consent evidence, arbitrary URLs, remote trackers, or provider secrets. The channel domain already admits `email` and `sms`; no SMS provider/configuration/jobs exist in this release.
 
 ### Schedule revision and conflict acknowledgement
 

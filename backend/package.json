@@ -11,6 +11,7 @@
     "migrate": "node src/scripts/migrate.js",
     "reconcile:appointment-quota": "node src/scripts/reconcileAppointmentQuota.js",
     "reconcile:media": "node src/scripts/reconcileMediaCleanup.js",
+    "worker:notifications": "node src/scripts/notificationWorker.js",
     "production:preflight": "node src/scripts/productionPreflight.js",
     "production:indexes": "node src/scripts/ensureIndexes.js",
     "check:syntax": "node src/scripts/checkSyntax.js",

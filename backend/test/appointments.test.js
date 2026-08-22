@@ -67,6 +67,8 @@ test('public booking normalizes phone and stores correct timestamps, snapshots, 
   assert.equal(stored.privacyConsentMethod, 'website');
   assert.equal(stored.privacyPolicyVersion, '2026-01');
   assert.equal(stored.mutationVersion, 0);
+  assert.equal(stored.scheduleRevision, 0);
+  assert.equal(stored.notificationLocale, 'hy');
   assert.ok(stored.privacyConsentAt instanceof Date);
 });
 

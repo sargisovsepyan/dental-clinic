@@ -3,6 +3,7 @@
 
 import {
   createTranslationsSchema,
+  SUPPORTED_LOCALES,
 } from '../../i18n/localization.js';
 
 const snapshotNameTranslationSchema =
@@ -328,6 +329,18 @@ const appointmentSchema =
         type: Number,
         min: 0,
         default: 0,
+      },
+
+      scheduleRevision: {
+        type: Number,
+        min: 0,
+        default: 0,
+      },
+
+      notificationLocale: {
+        type: String,
+        enum: SUPPORTED_LOCALES,
+        default: null,
       },
 
       rescheduleHistory: {

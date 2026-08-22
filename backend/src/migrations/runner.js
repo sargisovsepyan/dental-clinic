@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import Migration from '../modules/migrations/migration.model.js';
 import RefreshReplayHistory from '../modules/sessions/refreshReplayHistory.model.js';
 import BookingIdempotency from '../modules/appointments/bookingIdempotency.model.js';
+import NotificationJob from '../modules/notifications/notificationJob.model.js';
 
 import * as localizedContent from './20260814_001_localized_content.js';
 import * as phoneDailyQuota from './20260814_002_phone_daily_quota.js';
@@ -15,6 +16,7 @@ import * as beforeAfterConsentCorrection from './20260814_007_before_after_conse
 import * as bookingIdempotencyRecords from './20260814_008_booking_idempotency_records.js';
 import * as scheduleRevisions from './20260814_009_schedule_revisions.js';
 import * as removeCancellationNotice from './20260814_010_remove_cancellation_notice.js';
+import * as appointmentNotifications from './20260822_011_appointment_notifications.js';
 
 const withSource = (migration, relativePath) => ({
   ...migration,
@@ -33,6 +35,7 @@ const migrations = [
   [bookingIdempotencyRecords, './20260814_008_booking_idempotency_records.js'],
   [scheduleRevisions, './20260814_009_schedule_revisions.js'],
   [removeCancellationNotice, './20260814_010_remove_cancellation_notice.js'],
+  [appointmentNotifications, './20260822_011_appointment_notifications.js'],
 ].map(([migration, source]) => withSource(migration, source));
 
 const migrationManifest = Object.freeze(
@@ -49,6 +52,12 @@ const PREREQUISITE_INDEXES = Object.freeze([
   { model: RefreshReplayHistory, key: { tokenHash: 1 }, type: 'unique' },
   { model: BookingIdempotency, key: { keyHash: 1 }, type: 'unique' },
   { model: BookingIdempotency, key: { expiresAt: 1 }, type: 'ttl' },
+  {
+    model: NotificationJob,
+    key: { dedupeKey: 1 },
+    type: 'unique',
+    name: 'unique_notification_logical_event',
+  },
 ]);
 
 function migrationChecksum({ version, description, run, source }) {
@@ -101,10 +110,14 @@ const listIndexes = async (collection) => {
 };
 
 const ensureMigrationPrerequisiteIndexes = async () => {
-  for (const { model, key, type } of PREREQUISITE_INDEXES) {
+  for (const { model, key, type, name } of PREREQUISITE_INDEXES) {
     const existing = (await listIndexes(model.collection))
       .find((index) => indexKeysEqual(index.key, key));
-    if (existing && !isSafePrerequisiteIndex(existing, type)) {
+    if (
+      existing &&
+      (!isSafePrerequisiteIndex(existing, type) ||
+        (name && existing.name !== name))
+    ) {
       throw new Error(
         `Migration prerequisite index on ${model.collection.collectionName} has unsafe options`
       );
@@ -112,12 +125,17 @@ const ensureMigrationPrerequisiteIndexes = async () => {
     if (!existing) {
       await model.collection.createIndex(
         key,
-        type === 'ttl' ? { expireAfterSeconds: 0 } : { unique: true }
+        type === 'ttl'
+          ? { expireAfterSeconds: 0, ...(name ? { name } : {}) }
+          : { unique: true, ...(name ? { name } : {}) }
       );
     }
     const verified = (await listIndexes(model.collection))
       .find((index) => indexKeysEqual(index.key, key));
-    if (!isSafePrerequisiteIndex(verified, type)) {
+    if (
+      !isSafePrerequisiteIndex(verified, type) ||
+      (name && verified.name !== name)
+    ) {
       throw new Error(
         `Migration prerequisite ${type} index on ${model.collection.collectionName} is unavailable`
       );

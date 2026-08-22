@@ -89,6 +89,33 @@ const CRITICAL_INDEXES = Object.freeze([
     key: { status: 1, nextAttemptAt: 1, createdAt: 1 },
   },
   {
+    collection: 'notificationjobs',
+    key: { dedupeKey: 1 },
+    unique: true,
+    name: 'unique_notification_logical_event',
+  },
+  {
+    collection: 'notificationjobs',
+    key: { status: 1, nextAttemptAt: 1, _id: 1 },
+    name: 'notification_due_claim',
+  },
+  {
+    collection: 'notificationjobs',
+    key: { status: 1, leaseExpiresAt: 1, _id: 1 },
+    name: 'notification_expired_lease',
+  },
+  {
+    collection: 'notificationjobs',
+    key: { appointment: 1, status: 1, eventType: 1, scheduleRevision: 1 },
+    name: 'notification_appointment_reconciliation',
+  },
+  {
+    collection: 'notificationjobs',
+    key: { purgeAt: 1 },
+    name: 'notification_terminal_retention',
+    expireAfterSeconds: 0,
+  },
+  {
     collection: 'beforeaftercases',
     key: { isActive: 1, isFeatured: -1, sortOrder: 1, createdAt: -1 },
   },

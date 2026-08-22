@@ -31,6 +31,7 @@ const UNIQUE_DATA_CHECKS = Object.freeze([
   { collection: 'bookingidempotencies', fields: ['keyHash'] },
   { collection: 'phonedailyquotas', fields: ['phoneKey', 'date'] },
   { collection: 'mediacleanupjobs', fields: ['publicId'] },
+  { collection: 'notificationjobs', fields: ['dedupeKey'] },
 ]);
 
 
