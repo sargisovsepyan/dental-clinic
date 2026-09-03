@@ -174,6 +174,22 @@ const populatePublicCase = (query) => query
     select: 'firstName lastName slug title translations photo',
   });
 
+const PUBLIC_CASE_FIELDS = [
+  '_id',
+  'title',
+  'description',
+  'translations',
+  'service',
+  'dentist',
+  'beforeImage',
+  'afterImage',
+  'isFeatured',
+  'isActive',
+  'sortOrder',
+  'createdAt',
+  'updatedAt',
+].join(' ');
+
 const sanitizePublicRelations = (item) => {
   if (item?.service) {
     if (!item.service.category) {
@@ -435,18 +451,7 @@ const getPublicCases =
         BeforeAfterCase
           .find(filter)
       )
-        .select(
-          [
-            '-createdBy',
-            '-consentRecordedBy',
-            '-withdrawnBy',
-            '-purgedBy',
-            '-withdrawalReason',
-            '-consentHistory',
-            '-consentMethod',
-            '-externalConsentReference',
-          ].join(' ')
-        )
+        .select(PUBLIC_CASE_FIELDS)
         .sort({
           isFeatured: -1,
           sortOrder: 1,
@@ -494,18 +499,7 @@ const getPublicCaseById =
           purgedAt: null,
         })
       )
-        .select(
-          [
-            '-createdBy',
-            '-consentRecordedBy',
-            '-withdrawnBy',
-            '-purgedBy',
-            '-withdrawalReason',
-            '-consentHistory',
-            '-consentMethod',
-            '-externalConsentReference',
-          ].join(' ')
-        )
+        .select(PUBLIC_CASE_FIELDS)
         .lean();
 
 

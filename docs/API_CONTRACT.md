@@ -158,6 +158,8 @@ Replacement/removal uses an expected-current-image compare-and-set. The losing s
 
 Public before/after content requires active, server-versioned consent and published state. Withdrawal hides it immediately and blocks ordinary restore. Permanent purge is admin-only, requires exact confirmation and prior withdrawal, tombstones the record, clears the opaque external consent reference, and queues both assets for durable deletion.
 
+Public before/after list and detail responses expose the published case content and public relations only. They omit consent status, policy version, confirmation time and method, consent history/reference, publication workflow state, withdrawal metadata, purge metadata, staff actors, and cleanup internals.
+
 ## Frontend freeze
 
 The public schema, locale policy, authentication/cookie behavior, booking inputs, availability slots, appointment statuses, and media/consent flows are frozen sufficiently for frontend implementation. New optional fields or endpoints may be added compatibly. No known breaking public schema decision is deferred. Deployment origins/cookie domain are environment choices, not API-shape changes.

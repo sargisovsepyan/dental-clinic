@@ -253,7 +253,7 @@ paths:
     get:
       tags: [Catalog]
       operationId: listServiceCategories
-      responses: { '200': { $ref: '#/components/responses/Success' } }
+      responses: { '200': { $ref: '#/components/responses/ServiceCategoryListSuccess' } }
     post:
       tags: [Catalog]
       operationId: createServiceCategory
@@ -274,7 +274,7 @@ paths:
       operationId: getServiceCategory
       description: The GET operation interprets the identifier as a canonical slug.
       parameters: [{ $ref: '#/components/parameters/SlugIdentifier' }]
-      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+      responses: { '200': { $ref: '#/components/responses/ServiceCategoryDetailSuccess' }, '404': { $ref: '#/components/responses/Error' } }
     patch:
       tags: [Catalog]
       operationId: updateServiceCategory
@@ -305,7 +305,7 @@ paths:
         - { name: category, in: query, schema: { type: string } }
         - { name: featured, in: query, schema: { type: boolean } }
         - { name: bookingEnabled, in: query, schema: { type: boolean } }
-      responses: { '200': { $ref: '#/components/responses/Success' } }
+      responses: { '200': { $ref: '#/components/responses/ServiceListSuccess' } }
     post:
       tags: [Catalog]
       operationId: createService
@@ -324,7 +324,7 @@ paths:
       operationId: getService
       description: The GET operation interprets the identifier as a canonical slug.
       parameters: [{ $ref: '#/components/parameters/SlugIdentifier' }]
-      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+      responses: { '200': { $ref: '#/components/responses/ServiceDetailSuccess' }, '404': { $ref: '#/components/responses/Error' } }
     patch:
       tags: [Catalog]
       operationId: updateService
@@ -355,7 +355,7 @@ paths:
         - { name: service, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
         - { name: featured, in: query, schema: { type: boolean } }
         - { name: bookingEnabled, in: query, schema: { type: boolean } }
-      responses: { '200': { $ref: '#/components/responses/Success' } }
+      responses: { '200': { $ref: '#/components/responses/DentistListSuccess' } }
     post:
       tags: [Catalog]
       operationId: createDentist
@@ -374,7 +374,7 @@ paths:
       operationId: getDentist
       description: The GET operation interprets the identifier as a canonical slug.
       parameters: [{ $ref: '#/components/parameters/SlugIdentifier' }]
-      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+      responses: { '200': { $ref: '#/components/responses/DentistDetailSuccess' }, '404': { $ref: '#/components/responses/Error' } }
     patch:
       tags: [Catalog]
       operationId: updateDentist
@@ -440,7 +440,7 @@ paths:
     get:
       tags: [Catalog]
       operationId: getClinic
-      responses: { '200': { $ref: '#/components/responses/Success' } }
+      responses: { '200': { $ref: '#/components/responses/ClinicPublicSuccess' } }
     patch:
       tags: [Catalog]
       operationId: updateClinic
@@ -624,7 +624,7 @@ paths:
     get:
       tags: [Media]
       operationId: listGallery
-      responses: { '200': { $ref: '#/components/responses/Success' } }
+      responses: { '200': { $ref: '#/components/responses/GalleryPublicSuccess' } }
     post:
       tags: [Media]
       operationId: createGalleryImage
@@ -711,11 +711,11 @@ paths:
       operationId: listBeforeAfterCases
       parameters:
         - { $ref: '#/components/parameters/Page' }
-        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/BeforeAfterLimit' }
         - { name: serviceId, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
         - { name: dentistId, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
         - { name: featured, in: query, schema: { type: boolean } }
-      responses: { '200': { $ref: '#/components/responses/Success' } }
+      responses: { '200': { $ref: '#/components/responses/BeforeAfterListSuccess' } }
     post:
       tags: [BeforeAfter]
       operationId: createBeforeAfterCase
@@ -730,14 +730,14 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters:
         - { $ref: '#/components/parameters/Page' }
-        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/BeforeAfterLimit' }
       responses: { '200': { $ref: '#/components/responses/Success' } }
   /before-after/{id}:
     parameters: [{ $ref: '#/components/parameters/Id' }]
     get:
       tags: [BeforeAfter]
       operationId: getBeforeAfterCase
-      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+      responses: { '200': { $ref: '#/components/responses/BeforeAfterDetailSuccess' }, '404': { $ref: '#/components/responses/Error' } }
     patch:
       tags: [BeforeAfter]
       operationId: updateBeforeAfterCase
@@ -867,6 +867,11 @@ components:
       name: limit
       in: query
       schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+    BeforeAfterLimit:
+      name: limit
+      in: query
+      description: Page size for before/after listings, whose API default is 24.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -1039,6 +1044,56 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/SuccessEnvelope' }
+    ServiceCategoryListSuccess:
+      description: Active public service categories.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ServiceCategoryListEnvelope' }
+    ServiceCategoryDetailSuccess:
+      description: Active public service category.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ServiceCategoryDetailEnvelope' }
+    ServiceListSuccess:
+      description: Active public services whose categories are active.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ServiceListEnvelope' }
+    ServiceDetailSuccess:
+      description: Active public service whose category is active.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ServiceDetailEnvelope' }
+    DentistListSuccess:
+      description: Active public dentists with public active services only.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DentistListEnvelope' }
+    DentistDetailSuccess:
+      description: Active public dentist with public active services only.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DentistDetailEnvelope' }
+    ClinicPublicSuccess:
+      description: Public clinic settings and regular weekly hours.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ClinicPublicEnvelope' }
+    GalleryPublicSuccess:
+      description: Active public gallery images.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/GalleryPublicEnvelope' }
+    BeforeAfterListSuccess:
+      description: Published public before/after cases with consent evidence omitted.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/BeforeAfterListEnvelope' }
+    BeforeAfterDetailSuccess:
+      description: Published public before/after case with consent evidence omitted.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/BeforeAfterDetailEnvelope' }
     AuthSuccess:
       description: Authenticated; refresh cookie may be set
       headers:
@@ -1248,6 +1303,494 @@ components:
         hy: { $ref: '#/components/schemas/TranslationText' }
         ru: { $ref: '#/components/schemas/TranslationText' }
         en: { $ref: '#/components/schemas/TranslationText' }
+    PublicImageAsset:
+      type: object
+      additionalProperties: false
+      required: [publicId, secureUrl, width, height, format, bytes]
+      properties:
+        publicId: { type: string }
+        secureUrl: { type: string, format: uri }
+        width: { type: integer, minimum: 1 }
+        height: { type: integer, minimum: 1 }
+        format: { type: string }
+        bytes: { type: integer, minimum: 1 }
+    ServiceCategoryPublic:
+      type: object
+      additionalProperties: false
+      required: [_id, name, slug, description, translations, imageUrl, sortOrder, isActive, createdAt, updatedAt]
+      properties:
+        _id: { $ref: '#/components/schemas/ObjectId' }
+        name: { type: string }
+        slug: { $ref: '#/components/schemas/Slug' }
+        description: { type: string }
+        translations: { $ref: '#/components/schemas/ServiceCategoryTranslations' }
+        imageUrl: { type: string }
+        sortOrder: { type: integer }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ServiceCategorySummary:
+      type: object
+      additionalProperties: false
+      required: [_id, name, slug, translations]
+      properties:
+        _id: { $ref: '#/components/schemas/ObjectId' }
+        name: { type: string }
+        slug: { $ref: '#/components/schemas/Slug' }
+        translations: { $ref: '#/components/schemas/ServiceCategoryTranslations' }
+    ServicePublic:
+      type: object
+      additionalProperties: false
+      required:
+        - _id
+        - name
+        - slug
+        - category
+        - shortDescription
+        - description
+        - translations
+        - priceType
+        - priceFrom
+        - priceTo
+        - currency
+        - durationMinutes
+        - imageUrl
+        - image
+        - isFeatured
+        - bookingEnabled
+        - isActive
+        - sortOrder
+        - createdAt
+        - updatedAt
+      properties:
+        _id: { $ref: '#/components/schemas/ObjectId' }
+        name: { type: string }
+        slug: { $ref: '#/components/schemas/Slug' }
+        category: { $ref: '#/components/schemas/ServiceCategorySummary' }
+        shortDescription: { type: string }
+        description: { type: string }
+        translations: { $ref: '#/components/schemas/ServiceTranslations' }
+        priceType: { type: string, enum: [fixed, from, range, on_request] }
+        priceFrom:
+          anyOf:
+            - { type: number, minimum: 0 }
+            - { type: 'null' }
+        priceTo:
+          anyOf:
+            - { type: number, minimum: 0 }
+            - { type: 'null' }
+        currency: { type: string, const: AMD }
+        durationMinutes: { type: integer, minimum: 15, maximum: 480 }
+        imageUrl: { type: string }
+        image:
+          anyOf:
+            - { $ref: '#/components/schemas/PublicImageAsset' }
+            - { type: 'null' }
+        isFeatured: { type: boolean }
+        bookingEnabled: { type: boolean }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    DentistServicePublic:
+      type: object
+      additionalProperties: false
+      required: [_id, name, slug, translations, durationMinutes, priceType, priceFrom, priceTo, currency, bookingEnabled]
+      properties:
+        _id: { $ref: '#/components/schemas/ObjectId' }
+        name: { type: string }
+        slug: { $ref: '#/components/schemas/Slug' }
+        translations: { $ref: '#/components/schemas/ServiceTranslations' }
+        shortDescription: { type: string }
+        durationMinutes: { type: integer }
+        priceType: { type: string, enum: [fixed, from, range, on_request] }
+        priceFrom:
+          anyOf:
+            - { type: number }
+            - { type: 'null' }
+        priceTo:
+          anyOf:
+            - { type: number }
+            - { type: 'null' }
+        currency: { type: string, const: AMD }
+        bookingEnabled: { type: boolean }
+    PublicShift:
+      type: object
+      additionalProperties: false
+      required: [start, end]
+      properties:
+        start: { $ref: '#/components/schemas/LocalTime' }
+        end: { $ref: '#/components/schemas/LocalTime' }
+    DentistWorkingDayPublic:
+      type: object
+      additionalProperties: false
+      required: [dayOfWeek, isWorking, shifts]
+      properties:
+        dayOfWeek: { type: integer, minimum: 1, maximum: 7 }
+        isWorking: { type: boolean }
+        shifts:
+          type: array
+          items: { $ref: '#/components/schemas/PublicShift' }
+    DentistPublic:
+      type: object
+      additionalProperties: false
+      required:
+        - _id
+        - firstName
+        - lastName
+        - slug
+        - title
+        - specializations
+        - bio
+        - translations
+        - experienceYears
+        - photoUrl
+        - photo
+        - languages
+        - services
+        - weeklySchedule
+        - scheduleRevision
+        - isFeatured
+        - bookingEnabled
+        - isActive
+        - sortOrder
+        - createdAt
+        - updatedAt
+      properties:
+        _id: { $ref: '#/components/schemas/ObjectId' }
+        firstName: { type: string }
+        lastName: { type: string }
+        slug: { $ref: '#/components/schemas/Slug' }
+        title: { type: string }
+        specializations:
+          type: array
+          items: { type: string }
+        bio: { type: string }
+        translations: { $ref: '#/components/schemas/DentistTranslations' }
+        experienceYears: { type: integer, minimum: 0 }
+        photoUrl: { type: string }
+        photo:
+          anyOf:
+            - { $ref: '#/components/schemas/PublicImageAsset' }
+            - { type: 'null' }
+        languages:
+          type: array
+          items: { type: string, enum: [hy, ru, en, fr, de, other] }
+        services:
+          type: array
+          items: { $ref: '#/components/schemas/DentistServicePublic' }
+        weeklySchedule:
+          type: array
+          items: { $ref: '#/components/schemas/DentistWorkingDayPublic' }
+        scheduleRevision: { type: integer, minimum: 0 }
+        isFeatured: { type: boolean }
+        bookingEnabled: { type: boolean }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ClinicWorkingDayPublic:
+      type: object
+      additionalProperties: false
+      required: [dayOfWeek, isOpen, shifts]
+      properties:
+        dayOfWeek: { type: integer, minimum: 1, maximum: 7 }
+        isOpen: { type: boolean }
+        shifts:
+          type: array
+          items: { $ref: '#/components/schemas/PublicShift' }
+    ClinicBookingSettingsPublic:
+      type: object
+      additionalProperties: false
+      required:
+        - isBookingEnabled
+        - slotIntervalMinutes
+        - minBookingNoticeMinutes
+        - maxBookingDaysAhead
+        - bufferMinutes
+        - allowSameDayBooking
+        - requireEmail
+        - autoConfirmAppointments
+        - maxAppointmentsPerPhonePerDay
+      properties:
+        isBookingEnabled: { type: boolean }
+        slotIntervalMinutes: { type: integer, enum: [10, 15, 20, 30, 60] }
+        minBookingNoticeMinutes: { type: integer }
+        maxBookingDaysAhead: { type: integer }
+        bufferMinutes: { type: integer }
+        allowSameDayBooking: { type: boolean }
+        requireEmail: { type: boolean }
+        autoConfirmAppointments: { type: boolean }
+        maxAppointmentsPerPhonePerDay: { type: integer }
+    ClinicSocialLinksPublic:
+      type: object
+      additionalProperties: false
+      required: [instagram, facebook, whatsapp, telegram]
+      properties:
+        instagram: { type: string }
+        facebook: { type: string }
+        whatsapp: { type: string }
+        telegram: { type: string }
+    ClinicPublic:
+      type: object
+      additionalProperties: false
+      required:
+        - _id
+        - key
+        - clinicName
+        - tagline
+        - description
+        - phone
+        - secondaryPhone
+        - email
+        - address
+        - translations
+        - mapUrl
+        - latitude
+        - longitude
+        - timezone
+        - socialLinks
+        - weeklySchedule
+        - bookingSettings
+        - scheduleRevision
+        - createdAt
+        - updatedAt
+      properties:
+        _id: { $ref: '#/components/schemas/ObjectId' }
+        key: { type: string }
+        clinicName: { type: string }
+        tagline: { type: string }
+        description: { type: string }
+        phone: { type: string }
+        secondaryPhone: { type: string }
+        email: { type: string }
+        address: { type: string }
+        translations: { $ref: '#/components/schemas/ClinicTranslations' }
+        mapUrl: { type: string }
+        latitude:
+          anyOf:
+            - { type: number, minimum: -90, maximum: 90 }
+            - { type: 'null' }
+        longitude:
+          anyOf:
+            - { type: number, minimum: -180, maximum: 180 }
+            - { type: 'null' }
+        timezone: { type: string }
+        socialLinks: { $ref: '#/components/schemas/ClinicSocialLinksPublic' }
+        weeklySchedule:
+          type: array
+          items: { $ref: '#/components/schemas/ClinicWorkingDayPublic' }
+        bookingSettings: { $ref: '#/components/schemas/ClinicBookingSettingsPublic' }
+        scheduleRevision: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    GalleryImagePublic:
+      type: object
+      additionalProperties: false
+      required: [_id, type, image, altText, caption, translations, sortOrder, isActive, createdAt, updatedAt]
+      properties:
+        _id: { $ref: '#/components/schemas/ObjectId' }
+        type: { type: string, const: clinic_gallery }
+        image: { $ref: '#/components/schemas/PublicImageAsset' }
+        altText: { type: string }
+        caption: { type: string }
+        translations: { $ref: '#/components/schemas/GalleryTranslations' }
+        sortOrder: { type: integer }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    BeforeAfterServicePublic:
+      type: object
+      additionalProperties: false
+      required: [_id, name, slug, translations]
+      properties:
+        _id: { $ref: '#/components/schemas/ObjectId' }
+        name: { type: string }
+        slug: { $ref: '#/components/schemas/Slug' }
+        translations: { $ref: '#/components/schemas/ServiceTranslations' }
+    BeforeAfterDentistPublic:
+      type: object
+      additionalProperties: false
+      required: [_id, firstName, lastName, slug, title, translations, photo]
+      properties:
+        _id: { $ref: '#/components/schemas/ObjectId' }
+        firstName: { type: string }
+        lastName: { type: string }
+        slug: { $ref: '#/components/schemas/Slug' }
+        title: { type: string }
+        translations: { $ref: '#/components/schemas/DentistTranslations' }
+        photo:
+          anyOf:
+            - { $ref: '#/components/schemas/PublicImageAsset' }
+            - { type: 'null' }
+    BeforeAfterCasePublic:
+      type: object
+      additionalProperties: false
+      required:
+        - _id
+        - title
+        - description
+        - translations
+        - service
+        - dentist
+        - beforeImage
+        - afterImage
+        - isFeatured
+        - isActive
+        - sortOrder
+        - createdAt
+        - updatedAt
+      properties:
+        _id: { $ref: '#/components/schemas/ObjectId' }
+        title: { type: string }
+        description: { type: string }
+        translations: { $ref: '#/components/schemas/BeforeAfterTranslations' }
+        service:
+          anyOf:
+            - { $ref: '#/components/schemas/BeforeAfterServicePublic' }
+            - { type: 'null' }
+        dentist:
+          anyOf:
+            - { $ref: '#/components/schemas/BeforeAfterDentistPublic' }
+            - { type: 'null' }
+        beforeImage: { $ref: '#/components/schemas/PublicImageAsset' }
+        afterImage: { $ref: '#/components/schemas/PublicImageAsset' }
+        isFeatured: { type: boolean }
+        isActive: { type: boolean }
+        sortOrder: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ServiceCategoryListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: false
+          required: [categories]
+          properties:
+            categories:
+              type: array
+              items: { $ref: '#/components/schemas/ServiceCategoryPublic' }
+    ServiceCategoryDetailEnvelope:
+      type: object
+      additionalProperties: false
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: false
+          required: [category]
+          properties:
+            category: { $ref: '#/components/schemas/ServiceCategoryPublic' }
+    ServiceListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: false
+          required: [services]
+          properties:
+            services:
+              type: array
+              items: { $ref: '#/components/schemas/ServicePublic' }
+    ServiceDetailEnvelope:
+      type: object
+      additionalProperties: false
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: false
+          required: [service]
+          properties:
+            service: { $ref: '#/components/schemas/ServicePublic' }
+    DentistListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: false
+          required: [dentists]
+          properties:
+            dentists:
+              type: array
+              items: { $ref: '#/components/schemas/DentistPublic' }
+    DentistDetailEnvelope:
+      type: object
+      additionalProperties: false
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: false
+          required: [dentist]
+          properties:
+            dentist: { $ref: '#/components/schemas/DentistPublic' }
+    ClinicPublicEnvelope:
+      type: object
+      additionalProperties: false
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: false
+          required: [clinic]
+          properties:
+            clinic: { $ref: '#/components/schemas/ClinicPublic' }
+    GalleryPublicEnvelope:
+      type: object
+      additionalProperties: false
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: false
+          required: [images]
+          properties:
+            images:
+              type: array
+              items: { $ref: '#/components/schemas/GalleryImagePublic' }
+    BeforeAfterListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: false
+          required: [cases, pagination]
+          properties:
+            cases:
+              type: array
+              items: { $ref: '#/components/schemas/BeforeAfterCasePublic' }
+            pagination: { $ref: '#/components/schemas/Pagination' }
+    BeforeAfterDetailEnvelope:
+      type: object
+      additionalProperties: false
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: false
+          required: [case]
+          properties:
+            case: { $ref: '#/components/schemas/BeforeAfterCasePublic' }
     ServiceCategoryTranslation:
       type: object
       additionalProperties: false

@@ -850,10 +850,47 @@ test('consent evidence is server-versioned, minimized publicly, and withdrawal b
 
   const publicCase = await request(app).get(`/api/v1/before-after/${caseId}`);
   assert.equal(publicCase.status, 200);
-  const publicJson = JSON.stringify(publicCase.body);
-  assert.equal(publicJson.includes('CONSENT:2026/opaque-42'), false);
-  assert.equal(publicJson.includes('consentHistory'), false);
-  assert.equal(publicJson.includes('withdrawalReason'), false);
+  const publicList = await request(app).get('/api/v1/before-after');
+  assert.equal(publicList.status, 200);
+  assert.equal(publicList.body.data.cases.length, 1);
+
+  const consentEvidenceFields = [
+    'consentHistory',
+    'withdrawalReason',
+    'consentStatus',
+    'consentPolicyVersion',
+    'consentConfirmedAt',
+    'consentMethod',
+    'publicationStatus',
+    'withdrawnAt',
+    'purgedAt',
+    'externalConsentReference',
+  ];
+  const publicCaseFields = [
+    '_id',
+    'afterImage',
+    'beforeImage',
+    'createdAt',
+    'dentist',
+    'description',
+    'isActive',
+    'isFeatured',
+    'service',
+    'sortOrder',
+    'title',
+    'translations',
+    'updatedAt',
+  ];
+  for (const publicItem of [
+    publicCase.body.data.case,
+    publicList.body.data.cases[0],
+  ]) {
+    assert.deepEqual(Object.keys(publicItem).sort(), publicCaseFields);
+    for (const field of consentEvidenceFields) {
+      assert.equal(Object.hasOwn(publicItem, field), false, `${field} must be private`);
+    }
+    assert.equal(JSON.stringify(publicItem).includes('CONSENT:2026/opaque-42'), false);
+  }
 
   assert.equal(
     (await request(app)
