@@ -55,6 +55,8 @@ describe("booking API client", () => {
         timezone: "Asia/Yerevan",
         available: true,
         reason: null,
+        dentist: { id: payload.dentistId },
+        service: { id: payload.serviceId },
         slots: [{ start: "09:00", end: "10:00", startAt: "2026-09-10T05:00:00.000Z", endAt: "2026-09-10T06:00:00.000Z", internal: "ignored" }],
       } },
     }), { status: 200, headers: { "content-type": "application/json" } }));
@@ -77,6 +79,39 @@ describe("booking API client", () => {
     await expect(getAvailability({ dentistId: "bad", serviceId: payload.serviceId, date: payload.date })).rejects.toMatchObject({ kind: "configuration" });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: true, data: { availability: { date: payload.date, timezone: "Asia/Yerevan", available: true, reason: null, slots: [{ start: "bad" }] } } }), { status: 200 })));
     await expect(getAvailability({ dentistId: payload.dentistId, serviceId: payload.serviceId, date: payload.date })).rejects.toMatchObject({ kind: "protocol" });
+  });
+
+  it("rejects availability returned for a different scheduling selection", async () => {
+    const availability = {
+      date: payload.date,
+      timezone: "Asia/Yerevan",
+      available: true,
+      reason: null,
+      dentist: { id: payload.dentistId },
+      service: { id: payload.serviceId },
+      slots: [],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: { availability: { ...availability, date: "2026-09-11" } },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: { availability: { ...availability, dentist: { id: "64b000000000000000000099" } } },
+      }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getAvailability({
+      dentistId: payload.dentistId,
+      serviceId: payload.serviceId,
+      date: payload.date,
+    })).rejects.toMatchObject({ kind: "protocol" });
+    await expect(getAvailability({
+      dentistId: payload.dentistId,
+      serviceId: payload.serviceId,
+      date: payload.date,
+    })).rejects.toMatchObject({ kind: "protocol" });
   });
 
   it("excludes challenge tokens from canonical request identity", () => {
@@ -141,6 +176,28 @@ describe("booking API client", () => {
       data: { appointment: { ...appointment, dentist: { id: payload.dentistId, firstName: { unsafe: true }, lastName: "Test" } } },
     }), { status: 201 })));
     await expect(createPublicAppointment(payload, "0f459e5d-dbf8-4d92-b512-c329d39a610e")).rejects.toMatchObject({ kind: "protocol" });
+  });
+
+  it("rejects a success result for a different patient or occurrence", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: { appointment: { ...appointment, patientName: "Another patient" } },
+      }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: { appointment: { ...appointment, startTime: "10:30" } },
+      }), { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(createPublicAppointment(
+      payload,
+      "0f459e5d-dbf8-4d92-b512-c329d39a610e",
+    )).rejects.toMatchObject({ kind: "protocol" });
+    await expect(createPublicAppointment(
+      payload,
+      "0f459e5d-dbf8-4d92-b512-c329d39a610e",
+    )).rejects.toMatchObject({ kind: "protocol" });
   });
 
   it("uses the authoritative localized service summary and annotates Armenian dentist names", async () => {

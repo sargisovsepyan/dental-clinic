@@ -177,9 +177,13 @@ export async function getAvailability(options: {
   });
   const data = await requestJson({ path: `availability?${query}`, signal: options.signal });
   const value = data.availability;
+  const dentist = isRecord(value) && isRecord(value.dentist) ? value.dentist : undefined;
+  const service = isRecord(value) && isRecord(value.service) ? value.service : undefined;
   if (
-    !isRecord(value) || !localDate.test(String(value.date)) || typeof value.timezone !== "string" ||
-    typeof value.available !== "boolean" || !Array.isArray(value.slots)
+    !isRecord(value) || value.date !== options.date || !localDate.test(String(value.date)) ||
+    typeof value.timezone !== "string" || typeof value.available !== "boolean" ||
+    !dentist || String(dentist.id) !== options.dentistId ||
+    !service || String(service.id) !== options.serviceId || !Array.isArray(value.slots)
   ) {
     throw new BookingApiError({ kind: "protocol" });
   }
@@ -268,6 +272,13 @@ export async function createPublicAppointment(
     price.currency !== "AMD" || !validOptionalPrice(price.priceFrom) || !validOptionalPrice(price.priceTo)
   ) throw new BookingApiError({ kind: "protocol" });
   if (String(dentist.id) !== payload.dentistId || String(service.id) !== payload.serviceId) {
+    throw new BookingApiError({ kind: "protocol" });
+  }
+  if (
+    value.patientName !== payload.patientName.trim() ||
+    value.date !== payload.date ||
+    value.startTime !== payload.startTime
+  ) {
     throw new BookingApiError({ kind: "protocol" });
   }
   const serviceName = localizedSummaryName(service.name, service.translations, payload.locale);

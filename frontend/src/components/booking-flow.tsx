@@ -132,9 +132,9 @@ function BookingSuccess({
         <Check aria-hidden="true" className="size-7" />
       </div>
       <p className="eyebrow mt-7">{copy.eyebrow}</p>
-      <h1 id="booking-result-title" className="display-type mt-3 text-4xl sm:text-5xl">
+      <h2 id="booking-result-title" className="display-type mt-3 text-4xl sm:text-5xl">
         {confirmed ? copy.confirmedTitle : copy.pendingTitle}
-      </h1>
+      </h2>
       <p className="mt-5 max-w-2xl leading-7 text-muted-foreground">
         {confirmed ? copy.confirmedBody : copy.pendingBody}
       </p>

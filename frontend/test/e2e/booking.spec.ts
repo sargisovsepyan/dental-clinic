@@ -109,6 +109,7 @@ test("pending and confirmed submissions render only the safe authoritative resul
   expect(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length }))).toEqual({ local: 0, session: 0 });
   await page.getByRole("button", { name: "Send booking request" }).click();
   await expect(page.getByRole("heading", { name: "Request received" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
   await expect(page.getByTestId("confirmation-code")).toHaveText("DC-0123456789ABCDEF");
   await expect(page.locator("main")).not.toContainText("+374 99 123456");
   await expect(page.locator("main")).not.toContainText("patient@example.test");
