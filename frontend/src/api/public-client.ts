@@ -197,6 +197,29 @@ export async function getClinic() {
   return requiredRecord<ClinicRecord>(result.data.clinic);
 }
 
+export async function getBookingServices() {
+  const result = await publicGet<components["schemas"]["ServiceListEnvelope"]>("/services", {
+    query: { bookingEnabled: true },
+    cache: "no-store",
+  });
+  return requiredArray<ServiceRecord>(result.data.services);
+}
+
+export async function getBookingDentists(serviceId?: string) {
+  const result = await publicGet<components["schemas"]["DentistListEnvelope"]>("/dentists", {
+    query: { bookingEnabled: true, service: serviceId },
+    cache: "no-store",
+  });
+  return requiredArray<DentistRecord>(result.data.dentists);
+}
+
+export async function getBookingClinic() {
+  const result = await publicGet<components["schemas"]["ClinicPublicEnvelope"]>("/clinic", {
+    cache: "no-store",
+  });
+  return requiredRecord<ClinicRecord>(result.data.clinic);
+}
+
 export async function getGallery() {
   const result = await publicGet<components["schemas"]["GalleryPublicEnvelope"]>("/media/gallery", {
     revalidate: 300,

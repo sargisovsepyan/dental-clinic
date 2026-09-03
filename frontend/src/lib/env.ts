@@ -14,6 +14,10 @@ export interface FrontendEnvironment {
   apiBaseUrl: string;
   siteBaseUrl: string;
   cloudinaryCloudName?: string;
+  bookingChallenge: {
+    provider: "disabled" | "turnstile";
+    siteKey?: string;
+  };
 }
 
 export class FrontendConfigurationError extends Error {
@@ -84,6 +88,8 @@ export function parseFrontendEnvironment(
     NEXT_PUBLIC_API_URL?: string;
     NEXT_PUBLIC_SITE_URL?: string;
     NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME?: string;
+    NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER?: string;
+    NEXT_PUBLIC_TURNSTILE_SITE_KEY?: string;
   },
   production = process.env.NODE_ENV === "production",
 ): FrontendEnvironment {
@@ -92,10 +98,30 @@ export function parseFrontendEnvironment(
     throw new FrontendConfigurationError(cloudResult.error.issues[0]?.message ?? "Invalid Cloudinary configuration");
   }
 
+  const provider = values.NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER?.trim() ||
+    (production ? "turnstile" : "disabled");
+  if (provider !== "disabled" && provider !== "turnstile") {
+    throw new FrontendConfigurationError(
+      "NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER must be disabled or turnstile",
+    );
+  }
+  const siteKey = values.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() || undefined;
+  if (provider === "turnstile" && !siteKey) {
+    throw new FrontendConfigurationError(
+      "NEXT_PUBLIC_TURNSTILE_SITE_KEY is required when Turnstile booking protection is enabled",
+    );
+  }
+  if (production && provider !== "turnstile") {
+    throw new FrontendConfigurationError(
+      "Production public booking requires NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER=turnstile",
+    );
+  }
+
   return {
     apiBaseUrl: parseApiBaseUrl(values.NEXT_PUBLIC_API_URL, production),
     siteBaseUrl: parseSiteBaseUrl(values.NEXT_PUBLIC_SITE_URL, production),
     cloudinaryCloudName: cloudResult.data,
+    bookingChallenge: { provider, siteKey },
   };
 }
 
@@ -104,5 +130,8 @@ export function getFrontendEnvironment() {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
     NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
+    NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER:
+      process.env.NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER,
+    NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
   });
 }

@@ -24,7 +24,7 @@ export default async function LocaleLayout({
 
   return (
     <div className="flex min-h-screen flex-col">
-      <SiteHeader locale={localeParam} clinicName={clinic?.name} />
+      <SiteHeader locale={localeParam} clinicName={clinic?.name} bookingEnabled={clinic?.bookingSettings.isBookingEnabled} />
       <main id="main-content" className="flex-1" tabIndex={-1}>
         {children}
       </main>

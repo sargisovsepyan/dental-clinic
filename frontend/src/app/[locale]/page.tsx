@@ -22,6 +22,7 @@ import { SectionHeading } from "@/components/page-shell";
 import { ServiceCard } from "@/components/service-card";
 import { isLocale, localizedPath } from "@/i18n/locales";
 import { messages } from "@/i18n/messages";
+import { bookingMessages } from "@/i18n/booking-messages";
 import { getFrontendEnvironment } from "@/lib/env";
 import { publicMetadata } from "@/lib/metadata";
 
@@ -46,6 +47,7 @@ export default async function HomePage({ params }: Props) {
   const { locale } = await params;
   if (!isLocale(locale)) return null;
   const copy = messages[locale];
+  const bookingCopy = bookingMessages[locale];
   const cloudName = getFrontendEnvironment().cloudinaryCloudName;
   const [clinicResult, servicesResult, dentistsResult, galleryResult, casesResult] = await Promise.allSettled([
     getClinic(),
@@ -82,6 +84,11 @@ export default async function HomePage({ params }: Props) {
             </h1>
             {clinic?.tagline.text && <p lang={clinic.tagline.lang} className="mt-7 max-w-2xl text-lg leading-8 text-muted-foreground sm:text-xl">{clinic.tagline.text}</p>}
             <div className="mt-9 flex flex-wrap gap-3">
+              {clinic?.bookingSettings.isBookingEnabled && (
+                <Link href={localizedPath(locale, "book")} className="inline-flex min-h-12 items-center gap-2 rounded-md bg-primary px-5 text-sm font-bold text-primary-foreground hover:bg-primary/90">
+                  {bookingCopy.nav}<ArrowRight aria-hidden="true" className="size-4" />
+                </Link>
+              )}
               <Link href={localizedPath(locale, "services")} className="inline-flex min-h-12 items-center gap-2 rounded-md bg-primary px-5 text-sm font-bold text-primary-foreground hover:bg-primary/90">
                 {copy.viewServices}<ArrowRight aria-hidden="true" className="size-4" />
               </Link>

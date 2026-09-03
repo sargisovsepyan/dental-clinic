@@ -6,7 +6,8 @@ import { getDentists, getService, PublicApiError } from "@/api/public-client";
 import { dentistView, serviceView } from "@/api/public-view-models";
 import { DentistCard } from "@/components/dentist-card";
 import { PublicImage } from "@/components/public-media";
-import { isLocale, localizedPath } from "@/i18n/locales";
+import { bookingPath, isLocale, localizedPath } from "@/i18n/locales";
+import { bookingMessages } from "@/i18n/booking-messages";
 import { messages } from "@/i18n/messages";
 import { getFrontendEnvironment } from "@/lib/env";
 import { formatPrice } from "@/lib/format";
@@ -66,6 +67,11 @@ export default async function ServiceDetailPage({ params }: Props) {
               <span className="font-bold">{formatPrice(locale, copy, service)}</span>
               <span className="inline-flex items-center gap-2 text-muted-foreground"><Clock3 aria-hidden="true" className="size-4" />{copy.duration}: {service.durationMinutes} {copy.minutes}</span>
             </div>
+            {service.bookingEnabled && (
+              <Link href={bookingPath(locale, { service: service.slug })} className="mt-7 inline-flex min-h-12 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-bold text-primary-foreground hover:bg-primary/90">
+                {bookingMessages[locale].nav}
+              </Link>
+            )}
           </div>
           <PublicImage image={service.image} alt={service.name.text} lang={service.name.lang} priority className="aspect-[4/3] min-h-0 rounded-md lg:col-span-5 lg:aspect-auto lg:min-h-[28rem]" imageClassName="h-full object-cover" sizes="(max-width: 1024px) 100vw, 42vw" />
         </div>

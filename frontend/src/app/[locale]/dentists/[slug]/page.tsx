@@ -5,7 +5,8 @@ import type { Metadata } from "next";
 import { getDentist, PublicApiError } from "@/api/public-client";
 import { dentistView } from "@/api/public-view-models";
 import { PublicImage } from "@/components/public-media";
-import { isLocale, localizedPath } from "@/i18n/locales";
+import { bookingPath, isLocale, localizedPath } from "@/i18n/locales";
+import { bookingMessages } from "@/i18n/booking-messages";
 import { messages } from "@/i18n/messages";
 import { getFrontendEnvironment } from "@/lib/env";
 import { publicMetadata } from "@/lib/metadata";
@@ -51,6 +52,11 @@ export default async function DentistDetailPage({ params }: Props) {
           {dentist.title.text && <p lang={dentist.title.lang} className="eyebrow">{dentist.title.text}</p>}
           <h1 lang={dentist.fullNameLang} className="display-type mt-4 text-balance text-5xl leading-[1.1] sm:text-7xl">{dentist.fullName}</h1>
           {dentist.bio.text && <p lang={dentist.bio.lang} className="mt-8 whitespace-pre-line text-base leading-8 text-muted-foreground">{dentist.bio.text}</p>}
+          {dentist.bookingEnabled && dentist.services.some((service) => service.bookingEnabled) && (
+            <Link href={bookingPath(locale, { dentist: dentist.slug })} className="mt-7 inline-flex min-h-12 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-bold text-primary-foreground hover:bg-primary/90">
+              {bookingMessages[locale].nav}<ArrowRight aria-hidden="true" className="size-4" />
+            </Link>
+          )}
           {dentist.specializations.values.length > 0 && (
             <section className="mt-10 border-t pt-7" aria-labelledby="specializations-heading">
               <h2 id="specializations-heading" className="text-sm font-bold uppercase tracking-[0.12em]">{copy.specializations}</h2>

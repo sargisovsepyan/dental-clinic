@@ -16,6 +16,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { LocaleSwitcher } from "@/components/locale-switcher";
+import { bookingMessages } from "@/i18n/booking-messages";
 
 const navItems = [
   ["services", "services"],
@@ -25,7 +26,7 @@ const navItems = [
   ["clinic", "clinic"],
 ] as const;
 
-export function MobileNavigation({ locale, copy }: { locale: Locale; copy: Messages }) {
+export function MobileNavigation({ locale, copy, bookingEnabled }: { locale: Locale; copy: Messages; bookingEnabled: boolean }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -52,6 +53,11 @@ export function MobileNavigation({ locale, copy }: { locale: Locale; copy: Messa
             </Link>
           ))}
         </nav>
+        {bookingEnabled && (
+          <Link href={localizedPath(locale, "book")} onClick={() => setOpen(false)} className="mx-2 inline-flex min-h-12 items-center justify-center rounded-lg bg-primary px-4 text-sm font-bold text-primary-foreground">
+            {bookingMessages[locale].nav}
+          </Link>
+        )}
         <div className="mt-auto border-t p-3">
           <LocaleSwitcher locale={locale} label={copy.language} compact />
         </div>

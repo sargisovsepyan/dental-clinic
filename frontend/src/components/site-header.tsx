@@ -3,6 +3,7 @@ import { ArrowUpRight } from "lucide-react";
 import type { Locale } from "@/i18n/locales";
 import { localizedPath } from "@/i18n/locales";
 import { messages } from "@/i18n/messages";
+import { bookingMessages } from "@/i18n/booking-messages";
 import { LocaleSwitcher } from "@/components/locale-switcher";
 import { MobileNavigation } from "@/components/mobile-navigation";
 
@@ -17,11 +18,14 @@ const navItems = [
 export function SiteHeader({
   locale,
   clinicName,
+  bookingEnabled = false,
 }: {
   locale: Locale;
   clinicName?: { text: string; lang?: Locale };
+  bookingEnabled?: boolean;
 }) {
   const copy = messages[locale];
+  const bookingCopy = bookingMessages[locale];
   return (
     <>
       <a
@@ -36,7 +40,7 @@ export function SiteHeader({
             <span aria-hidden="true" className="grid size-9 place-items-center rounded-full border border-primary/25">
               <span className="size-3 rounded-full bg-primary transition-transform group-hover:scale-75" />
             </span>
-            <span lang={clinicName?.lang} className="display-type max-w-44 truncate text-base sm:max-w-64 sm:text-lg">
+            <span lang={clinicName?.lang || (clinicName?.text ? undefined : "en")} className="display-type max-w-44 truncate text-base sm:max-w-64 sm:text-lg">
               {clinicName?.text || "Dental Clinic"}
             </span>
           </Link>
@@ -54,14 +58,14 @@ export function SiteHeader({
           <div className="hidden items-center gap-4 xl:flex">
             <LocaleSwitcher locale={locale} label={copy.language} />
             <Link
-              href={localizedPath(locale, "clinic")}
+              href={localizedPath(locale, bookingEnabled ? "book" : "clinic")}
               className="inline-flex min-h-11 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
             >
-              {copy.contactClinic}
+              {bookingEnabled ? bookingCopy.nav : copy.contactClinic}
               <ArrowUpRight aria-hidden="true" className="size-4" />
             </Link>
           </div>
-          <MobileNavigation locale={locale} copy={copy} />
+          <MobileNavigation locale={locale} copy={copy} bookingEnabled={bookingEnabled} />
         </div>
       </header>
     </>

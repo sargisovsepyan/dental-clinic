@@ -3,7 +3,7 @@ import { getBeforeAfterCases, getDentists, getServices } from "@/api/public-clie
 import { locales, localizedPath } from "@/i18n/locales";
 import { getFrontendEnvironment } from "@/lib/env";
 
-const staticPaths = ["", "services", "dentists", "gallery", "before-after", "clinic"];
+const staticPaths = ["", "services", "dentists", "gallery", "before-after", "clinic", "book"];
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const { siteBaseUrl } = getFrontendEnvironment();

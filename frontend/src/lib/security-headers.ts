@@ -2,10 +2,12 @@ export function buildContentSecurityPolicy({
   production,
   apiOrigin,
   cloudinaryCloudName,
+  bookingChallengeProvider = "disabled",
 }: {
   production: boolean;
   apiOrigin: string;
   cloudinaryCloudName?: string;
+  bookingChallengeProvider?: "disabled" | "turnstile";
 }) {
   const scriptSource = production
     ? "'self' 'unsafe-inline'"
@@ -13,17 +15,21 @@ export function buildContentSecurityPolicy({
   const cloudinarySource = cloudinaryCloudName
     ? ` https://res.cloudinary.com/${cloudinaryCloudName}/`
     : "";
+  const challengeSource = bookingChallengeProvider === "turnstile"
+    ? " https://challenges.cloudflare.com"
+    : "";
 
   return [
     "default-src 'self'",
     "base-uri 'self'",
     "object-src 'none'",
     "frame-ancestors 'none'",
-    `script-src ${scriptSource}`,
+    `script-src ${scriptSource}${challengeSource}`,
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
     `img-src 'self' data:${cloudinarySource}`,
-    `connect-src 'self' ${apiOrigin}`,
+    `connect-src 'self' ${apiOrigin}${challengeSource}`,
+    `frame-src 'self'${challengeSource}`,
     "form-action 'self'",
     ...(production ? ["upgrade-insecure-requests"] : []),
   ].join("; ");
@@ -33,6 +39,7 @@ export function buildSecurityHeaders(options: {
   production: boolean;
   apiOrigin: string;
   cloudinaryCloudName?: string;
+  bookingChallengeProvider?: "disabled" | "turnstile";
 }) {
   return [
     { key: "Content-Security-Policy", value: buildContentSecurityPolicy(options) },

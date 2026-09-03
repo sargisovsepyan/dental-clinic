@@ -5,6 +5,9 @@ const apiValue = process.env.NEXT_PUBLIC_API_URL;
 const siteValue = process.env.NEXT_PUBLIC_SITE_URL;
 const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME?.trim();
 const production = process.env.NODE_ENV === "production";
+const challengeProvider = process.env.NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER?.trim() ||
+  (production ? "turnstile" : "disabled");
+const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim();
 
 if (!apiValue) {
   throw new Error("NEXT_PUBLIC_API_URL is required; copy .env.example to .env.local for development");
@@ -24,6 +27,15 @@ if (siteUrl.username || siteUrl.password || siteUrl.search || siteUrl.hash || si
 }
 if (cloudName && !/^[a-z0-9_-]+$/i.test(cloudName)) {
   throw new Error("NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME contains unsupported characters");
+}
+if (challengeProvider !== "disabled" && challengeProvider !== "turnstile") {
+  throw new Error("NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER must be disabled or turnstile");
+}
+if (challengeProvider === "turnstile" && !turnstileSiteKey) {
+  throw new Error("NEXT_PUBLIC_TURNSTILE_SITE_KEY is required when Turnstile is enabled");
+}
+if (production && challengeProvider !== "turnstile") {
+  throw new Error("Production public booking requires Turnstile");
 }
 if (apiUrl.protocol !== "https:" && !(apiUrl.protocol === "http:" && isLocalHost(apiUrl) && !production)) {
   throw new Error("NEXT_PUBLIC_API_URL must use HTTPS outside local development");
@@ -56,6 +68,7 @@ const nextConfig: NextConfig = {
           production,
           apiOrigin: apiUrl.origin,
           cloudinaryCloudName: cloudName,
+          bookingChallengeProvider: challengeProvider,
         }),
       },
     ];

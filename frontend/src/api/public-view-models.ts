@@ -95,10 +95,12 @@ export function dentistView(
       selectLocalizedField(dentist.translations, locale, "specializations"),
     ),
     photo: safeManagedImage(dentist.photo, cloudinaryCloudName),
+    bookingEnabled: dentist.bookingEnabled,
     services: dentist.services.map((service) => ({
       id: service._id,
       slug: service.slug,
       name: textView(selectLocalizedField(service.translations, locale, "name")),
+      bookingEnabled: service.bookingEnabled,
     })),
   };
 }
@@ -117,6 +119,14 @@ export function clinicView(clinic: ClinicRecord, locale: Locale) {
     socialLinks: clinic.socialLinks,
     weeklySchedule: clinic.weeklySchedule,
     timezone: clinic.timezone,
+    bookingSettings: {
+      isBookingEnabled: clinic.bookingSettings.isBookingEnabled,
+      minBookingNoticeMinutes: clinic.bookingSettings.minBookingNoticeMinutes,
+      maxBookingDaysAhead: clinic.bookingSettings.maxBookingDaysAhead,
+      allowSameDayBooking: clinic.bookingSettings.allowSameDayBooking,
+      requireEmail: clinic.bookingSettings.requireEmail,
+      autoConfirmAppointments: clinic.bookingSettings.autoConfirmAppointments,
+    },
   };
 }
 
