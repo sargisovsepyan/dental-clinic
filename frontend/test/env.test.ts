@@ -31,11 +31,25 @@ describe("frontend environment validation", () => {
       NEXT_PUBLIC_API_URL: "https://api.example.com/api/v1",
       NEXT_PUBLIC_SITE_URL: "https://clinic.example.com",
       NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: "clinic_assets-1",
+      NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: "turnstile",
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: "public-site-key",
     }, true).cloudinaryCloudName).toBe("clinic_assets-1");
     expect(() => parseFrontendEnvironment({
       NEXT_PUBLIC_API_URL: "https://api.example.com/api/v1",
       NEXT_PUBLIC_SITE_URL: "https://clinic.example.com",
       NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: "bad/name",
+      NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: "turnstile",
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: "public-site-key",
     }, true)).toThrow(/unsupported/);
+  });
+
+  it("fails closed for incomplete or disabled production challenge configuration", () => {
+    const base = {
+      NEXT_PUBLIC_API_URL: "https://api.example.com/api/v1",
+      NEXT_PUBLIC_SITE_URL: "https://clinic.example.com",
+    };
+    expect(() => parseFrontendEnvironment({ ...base, NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: "turnstile" }, true)).toThrow(/SITE_KEY/);
+    expect(() => parseFrontendEnvironment({ ...base, NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: "disabled" }, true)).toThrow(/requires/);
+    expect(parseFrontendEnvironment(base, false).bookingChallenge).toEqual({ provider: "disabled", siteKey: undefined });
   });
 });

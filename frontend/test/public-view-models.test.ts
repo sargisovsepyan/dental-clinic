@@ -111,6 +111,7 @@ describe("public view models", () => {
       translations,
       photo: image,
       services: [service],
+      bookingEnabled: true,
     } as unknown as DentistRecord;
     const clinic = {
       _id: "clinic-id",
@@ -122,6 +123,17 @@ describe("public view models", () => {
       socialLinks: {},
       weeklySchedule: [],
       timezone: "Asia/Yerevan",
+      bookingSettings: {
+        isBookingEnabled: true,
+        slotIntervalMinutes: 30,
+        minBookingNoticeMinutes: 120,
+        maxBookingDaysAhead: 60,
+        bufferMinutes: 0,
+        allowSameDayBooking: true,
+        requireEmail: false,
+        autoConfirmAppointments: false,
+        maxAppointmentsPerPhonePerDay: 3,
+      },
     } as unknown as ClinicRecord;
     const galleryImage = {
       _id: "gallery-id",
@@ -144,8 +156,9 @@ describe("public view models", () => {
       fullNameLang: "hy",
       specializations: { values: ["Therapy"], lang: "en" },
       services: [{ id: "service-id", slug: "cleaning" }],
+      bookingEnabled: true,
     });
-    expect(clinicView(clinic, "en")).toMatchObject({ phone: "+37410123456", timezone: "Asia/Yerevan" });
+    expect(clinicView(clinic, "en")).toMatchObject({ phone: "+37410123456", timezone: "Asia/Yerevan", bookingSettings: { isBookingEnabled: true, requireEmail: false } });
     expect(galleryImageView(galleryImage, "en", "clinic").alt.text).toBe("Image description");
     expect(beforeAfterView(beforeAfter, "en", "clinic")).toMatchObject({
       service: { id: "service-id", slug: "cleaning" },

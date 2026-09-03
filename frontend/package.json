@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "dev:preview": "node test/preview/run-preview.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",

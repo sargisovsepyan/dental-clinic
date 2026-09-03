@@ -190,32 +190,106 @@ const secondBeforeAfter = {
   sortOrder: 2,
 };
 
-function send(response, status, body) {
+function send(response, status, body, headers = {}) {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "x-request-id": randomUUID(),
     "cache-control": "no-store",
+    "access-control-allow-origin": "*",
+    "access-control-expose-headers": "Retry-After, X-Request-Id",
+    ...headers,
   });
   response.end(JSON.stringify(body));
 }
 
-export function createMockApiServer(port = 5100) {
-  let scenario = "success";
+const allowedScenarios = [
+  "success",
+  "pending",
+  "confirmed",
+  "conflict",
+  "empty-availability",
+  "validation",
+  "rate-limit",
+  "error",
+  "empty",
+  "catalog-error",
+];
 
-  return http.createServer((request, response) => {
+function readJson(request) {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      raw += chunk;
+      if (raw.length > 110_000) reject(new Error("Request body too large"));
+    });
+    request.on("end", () => {
+      try { resolve(JSON.parse(raw || "{}")); } catch (error) { reject(error); }
+    });
+    request.on("error", reject);
+  });
+}
+
+export function createMockApiServer(port = 5100, initialScenario = "success") {
+  let scenario = allowedScenarios.includes(initialScenario) ? initialScenario : "success";
+  let conflictReturned = false;
+  const idempotentResults = new Map();
+
+  return http.createServer(async (request, response) => {
     const url = new URL(request.url || "/", `http://127.0.0.1:${port}`);
-    if (request.method !== "GET") return send(response, 405, { success: false, message: "Method not allowed" });
+    if (request.method === "OPTIONS") {
+      response.writeHead(204, {
+        "access-control-allow-origin": "*",
+        "access-control-allow-methods": "GET, POST, OPTIONS",
+        "access-control-allow-headers": "Content-Type, Idempotency-Key",
+        "access-control-max-age": "600",
+      });
+      return response.end();
+    }
     if (url.pathname.startsWith("/__test__/scenario/")) {
       const requested = url.pathname.split("/").at(-1);
-      if (!["success", "empty", "error"].includes(requested)) {
+      if (!allowedScenarios.includes(requested)) {
         return send(response, 400, { success: false, message: "Unknown deterministic test scenario" });
       }
       scenario = requested;
+      conflictReturned = false;
+      idempotentResults.clear();
       return send(response, 200, { success: true, data: { scenario } });
     }
-    if (scenario === "error" && url.pathname.startsWith("/api/v1/")) {
+    if (scenario === "catalog-error" && url.pathname.startsWith("/api/v1/")) {
       return send(response, 503, { success: false, code: "TEST_UPSTREAM_UNAVAILABLE", message: "Synthetic test failure" });
     }
+    if (request.method === "POST" && url.pathname === "/api/v1/appointments") {
+      let body;
+      try { body = await readJson(request); } catch { return send(response, 400, { success: false, message: "Invalid JSON" }); }
+      const key = request.headers["idempotency-key"];
+      if (typeof key !== "string") return send(response, 400, { success: false, message: "Missing idempotency key" });
+      if (scenario === "validation") return send(response, 400, { success: false, message: "Synthetic validation failure" });
+      if (scenario === "rate-limit") return send(response, 429, { success: false, message: "Synthetic rate limit" }, { "retry-after": "60" });
+      if (scenario === "error") return send(response, 503, { success: false, message: "Synthetic provider failure" });
+      if (scenario === "conflict" && !conflictReturned) {
+        conflictReturned = true;
+        return send(response, 409, { success: false, message: "Synthetic slot conflict" });
+      }
+      const semantic = JSON.stringify({ ...body, challengeToken: undefined });
+      const existing = idempotentResults.get(key);
+      if (existing && existing.semantic !== semantic) return send(response, 409, { success: false, message: "Synthetic idempotency mismatch" });
+      const result = existing?.result || {
+        id: "64b000000000000000000071",
+        confirmationCode: "DC-0123456789ABCDEF",
+        patientName: body.patientName,
+        date: body.date,
+        startTime: body.startTime,
+        endTime: body.startTime === "10:30" ? "11:30" : "10:00",
+        status: scenario === "confirmed" ? "confirmed" : "pending",
+        dentist: { id: dentist._id, firstName: dentist.firstName, lastName: dentist.lastName, slug: dentist.slug, translations: dentist.translations },
+        service: { id: service._id, name: service.name, slug: service.slug, translations: service.translations, durationMinutes: service.durationMinutes, priceType: service.priceType, priceFrom: service.priceFrom, priceTo: service.priceTo, currency: service.currency },
+        price: { priceType: service.priceType, priceFrom: service.priceFrom, priceTo: service.priceTo, currency: service.currency },
+      };
+      idempotentResults.set(key, { semantic, result });
+      return send(response, 201, { success: true, message: "Appointment created successfully", data: { appointment: result } });
+    }
+    if (request.method !== "GET") return send(response, 405, { success: false, message: "Method not allowed" });
     if (url.pathname === "/api/v1/service-categories") {
       if (scenario === "empty") return send(response, 200, { success: true, data: { categories: [] } });
       return send(response, 200, { success: true, data: { categories: [category] } });
@@ -228,6 +302,32 @@ export function createMockApiServer(port = 5100) {
     if (url.pathname === "/api/v1/dentists") return send(response, 200, { success: true, data: { dentists: [dentist] } });
     if (url.pathname === `/api/v1/dentists/${dentist.slug}`) return send(response, 200, { success: true, data: { dentist } });
     if (url.pathname === "/api/v1/clinic") return send(response, 200, { success: true, data: { clinic } });
+    if (url.pathname === "/api/v1/availability") {
+      const date = url.searchParams.get("date") || "2026-09-10";
+      const empty = scenario === "empty-availability";
+      const starts = scenario === "conflict" && conflictReturned ? ["10:30", "12:00"] : ["09:00", "10:30", "12:00", "14:30"];
+      const slots = empty ? [] : starts.map((start) => {
+        const [hour, minute] = start.split(":").map(Number);
+        const endMinutes = hour * 60 + minute + service.durationMinutes;
+        const end = `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
+        return {
+          start,
+          end,
+          startAt: new Date(`${date}T${start}:00+04:00`).toISOString(),
+          endAt: new Date(`${date}T${end}:00+04:00`).toISOString(),
+        };
+      });
+      return send(response, 200, { success: true, data: { availability: {
+        date,
+        timezone: clinic.timezone,
+        available: slots.length > 0,
+        reason: slots.length ? null : "FULLY_BOOKED",
+        dentist: { id: dentist._id, firstName: dentist.firstName, lastName: dentist.lastName, slug: dentist.slug, translations: dentist.translations },
+        service: { id: service._id, name: service.name, slug: service.slug, translations: service.translations, durationMinutes: service.durationMinutes, priceType: service.priceType, priceFrom: service.priceFrom, priceTo: service.priceTo, currency: service.currency },
+        rules: { slotIntervalMinutes: 30, bufferMinutes: 0, minBookingNoticeMinutes: 120 },
+        slots,
+      } } });
+    }
     if (url.pathname === "/api/v1/media/gallery") return send(response, 200, { success: true, data: { images: [galleryImage] } });
     if (url.pathname === "/api/v1/before-after") {
       const page = Number(url.searchParams.get("page") || "1");

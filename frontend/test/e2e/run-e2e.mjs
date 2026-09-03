@@ -113,6 +113,8 @@ const nextProcess = spawn(
       NEXT_PUBLIC_API_URL: `http://${host}:${mockApiPort}/api/v1`,
       NEXT_PUBLIC_SITE_URL: `http://${host}:${frontendPort}`,
       NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: "",
+      NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: "disabled",
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: "",
       NEXT_DIST_DIR: distDir,
     },
     shell: false,

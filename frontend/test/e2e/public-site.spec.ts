@@ -147,6 +147,7 @@ test("SEO endpoints, metadata, and response hardening are present", async ({ pag
   const sitemapBody = await sitemap.text();
   expect(sitemapBody).toContain("/hy/services/test-cleaning");
   expect(sitemapBody).toContain("/en/before-after/64b000000000000000000052");
+  expect(sitemapBody).toContain("/hy/book");
 });
 
 test("representative pages have no serious automated accessibility violations", async ({ page }) => {
@@ -162,7 +163,7 @@ test("public data routes render empty and normalized error states", async ({ pag
   await page.goto("/en/services");
   await expect(page.getByText("No services are currently published.")).toBeVisible();
 
-  await setScenario(request, "error");
+  await setScenario(request, "catalog-error");
   await page.goto("/en/services");
   const errorAlert = page.locator('[data-slot="alert"]');
   await expect(errorAlert).toContainText("Content is temporarily unavailable");

@@ -24,4 +24,17 @@ describe("response security header configuration", () => {
     expect(headers.get("Content-Security-Policy")).toContain("https://res.cloudinary.com/clinic-cloud/");
     expect(headers.get("Content-Security-Policy")).not.toContain("upgrade-insecure-requests");
   });
+
+  it("allows Turnstile origins only when that provider is enabled", () => {
+    const disabled = headerMap(false).get("Content-Security-Policy");
+    const enabled = new Map(buildSecurityHeaders({
+      production: true,
+      apiOrigin: "https://api.example.test",
+      bookingChallengeProvider: "turnstile",
+    }).map(({ key, value }) => [key, value])).get("Content-Security-Policy");
+    expect(disabled).not.toContain("challenges.cloudflare.com");
+    expect(enabled).toContain("script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com");
+    expect(enabled).toContain("frame-src 'self' https://challenges.cloudflare.com");
+    expect(enabled).toContain("connect-src 'self' https://api.example.test https://challenges.cloudflare.com");
+  });
 });
