@@ -154,6 +154,25 @@ test('critical booking, schedule, identifier, and privacy contracts stay explici
   assert.match(openApi, /Language used for appointment notifications and reminders/);
   assert.match(openApi, /notificationLocale:/);
   assert.match(openApi, /scheduleRevision:/);
+  assert.match(openApi, /APPOINTMENT_VERSION_CONFLICT/);
+
+  const reschedule = between(
+    openApi,
+    '    RescheduleRequest:\n',
+    '    AppointmentStatusRequest:\n'
+  );
+  assert.match(
+    reschedule,
+    /required: \[expectedMutationVersion, date, startTime\]/
+  );
+
+  const rescheduleAvailability = between(
+    openApi,
+    '  \/appointments\/{id}\/availability:\n',
+    '  \/appointments\/{id}\/reschedule:\n'
+  );
+  assert.match(rescheduleAvailability, /expectedMutationVersion/);
+  assert.match(rescheduleAvailability, /bearerAuth/);
 
   const idempotencyKey = between(
     openApi,

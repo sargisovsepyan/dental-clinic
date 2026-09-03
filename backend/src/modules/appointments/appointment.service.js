@@ -334,6 +334,23 @@ const mutationVersionPredicate = (value) => {
     : { mutationVersion: version };
 };
 
+const appointmentVersionConflict = (
+  currentMutationVersion
+) => new ApiError(
+  409,
+  'Appointment changed; reload and try again',
+  {
+    code: 'APPOINTMENT_VERSION_CONFLICT',
+    details: { currentMutationVersion },
+  }
+);
+
+const observedMutationVersion = (appointment) => (
+  Number.isInteger(appointment?.mutationVersion)
+    ? appointment.mutationVersion
+    : 0
+);
+
 
 const isDuplicateKeyError = (error) => (
   error?.code === 11000 || String(error?.message || '').includes('E11000')
@@ -753,7 +770,8 @@ const allowedTransitions = {
 const updateStatus = async (
   id,
   status,
-  internalNote
+  internalNote,
+  expectedMutationVersion = null
 ) => {
   const appointment =
     await Appointment.findById(
@@ -765,6 +783,17 @@ const updateStatus = async (
     throw new ApiError(
       404,
       'Appointment not found'
+    );
+  }
+
+  const currentMutationVersion =
+    observedMutationVersion(appointment);
+  if (
+    expectedMutationVersion !== null &&
+    currentMutationVersion !== expectedMutationVersion
+  ) {
+    throw appointmentVersionConflict(
+      currentMutationVersion
     );
   }
 
@@ -810,7 +839,7 @@ const updateStatus = async (
           status:
             appointment.status,
           ...mutationVersionPredicate(
-            appointment.mutationVersion
+            expectedMutationVersion ?? currentMutationVersion
           ),
         },
         {
@@ -826,12 +855,14 @@ const updateStatus = async (
       );
 
 
-  if (!updated) {
-    throw new ApiError(
-      409,
-      'Appointment status changed; reload and try again'
-    );
-  }
+    if (!updated) {
+      const current = await Appointment.findById(id)
+        .select('mutationVersion')
+        .lean();
+      throw appointmentVersionConflict(
+        observedMutationVersion(current)
+      );
+    }
 
     await reconcileStatusNotifications({
       before: appointment,
@@ -847,7 +878,8 @@ const updateStatus = async (
 const cancelAppointment = async (
   id,
   userId,
-  reason
+  reason,
+  expectedMutationVersion = null
 ) => {
   await initializePhoneQuotaInfrastructure();
   await initializeNotificationInfrastructure();
@@ -857,6 +889,16 @@ const cancelAppointment = async (
 
   if (!appointment) {
     throw new ApiError(404, 'Appointment not found');
+  }
+  const currentMutationVersion =
+    observedMutationVersion(appointment);
+  if (
+    expectedMutationVersion !== null &&
+    currentMutationVersion !== expectedMutationVersion
+  ) {
+    throw appointmentVersionConflict(
+      currentMutationVersion
+    );
   }
   if (appointment.status === 'cancelled') {
     throw new ApiError(409, 'Appointment is already cancelled');
@@ -873,7 +915,9 @@ const cancelAppointment = async (
       {
         _id: appointment._id,
         status: appointment.status,
-        ...mutationVersionPredicate(appointment.mutationVersion),
+        ...mutationVersionPredicate(
+          expectedMutationVersion ?? currentMutationVersion
+        ),
       },
       {
         $set: {
@@ -893,7 +937,12 @@ const cancelAppointment = async (
     );
 
     if (!cancelled) {
-      throw new ApiError(409, 'Appointment changed; reload and try again');
+      const current = await Appointment.findById(id)
+        .select('mutationVersion')
+        .lean();
+      throw appointmentVersionConflict(
+        observedMutationVersion(current)
+      );
     }
 
     await reconcileCancellationNotifications({
@@ -938,6 +987,42 @@ const createAdminAppointment = async (
   );
 };
 
+const getRescheduleAvailability = async (
+  id,
+  {
+    dentistId,
+    serviceId,
+    date,
+    expectedMutationVersion,
+  }
+) => {
+  const appointment = await Appointment.findById(id)
+    .select('status mutationVersion')
+    .lean();
+
+  if (!appointment) {
+    throw new ApiError(404, 'Appointment not found');
+  }
+  const currentMutationVersion =
+    observedMutationVersion(appointment);
+  if (currentMutationVersion !== expectedMutationVersion) {
+    throw appointmentVersionConflict(currentMutationVersion);
+  }
+  if (!['pending', 'confirmed'].includes(appointment.status)) {
+    throw new ApiError(
+      409,
+      `Cannot reschedule a ${appointment.status} appointment`
+    );
+  }
+
+  return availabilityService.getAvailability({
+    dentistId,
+    serviceId,
+    date,
+    excludeAppointmentId: appointment._id,
+  });
+};
+
 
 const rescheduleAppointment = async (
   id,
@@ -961,24 +1046,18 @@ const rescheduleAppointment = async (
     );
   }
 
-  const observedMutationVersion = Number.isInteger(
-    appointment.mutationVersion
-  )
-    ? appointment.mutationVersion
-    : 0;
+  const currentMutationVersion =
+    observedMutationVersion(appointment);
 
   if (
     expectedMutationVersion !== null &&
-    observedMutationVersion !== expectedMutationVersion
+    currentMutationVersion !== expectedMutationVersion
   ) {
-    throw new ApiError(
-      409,
-      'Appointment changed; reload and try again'
-    );
+    throw appointmentVersionConflict(currentMutationVersion);
   }
 
   const retryMutationVersion = expectedMutationVersion ??
-    observedMutationVersion;
+    currentMutationVersion;
 
 
   if (!['pending', 'confirmed'].includes(appointment.status)) {
@@ -1040,7 +1119,7 @@ const rescheduleAppointment = async (
     const unchanged = await Appointment.findOne({
       _id: appointment._id,
       status: appointment.status,
-      ...mutationVersionPredicate(appointment.mutationVersion),
+      ...mutationVersionPredicate(retryMutationVersion),
     })
       .populate(
         'dentist',
@@ -1052,9 +1131,11 @@ const rescheduleAppointment = async (
       )
       .lean();
     if (!unchanged) {
-      throw new ApiError(
-        409,
-        'Appointment changed; reload and try again'
+      const current = await Appointment.findById(id)
+        .select('mutationVersion')
+        .lean();
+      throw appointmentVersionConflict(
+        observedMutationVersion(current)
       );
     }
     return unchanged;
@@ -1234,7 +1315,7 @@ const rescheduleAppointment = async (
           {
             _id: appointment._id,
             status: appointment.status,
-            ...mutationVersionPredicate(appointment.mutationVersion),
+            ...mutationVersionPredicate(retryMutationVersion),
           },
           {
             $set: update,
@@ -1257,9 +1338,11 @@ const rescheduleAppointment = async (
         );
 
       if (!updated) {
-        throw new ApiError(
-          409,
-          'Appointment changed; reload and try again'
+        const current = await Appointment.findById(id)
+        .select('mutationVersion')
+        .lean();
+        throw appointmentVersionConflict(
+          observedMutationVersion(current)
         );
       }
 
@@ -1330,6 +1413,7 @@ export {
   getPublicBookingResult,
   createAppointment,
   createAdminAppointment,
+  getRescheduleAvailability,
   rescheduleAppointment,
   getAppointments,
   getAppointmentById,

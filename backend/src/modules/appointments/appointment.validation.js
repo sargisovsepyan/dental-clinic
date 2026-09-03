@@ -5,6 +5,11 @@ const mongoId = Joi.string()
   .hex()
   .length(24);
 
+const expectedMutationVersion = Joi.number()
+  .integer()
+  .min(0)
+  .required();
+
 
 const patientFields = {
   patientName:
@@ -136,6 +141,8 @@ const updateStatusSchema = {
   }),
 
   body: Joi.object({
+    expectedMutationVersion,
+
     status:
       Joi.string()
         .valid(
@@ -163,6 +170,8 @@ const cancelAppointmentSchema = {
   }),
 
   body: Joi.object({
+    expectedMutationVersion,
+
     reason:
       Joi.string()
         .trim()
@@ -180,6 +189,8 @@ const rescheduleAppointmentSchema = {
   }),
 
   body: Joi.object({
+    expectedMutationVersion,
+
     date:
       Joi.string()
         .pattern(
@@ -206,6 +217,18 @@ const rescheduleAppointmentSchema = {
         .max(500)
         .allow('')
         .default(''),
+  }),
+};
+
+const rescheduleAvailabilitySchema = {
+  params: appointmentIdSchema.params,
+  query: Joi.object({
+    expectedMutationVersion,
+    dentistId: mongoId.required(),
+    serviceId: mongoId.required(),
+    date: Joi.string()
+      .pattern(/^\d{4}-\d{2}-\d{2}$/)
+      .required(),
   }),
 };
 
@@ -281,4 +304,5 @@ export {
   cancelAppointmentSchema,
   rescheduleAppointmentSchema,
   listAppointmentsSchema,
+  rescheduleAvailabilitySchema,
 };

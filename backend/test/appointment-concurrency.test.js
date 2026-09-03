@@ -54,7 +54,7 @@ const postBooking = (body) => request(app)
 const authPatch = (path, body) => request(app)
   .patch(path)
   .set('Authorization', `Bearer ${adminToken}`)
-  .send(body);
+  .send({ expectedMutationVersion: 0, ...body });
 
 const createDirect = (startTime, suffix = '800') => appointmentService.createAppointment(
   publicBooking(core, startTime, suffix),
@@ -130,7 +130,10 @@ test('HTTP cancellation releases locks and makes the slot bookable', async () =>
   const cancellation = await request(app)
     .post(`/api/v1/appointments/${original._id}/cancel`)
     .set('Authorization', `Bearer ${adminToken}`)
-    .send({ reason: 'Patient requested cancellation' });
+    .send({
+      expectedMutationVersion: 0,
+      reason: 'Patient requested cancellation',
+    });
   assert.equal(cancellation.status, 200);
 
   const replacement = await postBooking(publicBooking(core, '11:00', '502'));
@@ -191,7 +194,10 @@ test('cancel versus reschedule has one mutation-version winner', async () => {
     request(app)
       .post(`${path}/cancel`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ reason: 'Concurrent cancellation' }),
+      .send({
+        expectedMutationVersion: 0,
+        reason: 'Concurrent cancellation',
+      }),
     authPatch(`${path}/reschedule`, {
       date: core.date,
       startTime: '14:00',

@@ -51,6 +51,7 @@ Public detail routes interpret the final category, service, or dentist path segm
 - `POST /auth/change-password` verifies the current password, changes it, revokes all sessions, increments `authVersion`, and requires a new login.
 - `POST /auth/forgot-password` always returns the same public response for known and unknown email addresses.
 - `POST /auth/reset-password` and `POST /auth/setup-password` atomically consume a hashed, expiring, single-use token.
+- Authentication, staff-administration, appointment, and availability responses send `Cache-Control: no-store`; authenticated browser clients must also avoid shared framework caches.
 - The minimum new password length is exactly 6 Unicode characters. Five is rejected. New passwords over 72 UTF-8 bytes are rejected to avoid bcrypt truncation; login remains compatible with existing longer hashes. Passwords are never trimmed.
 - Production login/refresh/recovery/setup endpoints use shared Redis-backed limits. Cookie-authenticated login, refresh, and logout require an exact trusted `Origin` in production.
 
@@ -84,6 +85,10 @@ The normalized-phone/local-date quota is a separate atomic reservation document 
 Appointment states are `pending`, `confirmed`, `checked_in`, `in_progress`, `completed`, `cancelled`, and `no_show`. The normal path is `pending -> confirmed -> checked_in -> in_progress -> completed`; `pending` or `confirmed` may become `no_show`; cancellation uses its dedicated route. Reschedule is intentionally limited to `pending` or `confirmed`; once care has begun (`checked_in` or `in_progress`) the occurrence cannot be rewritten.
 
 `GET /appointments` is restricted to administrators and receptionists. It supports `date`, `from`, `to`, `dentistId`, `serviceId`, `status`, normalized `phone`, `page` (default 1), and `limit` (default 25, maximum 100). If `from` or `to` is supplied, that range takes precedence over `date`.
+
+Staff status changes, reschedules, and cancellations require `expectedMutationVersion`, copied from the appointment the operator actually reviewed. The server compares it before the workflow and again in the database mutation. A stale value returns `409` with code `APPOINTMENT_VERSION_CONFLICT` and `details.currentMutationVersion`; the write is never retried automatically. Clients must refetch the authoritative appointment and ask the operator to review it again.
+
+`GET /appointments/{id}/availability` is the authenticated admin/receptionist reschedule-availability route. It requires `expectedMutationVersion`, `dentistId`, `serviceId`, and `date`. It excludes only that appointment's current locks, so its result matches reschedule admission without exposing a public arbitrary lock-exclusion parameter. A stale appointment version fails with the same `409` contract.
 
 ### Public booking admission and idempotency
 

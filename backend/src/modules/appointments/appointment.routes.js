@@ -7,6 +7,7 @@ import {
   rescheduleAppointment,
   getAppointments,
   getAppointment,
+  getRescheduleAvailability,
   updateStatus,
   cancelAppointment,
 } from './appointment.controller.js';
@@ -20,6 +21,7 @@ import {
   cancelAppointmentSchema,
   rescheduleAppointmentSchema,
   listAppointmentsSchema,
+  rescheduleAvailabilitySchema,
 } from './appointment.validation.js';
 
 
@@ -36,10 +38,13 @@ import {
 import asyncHandler from '../../utils/asyncHandler.js';
 
 import auditAction from '../audit/audit.middleware.js';
+import noStore from '../../middlewares/noStore.js';
 
 
 const router =
   express.Router();
+
+router.use(noStore);
 
 
 router.post(
@@ -125,6 +130,21 @@ router.get(
   ),
   asyncHandler(
     getAppointments
+  )
+);
+
+router.get(
+  '/:id/availability',
+  auth,
+  authorize(
+    'admin',
+    'receptionist'
+  ),
+  validate(
+    rescheduleAvailabilitySchema
+  ),
+  asyncHandler(
+    getRescheduleAvailability
   )
 );
 

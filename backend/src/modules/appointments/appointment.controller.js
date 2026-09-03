@@ -101,7 +101,8 @@ const updateStatus = async (
       .updateStatus(
         req.params.id,
         req.body.status,
-        req.body.internalNote
+        req.body.internalNote,
+        req.body.expectedMutationVersion
       );
 
 
@@ -124,7 +125,8 @@ const cancelAppointment = async (
       .cancelAppointment(
         req.params.id,
         req.user.id,
-        req.body.reason
+        req.body.reason,
+        req.body.expectedMutationVersion
       );
 
 
@@ -167,6 +169,23 @@ const createAdminAppointment =
     });
   };
 
+const getRescheduleAvailability = async (
+  req,
+  res
+) => {
+  const availability =
+    await appointmentService
+      .getRescheduleAvailability(
+        req.params.id,
+        req.validatedQuery || req.query
+      );
+
+  res.status(200).json({
+    success: true,
+    data: { availability },
+  });
+};
+
 
 const rescheduleAppointment =
   async (
@@ -178,7 +197,9 @@ const rescheduleAppointment =
         .rescheduleAppointment(
           req.params.id,
           req.body,
-          req.user.id
+          req.user.id,
+          0,
+          req.body.expectedMutationVersion
         );
 
 
@@ -201,6 +222,7 @@ export {
   rescheduleAppointment,
   getAppointments,
   getAppointment,
+  getRescheduleAvailability,
   updateStatus,
   cancelAppointment,
 };

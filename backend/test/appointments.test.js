@@ -131,23 +131,29 @@ test('appointment snapshots do not change when current service and dentist data 
 
 test('state machine accepts the valid path and rejects transitions from terminal states', async () => {
   const appointment = await createDirect('12:00', '951');
+  let expectedMutationVersion = 0;
   for (const status of ['confirmed', 'checked_in', 'in_progress', 'completed']) {
     const response = await request(app)
       .patch(`/api/v1/appointments/${appointment._id}/status`)
       .set(auth(staff.adminToken))
-      .send({ status });
+      .send({ status, expectedMutationVersion });
     assert.equal(response.status, 200);
+    expectedMutationVersion = response.body.data.appointment.mutationVersion;
   }
   const invalid = await request(app)
     .patch(`/api/v1/appointments/${appointment._id}/status`)
     .set(auth(staff.adminToken))
-    .send({ status: 'confirmed' });
+    .send({ status: 'confirmed', expectedMutationVersion });
   assert.equal(invalid.status, 409);
 
   const reschedule = await request(app)
     .patch(`/api/v1/appointments/${appointment._id}/reschedule`)
     .set(auth(staff.adminToken))
-    .send({ date: core.date, startTime: '14:00' });
+    .send({
+      date: core.date,
+      startTime: '14:00',
+      expectedMutationVersion,
+    });
   assert.equal(reschedule.status, 409);
 });
 
@@ -157,11 +163,11 @@ test('concurrent duplicate transitions from one state have exactly one winner', 
     request(app)
       .patch(`/api/v1/appointments/${appointment._id}/status`)
       .set(auth(staff.adminToken))
-      .send({ status: 'confirmed' }),
+      .send({ status: 'confirmed', expectedMutationVersion: 0 }),
     request(app)
       .patch(`/api/v1/appointments/${appointment._id}/status`)
       .set(auth(staff.adminToken))
-      .send({ status: 'confirmed' }),
+      .send({ status: 'confirmed', expectedMutationVersion: 0 }),
   ]);
   assert.deepEqual(responses.map(({ status }) => status).sort(), [200, 409]);
   const stored = await Appointment.findById(appointment._id).lean();
@@ -176,7 +182,7 @@ test('cancelled and no-show appointments reject invalid transitions and reschedu
     (await request(app)
       .patch(`/api/v1/appointments/${cancelled._id}/status`)
       .set(auth(staff.adminToken))
-      .send({ status: 'checked_in' })).status,
+      .send({ status: 'checked_in', expectedMutationVersion: 1 })).status,
     409,
   );
 
@@ -186,7 +192,11 @@ test('cancelled and no-show appointments reject invalid transitions and reschedu
     (await request(app)
       .patch(`/api/v1/appointments/${noShow._id}/reschedule`)
       .set(auth(staff.adminToken))
-      .send({ date: core.date, startTime: '16:00' })).status,
+      .send({
+        date: core.date,
+        startTime: '16:00',
+        expectedMutationVersion: 1,
+      })).status,
     409,
   );
 });
@@ -205,8 +215,95 @@ test('maximum bookings per phone per local date is enforced and cancelled bookin
 
 test('appointment administration is available to receptionists but denied to dentist-role users', async () => {
   await createDirect('16:00', '991');
-  assert.equal((await request(app).get('/api/v1/appointments').set(auth(staff.receptionistToken))).status, 200);
+  const allowed = await request(app)
+    .get('/api/v1/appointments')
+    .set(auth(staff.receptionistToken));
+  assert.equal(allowed.status, 200, JSON.stringify(allowed.body));
+  assert.equal(allowed.headers['cache-control'], 'no-store');
   assert.equal((await request(app).get('/api/v1/appointments').set(auth(staff.dentistToken))).status, 403);
+});
+
+test('HTTP appointment mutations require the version the operator reviewed', async () => {
+  const appointment = await createDirect('10:00', '992');
+  const missing = await request(app)
+    .patch(`/api/v1/appointments/${appointment._id}/status`)
+    .set(auth(staff.adminToken))
+    .send({ status: 'confirmed' });
+  assert.equal(missing.status, 400);
+
+  const first = await request(app)
+    .patch(`/api/v1/appointments/${appointment._id}/reschedule`)
+    .set(auth(staff.adminToken))
+    .send({
+      expectedMutationVersion: 0,
+      date: core.date,
+      startTime: '14:00',
+    });
+  assert.equal(first.status, 200);
+
+  const stale = await request(app)
+    .post(`/api/v1/appointments/${appointment._id}/cancel`)
+    .set(auth(staff.adminToken))
+    .send({
+      expectedMutationVersion: 0,
+      reason: 'Stale cancellation attempt',
+    });
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.code, 'APPOINTMENT_VERSION_CONFLICT');
+  assert.equal(stale.body.details.currentMutationVersion, 1);
+
+  const stored = await Appointment.findById(appointment._id).lean();
+  assert.equal(stored.status, 'pending');
+  assert.equal(stored.startTime, '14:00');
+});
+
+test('protected reschedule availability excludes only the reviewed appointment locks', async () => {
+  const appointment = await createDirect('09:00', '993');
+  const allowed = await request(app)
+    .get(`/api/v1/appointments/${appointment._id}/availability`)
+    .query({
+      expectedMutationVersion: 0,
+      dentistId: String(core.dentist._id),
+      serviceId: String(core.service._id),
+      date: core.date,
+    })
+    .set(auth(staff.receptionistToken));
+  assert.equal(allowed.status, 200, JSON.stringify(allowed.body));
+  assert.ok(
+    allowed.body.data.availability.slots.some(
+      ({ start }) => start === '09:00'
+    )
+  );
+  assert.equal(allowed.headers['cache-control'], 'no-store');
+
+  await appointmentService.updateStatus(
+    appointment._id,
+    'confirmed'
+  );
+  const stale = await request(app)
+    .get(`/api/v1/appointments/${appointment._id}/availability`)
+    .query({
+      expectedMutationVersion: 0,
+      dentistId: String(core.dentist._id),
+      serviceId: String(core.service._id),
+      date: core.date,
+    })
+    .set(auth(staff.receptionistToken));
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body.code, 'APPOINTMENT_VERSION_CONFLICT');
+
+  assert.equal(
+    (await request(app)
+      .get(`/api/v1/appointments/${appointment._id}/availability`)
+      .query({
+        expectedMutationVersion: 1,
+        dentistId: String(core.dentist._id),
+        serviceId: String(core.service._id),
+        date: core.date,
+      })
+      .set(auth(staff.dentistToken))).status,
+    403
+  );
 });
 
 test('appointment list rejects a reversed local-date range', async () => {

@@ -19,7 +19,7 @@ Express routes declare authentication, role, validation, throttling, upload, and
 ## Important data invariants
 
 - Appointment overlap: one document stores every occupied local minute in `lockKeys`; MongoDB uniquely indexes `{ dentist, lockKeys }`.
-- Appointment mutation: status, cancellation, and reschedule match a monotonic `mutationVersion`; stale writers receive `409`. Reschedule history is bounded to 100 non-patient-data entries.
+- Appointment mutation: status, cancellation, reschedule preview, and reschedule match the operator's required `expectedMutationVersion` against a monotonic `mutationVersion`; stale views and concurrent writers receive `409`. Reschedule history is bounded to 100 non-patient-data entries.
 - Phone quota: one unique `{ phoneKey, date }` document atomically appends unique reservation IDs only while array size is below the limit.
 - Public booking idempotency: a hashed UUIDv4 key maps to one immutable successful response snapshot in a separate TTL collection; mismatched reuse receives `409` and failures are not cached.
 - Notification outbox: appointment transactions upsert a unique logical event alongside the appointment/locks/quota/idempotency change. Jobs contain no recipient copy or rendered body. Patient addresses are resolved from the appointment, and the operational clinic address comes only from validated deployment configuration.

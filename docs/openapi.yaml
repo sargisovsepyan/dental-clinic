@@ -67,6 +67,7 @@ paths:
         '200': { $ref: '#/components/responses/AuthSuccess' }
         '400': { $ref: '#/components/responses/Error' }
         '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
         '429': { $ref: '#/components/responses/Error' }
   /auth/refresh:
     post:
@@ -92,14 +93,16 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Success' }
         '403': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
   /auth/me:
     get:
       tags: [Auth]
       operationId: getCurrentUser
       security: [{ bearerAuth: [] }]
       responses:
-        '200': { $ref: '#/components/responses/Success' }
+        '200': { $ref: '#/components/responses/CurrentUserSuccess' }
         '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
   /auth/change-password:
     post:
       tags: [Auth]
@@ -141,7 +144,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Success' }
         '400': { $ref: '#/components/responses/Error' }
-        '401': { $ref: '#/components/responses/Error' }
         '429': { $ref: '#/components/responses/Error' }
   /auth/setup-password:
     post:
@@ -155,7 +157,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Success' }
         '400': { $ref: '#/components/responses/Error' }
-        '401': { $ref: '#/components/responses/Error' }
         '429': { $ref: '#/components/responses/Error' }
   /staff:
     get:
@@ -514,7 +515,11 @@ paths:
         - { name: serviceId, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
         - { name: status, in: query, schema: { $ref: '#/components/schemas/AppointmentStatus' } }
         - { name: phone, in: query, schema: { type: string, maxLength: 30 } }
-      responses: { '200': { $ref: '#/components/responses/AppointmentListSuccess' } }
+      responses:
+        '200': { $ref: '#/components/responses/AppointmentListSuccess' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
     post:
       tags: [Appointments]
       operationId: createPublicAppointment
@@ -554,8 +559,11 @@ paths:
       responses:
         '201': { $ref: '#/components/responses/AppointmentSuccess' }
         '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
   /appointments/{id}:
     parameters: [{ $ref: '#/components/parameters/Id' }]
@@ -564,7 +572,36 @@ paths:
       operationId: getAppointment
       description: Admin or receptionist.
       security: [{ bearerAuth: [] }]
-      responses: { '200': { $ref: '#/components/responses/AppointmentSuccess' }, '404': { $ref: '#/components/responses/Error' } }
+      responses:
+        '200': { $ref: '#/components/responses/AppointmentSuccess' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /appointments/{id}/availability:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Appointments, Scheduling]
+      operationId: getRescheduleAvailability
+      description: >-
+        Admin or receptionist. Returns fresh availability while excluding only
+        this appointment's current locks. The viewed appointment mutation
+        version is required so stale reschedule editors fail closed.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: expectedMutationVersion, in: query, required: true, schema: { $ref: '#/components/schemas/AppointmentMutationVersion' } }
+        - { name: dentistId, in: query, required: true, schema: { $ref: '#/components/schemas/ObjectId' } }
+        - { name: serviceId, in: query, required: true, schema: { $ref: '#/components/schemas/ObjectId' } }
+        - { name: date, in: query, required: true, schema: { $ref: '#/components/schemas/LocalDate' } }
+      responses:
+        '200': { $ref: '#/components/responses/AvailabilitySuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /appointments/{id}/reschedule:
     parameters: [{ $ref: '#/components/parameters/Id' }]
     patch:
@@ -582,8 +619,12 @@ paths:
             schema: { $ref: '#/components/schemas/RescheduleRequest' }
       responses:
         '200': { $ref: '#/components/responses/AppointmentSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
   /appointments/{id}/status:
     parameters: [{ $ref: '#/components/parameters/Id' }]
@@ -599,8 +640,12 @@ paths:
             schema: { $ref: '#/components/schemas/AppointmentStatusRequest' }
       responses:
         '200': { $ref: '#/components/responses/AppointmentSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
   /appointments/{id}/cancel:
     parameters: [{ $ref: '#/components/parameters/Id' }]
     post:
@@ -612,15 +657,15 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [reason]
-              properties: { reason: { type: string, minLength: 2, maxLength: 500 } }
+            schema: { $ref: '#/components/schemas/CancelAppointmentRequest' }
       responses:
         '200': { $ref: '#/components/responses/AppointmentSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
   /media/gallery:
     get:
       tags: [Media]
@@ -1114,6 +1159,22 @@ components:
                     properties:
                       accessToken: { type: string }
                       user: { $ref: '#/components/schemas/StaffUser' }
+    CurrentUserSuccess:
+      description: Current bearer-authenticated staff identity
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [success, data]
+            properties:
+              success: { type: boolean, const: true }
+              data:
+                type: object
+                additionalProperties: false
+                required: [user]
+                properties:
+                  user: { $ref: '#/components/schemas/CurrentStaffUser' }
     AvailabilitySuccess:
       description: Computed public availability
       content:
@@ -1223,6 +1284,9 @@ components:
     AppointmentStatus:
       type: string
       enum: [pending, confirmed, checked_in, in_progress, completed, cancelled, no_show]
+    AppointmentMutationVersion:
+      type: integer
+      minimum: 0
     SuccessEnvelope:
       type: object
       required: [success]
@@ -1237,7 +1301,9 @@ components:
       properties:
         success: { type: boolean, const: false }
         message: { type: string }
-        code: { type: string }
+        code:
+          type: string
+          description: Includes APPOINTMENT_VERSION_CONFLICT for stale staff appointment mutations.
         details: { type: object, additionalProperties: true }
     StaffUser:
       type: object
@@ -1250,19 +1316,28 @@ components:
         role: { $ref: '#/components/schemas/Role' }
         isActive: { type: boolean }
         isSetupComplete: { type: boolean }
+    CurrentStaffUser:
+      type: object
+      additionalProperties: false
+      required: [id, name, email, role]
+      properties:
+        id: { $ref: '#/components/schemas/ObjectId' }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/Role' }
     LoginRequest:
       type: object
       additionalProperties: false
       required: [email, password]
       properties:
         email: { type: string, format: email, maxLength: 254 }
-        password: { type: string, minLength: 1, maxLength: 1024, writeOnly: true }
+        password: { type: string, minLength: 6, maxLength: 1024, writeOnly: true }
     ChangePasswordRequest:
       type: object
       additionalProperties: false
       required: [currentPassword, newPassword]
       properties:
-        currentPassword: { type: string, minLength: 1, maxLength: 1024, writeOnly: true }
+        currentPassword: { type: string, minLength: 6, maxLength: 1024, writeOnly: true }
         newPassword:
           type: string
           minLength: 6
@@ -2538,8 +2613,9 @@ components:
     RescheduleRequest:
       type: object
       additionalProperties: false
-      required: [date, startTime]
+      required: [expectedMutationVersion, date, startTime]
       properties:
+        expectedMutationVersion: { $ref: '#/components/schemas/AppointmentMutationVersion' }
         date: { $ref: '#/components/schemas/LocalDate' }
         startTime: { $ref: '#/components/schemas/LocalTime' }
         dentistId: { $ref: '#/components/schemas/ObjectId' }
@@ -2548,10 +2624,18 @@ components:
     AppointmentStatusRequest:
       type: object
       additionalProperties: false
-      required: [status]
+      required: [expectedMutationVersion, status]
       properties:
+        expectedMutationVersion: { $ref: '#/components/schemas/AppointmentMutationVersion' }
         status: { type: string, enum: [confirmed, checked_in, in_progress, completed, no_show] }
         internalNote: { type: string, maxLength: 2000 }
+    CancelAppointmentRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedMutationVersion, reason]
+      properties:
+        expectedMutationVersion: { $ref: '#/components/schemas/AppointmentMutationVersion' }
+        reason: { type: string, minLength: 2, maxLength: 500 }
     PurgeRequest:
       type: object
       additionalProperties: false

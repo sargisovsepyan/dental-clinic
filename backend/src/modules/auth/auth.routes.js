@@ -35,10 +35,13 @@ import asyncHandler from '../../utils/asyncHandler.js';
 
 import auditAction from '../audit/audit.middleware.js';
 import { requireTrustedOrigin } from '../../middlewares/transportSecurity.js';
+import noStore from '../../middlewares/noStore.js';
 
 
 const router =
   express.Router();
+
+router.use(noStore);
 
 
 router.post(

@@ -6,6 +6,7 @@
 - MongoDB, Redis, SMTP, Cloudinary, and monitoring credentials are injected by the deployment secret manager; none belong in Git or an image.
 - Browser credential origins are an exact HTTPS allowlist. Production cookie-authenticated login/refresh/logout rejects missing or untrusted `Origin`.
 - Administrative authorization is decided from the current MongoDB user, not a stale JWT role claim.
+- Authentication, staff, appointment, and availability responses are marked `Cache-Control: no-store`; authenticated frontend requests also bypass shared caches.
 
 ## Attacker-oriented controls
 
@@ -16,7 +17,7 @@
 - Compromised dentist account: authenticated profile only; no patient appointment or administrative access.
 - Malicious/accidental admin: explicit validation and audit, last-admin protection, soft lifecycle, consent confirmation phrase, reference-guarded cleanup, and non-destructive index tooling.
 - Upload attacker: small in-memory limits, allowed magic bytes, MIME/extension agreement, Cloudinary image-only mode, admin authorization, and upload throttling.
-- Concurrency attacker: unique indexes, monotonic category/service/clinic/dentist admission guards, compare-and-set writes, serialized last-admin transactions, and repeatable parallel tests.
+- Concurrency attacker: unique indexes, monotonic category/service/clinic/dentist admission guards, request-bound appointment mutation versions, compare-and-set writes, serialized last-admin transactions, and repeatable parallel tests.
 - Notification abuse/race attacker: no arbitrary-send endpoint; database-unique logical events; token-fenced worker leases; send-time appointment revision/status checks; bounded polling, concurrency, attempts, backoff, and retention; unsupported SMS fails closed.
 
 ## Credential rules

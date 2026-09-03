@@ -70,6 +70,7 @@ test('successful login returns safe user data, access token, and hardened refres
   assert.equal(response.body.data.user.email, 'admin@example.com');
   assert.equal(typeof response.body.data.accessToken, 'string');
   assert.equal(response.body.data.user.password, undefined);
+  assert.equal(response.headers['cache-control'], 'no-store');
 
   const setCookie = response.headers['set-cookie'][0];
   assert.match(setCookie, /^refresh_token=/);

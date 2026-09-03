@@ -113,12 +113,15 @@ const postAdminBooking = (data) => request(app)
 const reschedule = (id, data) => request(app)
   .patch(`/api/v1/appointments/${id}/reschedule`)
   .set(auth())
-  .send(data);
+  .send({ expectedMutationVersion: 0, ...data });
 
 const cancel = (id) => request(app)
   .post(`/api/v1/appointments/${id}/cancel`)
   .set(auth())
-  .send({ reason: 'Quota lifecycle test' });
+  .send({
+    expectedMutationVersion: 0,
+    reason: 'Quota lifecycle test',
+  });
 
 const setLimit = (limit) => Clinic.updateOne(
   { key: 'default' },
@@ -553,6 +556,7 @@ test('cross-day reschedule moves quota while same-day reschedule keeps one reser
   assert.equal(migratedQuota.keyVersion, 'v1');
 
   const moved = await reschedule(id, {
+    expectedMutationVersion: 1,
     date: targetDate,
     startTime: '09:00',
   });

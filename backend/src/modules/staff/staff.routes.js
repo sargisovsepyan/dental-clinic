@@ -21,10 +21,11 @@ import authorize from '../../middlewares/authorize.js';
 import validate from '../../middlewares/validate.js';
 import asyncHandler from '../../utils/asyncHandler.js';
 import auditAction from '../audit/audit.middleware.js';
+import noStore from '../../middlewares/noStore.js';
 
 const router = express.Router();
 
-router.use(auth, authorize('admin'));
+router.use(noStore, auth, authorize('admin'));
 
 router.get(
   '/',
