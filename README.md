@@ -1,17 +1,20 @@
-# Dental clinic backend
+# Dental clinic platform
 
-Production-oriented Node.js backend for a dental clinic’s public catalog, staff administration, availability, appointment booking, and governed media. It is deliberately not a medical-record system: diagnoses, treatment notes, billing, and clinical records are outside its boundary.
+Production-oriented dental-clinic public website and backend for catalog publishing, staff administration, availability, appointment booking, governed media, and patient notifications. It is deliberately not a medical-record system: diagnoses, treatment notes, billing, and clinical records are outside its boundary.
 
 ## Repository map
 
 - `backend/` — Express 5 API, MongoDB models/migrations, durable notification worker/reconciliation, and tests
+- `frontend/` — Next.js 16 public website for Armenian, Russian, and English content
 - `docs/openapi.yaml` — machine-readable API contract
 - `docs/API_CONTRACT.md` — frontend-facing behavior and invariants
+- `docs/FRONTEND_ARCHITECTURE.md` — frontend boundaries, rendering, localization, and security design
+- `docs/FRONTEND_FOUNDATION_FINAL_REPORT.md` — Phase 1 scope, verification evidence, limitations, and verdicts
 - `docs/PRODUCTION_RUNBOOK.md` — deployment and operations sequence
 - `docs/FINAL_BACKEND_HARDENING_REPORT.md` — authoritative final hardening evidence, verdicts, and residual responsibilities
 - `docs/APPOINTMENT_NOTIFICATIONS_FINAL_REPORT.md` — notification architecture, verification evidence, and delivery limitations
 
-## Local development
+## Backend development
 
 Use Node.js 22. Copy `backend/.env.example` to an untracked `backend/.env`, replace the development values, and never commit that file.
 
@@ -49,3 +52,28 @@ npm run audit:full
 Production requires an HTTPS edge with explicit trusted proxy CIDRs, a TLS/authenticated transaction-capable MongoDB deployment, TLS/authenticated Redis, SMTP with a verified sender and operational reception mailbox, Cloudinary, monitoring, independent application secrets, a server-versioned consent policy, and a configured public-booking challenge provider. Run at least one notification worker alongside the API. Production maintenance commands require the acknowledgement and stopped-write migration window documented in the runbook and remain explicit—migrations and index changes never run automatically at application startup.
 
 Follow the deployment sequence and backup/restore drill in `docs/PRODUCTION_RUNBOOK.md`; do not treat a successful local test run as infrastructure approval.
+
+## Frontend development
+
+Use Node.js 22. Copy `frontend/.env.example` to an untracked `frontend/.env.local` and set the local API and site origins. The Cloudinary cloud name is public configuration, not a secret; leaving it empty intentionally renders accessible image placeholders.
+
+```text
+cd frontend
+npm ci
+npm run api:types
+npm run dev
+```
+
+The public site is available under explicit `/hy`, `/ru`, and `/en` routes, with Armenian as the primary editorial fallback. It includes services, dentists, clinic/contact information, gallery, and consent-approved before/after publications. Booking UX and staff administration are later phases.
+
+From `frontend/`:
+
+```text
+npm run typecheck
+npm run lint
+npm run test:coverage
+npm run build
+npm run test:e2e
+```
+
+The E2E suite owns an isolated Next.js cache and a localhost-only mock API. Automated frontend tests block non-local browser requests and do not contact the real API, Cloudinary, SMTP, Redis, monitoring, or challenge providers.
