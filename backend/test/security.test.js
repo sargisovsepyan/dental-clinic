@@ -121,6 +121,14 @@ test('CORS allows browser PUT preflight for declared APIs and rejects unknown or
   assert.match(preflight.headers['access-control-allow-methods'], /PUT/);
   assert.equal(preflight.headers['access-control-allow-credentials'], 'true');
 
+  const publicResponse = await request(app)
+    .get('/api/v1/health')
+    .set('Origin', 'http://localhost:5173');
+  const exposed = publicResponse.headers['access-control-expose-headers'];
+  assert.match(exposed, /Retry-After/i);
+  assert.match(exposed, /RateLimit/i);
+  assert.match(exposed, /X-Request-Id/i);
+
   const rejected = await request(app)
     .get('/api/v1/health')
     .set('Origin', 'https://attacker.example');

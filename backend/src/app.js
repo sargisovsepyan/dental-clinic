@@ -52,6 +52,11 @@ app.use(cors({
     'Authorization',
     'Idempotency-Key',
   ],
+  exposedHeaders: [
+    'Retry-After',
+    'RateLimit',
+    'X-Request-Id',
+  ],
   maxAge: 600,
 }));
 

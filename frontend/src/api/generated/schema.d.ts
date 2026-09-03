@@ -2952,6 +2952,7 @@ export interface operations {
             200: components["responses"]["AvailabilitySuccess"];
             400: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            429: components["responses"]["Error"];
             503: components["responses"]["Error"];
         };
     };

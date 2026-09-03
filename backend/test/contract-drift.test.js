@@ -130,6 +130,19 @@ test('critical booking, schedule, identifier, and privacy contracts stay explici
   assert.match(appointments, /PublicBookingSuccess/);
   assert.match(appointments, /'503'/);
 
+  const availability = between(
+    openApi,
+    '  /availability:\n',
+    '  /appointments:\n'
+  );
+  assert.match(availability, /'429'/);
+
+  const appSource = read(path.join(backendRoot, 'src', 'app.js'));
+  assert.match(appSource, /exposedHeaders:/);
+  assert.match(appSource, /'Retry-After'/);
+  assert.match(appSource, /'RateLimit'/);
+  assert.match(appSource, /'X-Request-Id'/);
+
   const publicBooking = between(
     openApi,
     '    PublicBookingRequest:\n',

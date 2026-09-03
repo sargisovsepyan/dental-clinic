@@ -9,7 +9,7 @@ No legal retention duration is hard-coded by this project. Clinic/legal must app
 | Refresh sessions/replay history | Idle expiry is capped by absolute family expiry; consumed hashes live in a separate TTL collection no longer than that boundary | approved maximum session policy |
 | Invite/reset tokens | Hashed, consumed atomically, TTL at expiry | operational incident review window if any |
 | Phone quota reservations | HMAC phone key; reconciled against appointments | cleanup schedule and HMAC-secret rotation plan |
-| Booking idempotency | Hashed key and immutable public success snapshot; TTL is configurable and capped at 24 hours | retry window support policy |
+| Booking idempotency | Hashed key and immutable public success snapshot; TTL is configurable from 1–168 hours (24 hours by default) | retry window support policy |
 | Notification outbox | Minimal event/revision/occurrence metadata; no recipient copy, rendered body, comments, notes, reasons, consent evidence, or raw provider response. Pending reminders survive until due; sent/failed/cancelled jobs receive configurable TTL (`NOTIFICATION_RETENTION_DAYS`, default 30) | approve operational retention and incident-hold procedure |
 | Delivered email | SMTP provider and recipient mailboxes retain the delivered patient/clinic message outside this database | provider agreement, mailbox access/retention/deletion policy |
 | Before/after consent | Minimal evidence/history retained; withdrawal hides; purge tombstones | policy version approval, evidence retention, withdrawal SLA |
