@@ -1,0 +1,132 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+:root {
+  --font-body: "Noto Sans Armenian Variable";
+  --font-display: "Noto Serif Armenian";
+  --background: oklch(0.975 0.009 86);
+  --foreground: oklch(0.25 0.035 196);
+  --card: oklch(0.99 0.005 86);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.995 0.004 86);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.39 0.072 190);
+  --primary-foreground: oklch(0.985 0.005 86);
+  --secondary: oklch(0.91 0.024 177);
+  --secondary-foreground: oklch(0.28 0.047 190);
+  --muted: oklch(0.94 0.011 82);
+  --muted-foreground: oklch(0.49 0.027 196);
+  --accent: oklch(0.72 0.098 177);
+  --accent-foreground: oklch(0.22 0.036 190);
+  --destructive: oklch(0.55 0.18 27);
+  --border: oklch(0.86 0.017 82);
+  --input: var(--border);
+  --ring: oklch(0.54 0.09 183);
+  --radius: 0.625rem;
+  --shadow-soft: 0 18px 50px -34px oklch(0.22 0.035 190 / 0.42);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --font-sans: var(--font-body);
+  --font-serif: var(--font-display);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 320px;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body), "Noto Sans Armenian", "Segoe UI", sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 36%, transparent);
+}
+
+a,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in oklab, var(--ring) 70%, white);
+  outline-offset: 3px;
+}
+
+.display-type {
+  font-family: var(--font-display), "Noto Serif Armenian", Georgia, serif;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.site-container {
+  width: min(100% - 2.5rem, 78rem);
+  margin-inline: auto;
+}
+
+.section-space {
+  padding-block: clamp(4.5rem, 8vw, 8rem);
+}
+
+.eyebrow {
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+@media (min-width: 48rem) {
+  .site-container {
+    width: min(100% - 5rem, 78rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
