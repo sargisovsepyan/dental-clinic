@@ -1,5 +1,5 @@
 import axe from "axe-core";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { LocalizedText } from "@/components/localized-text";
@@ -8,7 +8,10 @@ import { EmptyState, ErrorState, PageIntro } from "@/components/page-shell";
 import { PublicImage } from "@/components/public-media";
 import Loading from "@/app/[locale]/loading";
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/ru/services/test-cleaning" }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/ru/services/test-cleaning",
+  useSearchParams: () => new URLSearchParams("page=2&patientName=must-not-survive"),
+}));
 vi.mock("next/link", () => ({
   default: ({ href, ...props }: ComponentProps<"a">) => <a href={href} {...props} />,
 }));
@@ -26,7 +29,7 @@ describe("public UI safety and accessibility", () => {
 
   it("preserves the logical route in an accessible locale switcher", async () => {
     const { container } = render(<LocaleSwitcher locale="ru" label="Язык" />);
-    expect(screen.getByRole("link", { name: "EN" })).toHaveAttribute("href", "/en/services/test-cleaning");
+    expect(screen.getByRole("link", { name: "EN" })).toHaveAttribute("href", "/en/services/test-cleaning?page=2");
     expect(screen.getByRole("link", { name: "RU" })).toHaveAttribute("aria-current", "page");
     expect((await runAxe(container)).violations.filter((item) => item.impact === "serious" || item.impact === "critical")).toEqual([]);
   });
@@ -43,6 +46,12 @@ describe("public UI safety and accessibility", () => {
 
     rerender(<PublicImage image={null} alt="" />);
     expect(screen.queryByRole("img")).toBeNull();
+  });
+
+  it("falls back when a validated remote image fails at runtime", () => {
+    render(<PublicImage image={{ src: "https://res.cloudinary.com/clinic/image/upload/missing.webp", width: 100, height: 100 }} alt="Clinic reception" />);
+    fireEvent.error(screen.getByRole("img", { name: "Clinic reception" }));
+    expect(screen.getByRole("img", { name: "Clinic reception" })).toHaveAttribute("aria-label", "Clinic reception");
   });
 
   it("marks fallback page-introduction content with its authored language", () => {

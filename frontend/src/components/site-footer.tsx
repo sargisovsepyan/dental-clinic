@@ -32,7 +32,7 @@ export function SiteFooter({
       <div className="site-container grid gap-12 py-14 md:grid-cols-[1.2fr_1fr_1fr] md:py-20">
         <div>
           <Link href={localizedPath(locale)} className="display-type text-2xl">
-            <span lang={clinic?.name.lang}>{clinic?.name.text || "Dental Clinic"}</span>
+            <span lang={clinic?.name.lang || (clinic?.name.text ? undefined : "en")}>{clinic?.name.text || "Dental Clinic"}</span>
           </Link>
           {clinic?.address.text && <p lang={clinic.address.lang} className="mt-5 max-w-sm text-sm leading-7 text-background/68">{clinic.address.text}</p>}
         </div>
@@ -53,7 +53,7 @@ export function SiteFooter({
         </div>
       </div>
       <div className="site-container border-t border-background/15 py-6 text-xs text-background/55">
-        © {new Date().getUTCFullYear()} <span lang={clinic?.name.lang}>{clinic?.name.text || "Dental Clinic"}</span>. {copy.allRights}
+        © {new Date().getUTCFullYear()} <span lang={clinic?.name.lang || (clinic?.name.text ? undefined : "en")}>{clinic?.name.text || "Dental Clinic"}</span>. {copy.allRights}
       </div>
     </footer>
   );
