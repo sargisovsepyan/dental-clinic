@@ -683,6 +683,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/appointments/{id}/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** @description Admin or receptionist. Returns fresh availability while excluding only this appointment's current locks. The viewed appointment mutation version is required so stale reschedule editors fail closed. */
+        get: operations["getRescheduleAvailability"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/appointments/{id}/reschedule": {
         parameters: {
             query?: never;
@@ -1058,6 +1077,7 @@ export interface components {
         Role: "admin" | "receptionist" | "dentist";
         /** @enum {string} */
         AppointmentStatus: "pending" | "confirmed" | "checked_in" | "in_progress" | "completed" | "cancelled" | "no_show";
+        AppointmentMutationVersion: number;
         SuccessEnvelope: {
             /** @constant */
             success: true;
@@ -1070,6 +1090,7 @@ export interface components {
             /** @constant */
             success: false;
             message: string;
+            /** @description Includes APPOINTMENT_VERSION_CONFLICT for stale staff appointment mutations. */
             code?: string;
             details?: {
                 [key: string]: unknown;
@@ -1083,6 +1104,13 @@ export interface components {
             role: components["schemas"]["Role"];
             isActive: boolean;
             isSetupComplete: boolean;
+        };
+        CurrentStaffUser: {
+            id: components["schemas"]["ObjectId"];
+            name: string;
+            /** Format: email */
+            email: string;
+            role: components["schemas"]["Role"];
         };
         LoginRequest: {
             /** Format: email */
@@ -1838,6 +1866,7 @@ export interface components {
             internalNote?: string;
         };
         RescheduleRequest: {
+            expectedMutationVersion: components["schemas"]["AppointmentMutationVersion"];
             date: components["schemas"]["LocalDate"];
             startTime: components["schemas"]["LocalTime"];
             dentistId?: components["schemas"]["ObjectId"];
@@ -1845,9 +1874,14 @@ export interface components {
             reason?: string;
         };
         AppointmentStatusRequest: {
+            expectedMutationVersion: components["schemas"]["AppointmentMutationVersion"];
             /** @enum {string} */
             status: "confirmed" | "checked_in" | "in_progress" | "completed" | "no_show";
             internalNote?: string;
+        };
+        CancelAppointmentRequest: {
+            expectedMutationVersion: components["schemas"]["AppointmentMutationVersion"];
+            reason: string;
         };
         PurgeRequest: {
             /** @constant */
@@ -1967,6 +2001,21 @@ export interface components {
                     data?: {
                         accessToken: string;
                         user: components["schemas"]["StaffUser"];
+                    };
+                };
+            };
+        };
+        /** @description Current bearer-authenticated staff identity */
+        CurrentUserSuccess: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: {
+                        user: components["schemas"]["CurrentStaffUser"];
                     };
                 };
             };
@@ -2252,6 +2301,7 @@ export interface operations {
             200: components["responses"]["AuthSuccess"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             429: components["responses"]["Error"];
         };
     };
@@ -2285,6 +2335,7 @@ export interface operations {
         responses: {
             200: components["responses"]["Success"];
             403: components["responses"]["Error"];
+            429: components["responses"]["Error"];
         };
     };
     getCurrentUser: {
@@ -2296,8 +2347,9 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            200: components["responses"]["Success"];
+            200: components["responses"]["CurrentUserSuccess"];
             401: components["responses"]["Error"];
+            429: components["responses"]["Error"];
         };
     };
     changePassword: {
@@ -2352,7 +2404,6 @@ export interface operations {
         responses: {
             200: components["responses"]["Success"];
             400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
             429: components["responses"]["Error"];
         };
     };
@@ -2371,7 +2422,6 @@ export interface operations {
         responses: {
             200: components["responses"]["Success"];
             400: components["responses"]["Error"];
-            401: components["responses"]["Error"];
             429: components["responses"]["Error"];
         };
     };
@@ -2976,6 +3026,9 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: components["responses"]["AppointmentListSuccess"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            429: components["responses"]["Error"];
         };
     };
     createPublicAppointment: {
@@ -3017,8 +3070,11 @@ export interface operations {
         responses: {
             201: components["responses"]["AppointmentSuccess"];
             400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            429: components["responses"]["Error"];
             503: components["responses"]["Error"];
         };
     };
@@ -3034,7 +3090,36 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: components["responses"]["AppointmentSuccess"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+        };
+    };
+    getRescheduleAvailability: {
+        parameters: {
+            query: {
+                expectedMutationVersion: components["schemas"]["AppointmentMutationVersion"];
+                dentistId: components["schemas"]["ObjectId"];
+                serviceId: components["schemas"]["ObjectId"];
+                date: components["schemas"]["LocalDate"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["AvailabilitySuccess"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     rescheduleAppointment: {
@@ -3053,8 +3138,12 @@ export interface operations {
         };
         responses: {
             200: components["responses"]["AppointmentSuccess"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            429: components["responses"]["Error"];
             503: components["responses"]["Error"];
         };
     };
@@ -3074,8 +3163,12 @@ export interface operations {
         };
         responses: {
             200: components["responses"]["AppointmentSuccess"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            429: components["responses"]["Error"];
         };
     };
     cancelAppointment: {
@@ -3089,15 +3182,17 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    reason: string;
-                };
+                "application/json": components["schemas"]["CancelAppointmentRequest"];
             };
         };
         responses: {
             200: components["responses"]["AppointmentSuccess"];
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            429: components["responses"]["Error"];
         };
     };
     listGallery: {

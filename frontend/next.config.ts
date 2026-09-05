@@ -63,6 +63,20 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        source: "/staff/:path*",
+        headers: [
+          { key: "Cache-Control", value: "private, no-store" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
+      {
+        source: "/:locale(hy|ru|en)/staff/:path*",
+        headers: [
+          { key: "Cache-Control", value: "private, no-store" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
+      {
         source: "/:path*",
         headers: buildSecurityHeaders({
           production,

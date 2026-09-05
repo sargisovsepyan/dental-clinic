@@ -13,6 +13,7 @@ export default defineConfig({
       include: [
         "src/api/public-client.ts",
         "src/api/booking-client.ts",
+        "src/api/staff-client.ts",
         "src/api/public-view-models.ts",
         "src/components/locale-switcher.tsx",
         "src/components/booking-challenge.tsx",
@@ -26,6 +27,7 @@ export default defineConfig({
         "src/lib/env.ts",
         "src/lib/booking-date.ts",
         "src/lib/pagination.ts",
+        "src/lib/password-policy.ts",
         "src/lib/safe-urls.ts",
         "src/lib/security-headers.ts",
       ],
