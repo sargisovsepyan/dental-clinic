@@ -166,5 +166,51 @@ describe("staff API authentication boundary", () => {
     expect(error).toMatchObject({ status: 409, code: "APPOINTMENT_VERSION_CONFLICT", currentMutationVersion: 4 });
     expect(JSON.stringify(error)).not.toContain("+374-secret");
     expect(error.message).not.toContain("patient-private");
+    expect(JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))).toEqual({
+      expectedMutationVersion: 3,
+      reason: "Requested by patient",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps list filters bounded and does not place patient contact data in the URL", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(successAuth()).mockResolvedValueOnce(successList());
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new StaffApiClient();
+    await client.login(user.email, "Preview1!");
+    await client.listAppointments({
+      page: 2, limit: 25, from: "2026-09-01", to: "2026-09-30",
+      status: "confirmed", dentistId: "64b000000000000000000021",
+    });
+    const [url, options] = fetchMock.mock.calls[1] as [URL, RequestInit];
+    expect(url.searchParams.get("page")).toBe("2");
+    expect(url.searchParams.get("status")).toBe("confirmed");
+    expect(url.searchParams.has("phone")).toBe(false);
+    expect(options).toMatchObject({ cache: "no-store", credentials: "omit" });
+  });
+
+  it("correlates protected reschedule availability with the reviewed selection", async () => {
+    const dentistId = "64b000000000000000000021";
+    const serviceId = "64b000000000000000000011";
+    const availability = {
+      date: "2026-09-10", timezone: "Asia/Yerevan", available: true, reason: null,
+      dentist: { id: dentistId }, service: { id: serviceId }, rules: {},
+      slots: [{ start: "09:00", end: "10:00", startAt: "2026-09-10T05:00:00.000Z", endAt: "2026-09-10T06:00:00.000Z" }],
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(successAuth())
+      .mockResolvedValueOnce(json({ success: true, data: { availability } }))
+      .mockResolvedValueOnce(json({ success: true, data: { availability: { ...availability, date: "2026-09-11" } } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new StaffApiClient();
+    await client.login(user.email, "Preview1!");
+    await expect(client.getRescheduleAvailability({
+      id: appointment._id, expectedMutationVersion: 3, dentistId, serviceId, date: "2026-09-10",
+    })).resolves.toMatchObject({ date: "2026-09-10", timezone: "Asia/Yerevan" });
+    const [url] = fetchMock.mock.calls[1] as [URL, RequestInit];
+    expect(url.searchParams.get("expectedMutationVersion")).toBe("3");
+    await expect(client.getRescheduleAvailability({
+      id: appointment._id, expectedMutationVersion: 3, dentistId, serviceId, date: "2026-09-10",
+    })).rejects.toMatchObject({ kind: "protocol" });
   });
 });

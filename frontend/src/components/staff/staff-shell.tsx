@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, LockKeyhole, LogOut, Menu, ShieldCheck, UserRound } from "lucide-react";
+import { CalendarDays, LayoutDashboard, LockKeyhole, LogOut, Menu, ShieldCheck, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useStaffAuth } from "@/components/staff/staff-auth-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -21,6 +21,7 @@ function StaffNavigation({ mobile = false, onNavigate }: { mobile?: boolean; onN
   if (!user) return null;
   const links = [
     { href: `/${locale}/staff`, label: copy.dashboard, icon: LayoutDashboard, exact: true },
+    ...(user.role !== "dentist" ? [{ href: `/${locale}/staff/appointments`, label: copy.appointments, icon: CalendarDays, exact: false }] : []),
     { href: `/${locale}/staff/account`, label: copy.account, icon: UserRound, exact: false },
   ];
   return (
