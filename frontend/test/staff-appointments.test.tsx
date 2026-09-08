@@ -64,6 +64,17 @@ describe("staff appointment workspace", () => {
     expect(screen.getAllByRole("link", { name: "View" })[0]).toHaveAttribute("href", `/en/staff/appointments/${appointment._id}`);
   });
 
+  it("loads the next bounded page without exposing filter state in navigation URLs", async () => {
+    api.listAppointments
+      .mockResolvedValueOnce({ appointments: [appointment], pagination: { page: 1, limit: 25, total: 26, pages: 2 } })
+      .mockResolvedValueOnce({ appointments: [{ ...appointment, _id: "64b000000000000000000072", patientName: "Page Two" }], pagination: { page: 2, limit: 25, total: 26, pages: 2 } });
+    render(<StaffAppointments catalog={catalog} />);
+    await screen.findAllByText("Preview Patient");
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect((await screen.findAllByText("Page Two")).length).toBeGreaterThan(0);
+    expect(api.listAppointments).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2, limit: 25 }), expect.any(AbortSignal));
+  });
+
   it("does not fetch or render patient data for a dentist role", async () => {
     authState.user.role = "dentist";
     render(<StaffAppointments catalog={catalog} />);
@@ -82,6 +93,20 @@ describe("staff appointment workspace", () => {
     await waitFor(() => expect(api.updateStatus).toHaveBeenCalledWith(appointment._id, 0, "confirmed"));
     expect(await screen.findByText("Confirmed")).toBeVisible();
     expect(api.getAppointment).toHaveBeenCalledTimes(2);
+  });
+
+  it("prevents duplicate status mutations while the first request is pending", async () => {
+    let resolveMutation!: (value: StaffAppointment) => void;
+    api.updateStatus.mockReturnValue(new Promise((resolve) => { resolveMutation = resolve; }));
+    api.getAppointment.mockResolvedValueOnce(appointment).mockResolvedValueOnce({ ...appointment, status: "confirmed", mutationVersion: 1 });
+    render(<StaffAppointmentDetail appointmentId={appointment._id} catalog={catalog} />);
+    await screen.findByText("Preview Patient");
+    const action = screen.getByRole("button", { name: "Mark as Confirmed" });
+    fireEvent.click(action);
+    fireEvent.click(action);
+    expect(api.updateStatus).toHaveBeenCalledTimes(1);
+    resolveMutation({ ...appointment, status: "confirmed", mutationVersion: 1 });
+    expect(await screen.findByText("Confirmed")).toBeVisible();
   });
 
   it("does not retry a stale write and refetches before another action", async () => {

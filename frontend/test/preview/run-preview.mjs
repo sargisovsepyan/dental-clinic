@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
-import { createMockApiServer } from "../e2e/mock-api.mjs";
+import { createMockApiServer, previewAccounts, previewPassword } from "../e2e/mock-api.mjs";
 
 const host = "127.0.0.1";
 const frontendPort = 3000;
@@ -79,8 +79,14 @@ const cleanup = () => {
 
 console.log(`Preview site: http://${host}:${frontendPort}/hy`);
 console.log(`Booking flow: http://${host}:${frontendPort}/hy/book`);
+console.log(`Staff login: http://${host}:${frontendPort}/hy/staff/login`);
+console.log(`Staff accounts: ${previewAccounts.admin.email}, ${previewAccounts.receptionist.email}, ${previewAccounts.dentist.email}`);
+console.log(`Local-only password (all staff accounts): ${previewPassword}`);
+console.log(`Reset link: http://${host}:${frontendPort}/staff/reset-password#token=preview-reset-token-000000000000000000000000`);
+console.log(`Setup link: http://${host}:${frontendPort}/staff/setup-password#token=preview-setup-token-000000000000000000000000`);
 console.log(`Mock API: http://${host}:${apiPort}/api/v1 (scenario: ${initialScenario})`);
 console.log("Switch scenarios without editing source: open http://127.0.0.1:5000/__test__/scenario/confirmed then refresh the booking page.");
+console.log("Staff scenarios: /__test__/scenario/staff-conflict, /staff-stale-availability, or /staff-expired.");
 
 let shutdownRequested = false;
 const requestShutdown = (exitCode) => {

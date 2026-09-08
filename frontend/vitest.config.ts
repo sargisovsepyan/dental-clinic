@@ -22,6 +22,7 @@ export default defineConfig({
         "src/components/localized-text.tsx",
         "src/components/page-shell.tsx",
         "src/components/public-media.tsx",
+        "src/components/staff/staff-appointment-helpers.ts",
         "src/i18n/locales.ts",
         "src/i18n/localized-content.ts",
         "src/lib/env.ts",

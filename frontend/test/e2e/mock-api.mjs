@@ -190,13 +190,115 @@ const secondBeforeAfter = {
   sortOrder: 2,
 };
 
+export const previewPassword = "Preview123!";
+export const previewAccounts = {
+  admin: { id: "64b000000000000000000091", name: "Preview Admin", email: "admin@preview.local", role: "admin" },
+  receptionist: { id: "64b000000000000000000092", name: "Preview Reception", email: "reception@preview.local", role: "receptionist" },
+  dentist: { id: "64b000000000000000000093", name: "Preview Dentist", email: "dentist@preview.local", role: "dentist" },
+};
+
+const previewUsersByEmail = new Map(Object.values(previewAccounts).map((user) => [user.email, user]));
+
+function clinicDate(daysAhead) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: clinic.timezone, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date(Date.now() + daysAhead * 86_400_000));
+  const value = (type) => parts.find((part) => part.type === type)?.value;
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+function appointmentTimes(date, startTime, endTime) {
+  return {
+    startAt: new Date(`${date}T${startTime}:00+04:00`).toISOString(),
+    endAt: new Date(`${date}T${endTime}:00+04:00`).toISOString(),
+  };
+}
+
+function makeAppointment({
+  id, code, status, date, startTime, endTime, patientName, patientPhone, patientEmail = "",
+  mutationVersion = 0,
+}) {
+  return {
+    _id: id,
+    confirmationCode: code,
+    patientName,
+    patientPhone,
+    patientEmail,
+    dentist: dentist._id,
+    service: service._id,
+    dentistSnapshot: {
+      firstName: dentist.firstName, lastName: dentist.lastName,
+      title: dentist.title, translations: dentist.translations,
+    },
+    serviceSnapshot: {
+      name: service.name, durationMinutes: service.durationMinutes, translations: service.translations,
+    },
+    priceSnapshot: {
+      priceType: service.priceType, priceFrom: service.priceFrom,
+      priceTo: service.priceTo, currency: service.currency,
+    },
+    date,
+    startTime,
+    endTime,
+    ...appointmentTimes(date, startTime, endTime),
+    bufferMinutes: 0,
+    mutationVersion,
+    scheduleRevision: dentist.scheduleRevision,
+    notificationLocale: "hy",
+    rescheduleHistory: [],
+    status,
+    source: "phone",
+    patientComment: "Preview-only patient comment",
+    internalNote: "Preview-only front desk note",
+    privacyConsentAt: timestamp,
+    privacyConsentMethod: "phone",
+    privacyPolicyVersion: "preview-v1",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
+function initialAppointments() {
+  const activeDate = clinicDate(5);
+  return [
+    makeAppointment({
+      id: "64b000000000000000000071", code: "DC-PREVIEW00000001", status: "pending",
+      date: activeDate, startTime: "09:00", endTime: "10:00",
+      patientName: "Aram Preview", patientPhone: "+374 99 000001", patientEmail: "aram@preview.local",
+    }),
+    makeAppointment({
+      id: "64b000000000000000000072", code: "DC-PREVIEW00000002", status: "confirmed",
+      date: activeDate, startTime: "10:30", endTime: "11:30", mutationVersion: 2,
+      patientName: "Mariam Preview", patientPhone: "+374 99 000002", patientEmail: "mariam@preview.local",
+    }),
+    makeAppointment({
+      id: "64b000000000000000000073", code: "DC-PREVIEW00000003", status: "cancelled",
+      date: clinicDate(6), startTime: "14:30", endTime: "15:30", mutationVersion: 1,
+      patientName: "Narek Preview", patientPhone: "+374 99 000003",
+    }),
+  ];
+}
+
+function parseCookie(request, name) {
+  const cookies = String(request.headers.cookie || "").split(";");
+  for (const cookie of cookies) {
+    const [key, ...parts] = cookie.trim().split("=");
+    if (key === name) return decodeURIComponent(parts.join("="));
+  }
+  return null;
+}
+
 function send(response, status, body, headers = {}) {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "x-request-id": randomUUID(),
     "cache-control": "no-store",
-    "access-control-allow-origin": "*",
     "access-control-expose-headers": "Retry-After, X-Request-Id",
+    ...(response.previewCorsOrigin ? {
+      "access-control-allow-origin": response.previewCorsOrigin,
+      "access-control-allow-credentials": "true",
+      vary: "Origin",
+    } : {}),
     ...headers,
   });
   response.end(JSON.stringify(body));
@@ -213,6 +315,9 @@ const allowedScenarios = [
   "error",
   "empty",
   "catalog-error",
+  "staff-conflict",
+  "staff-stale-availability",
+  "staff-expired",
 ];
 
 function readJson(request) {
@@ -233,16 +338,54 @@ function readJson(request) {
 export function createMockApiServer(port = 5100, initialScenario = "success") {
   let scenario = allowedScenarios.includes(initialScenario) ? initialScenario : "success";
   let conflictReturned = false;
+  let staffConflictReturned = false;
+  let appointments = initialAppointments();
   const idempotentResults = new Map();
+  const refreshSessions = new Map();
+  const accessSessions = new Map();
+  const frontendOrigin = `http://127.0.0.1:${port - 2_000}`;
+
+  const issueAccessToken = (user) => {
+    const token = `preview-access-${user.role}-${randomUUID()}`;
+    accessSessions.set(token, user);
+    return token;
+  };
+  const issueRefreshCookie = (response, user, previousSession) => {
+    if (previousSession) refreshSessions.delete(previousSession);
+    const session = randomUUID();
+    refreshSessions.set(session, user);
+    response.setHeader("set-cookie", `preview_refresh=${encodeURIComponent(session)}; HttpOnly; SameSite=Strict; Path=/api/v1/auth`);
+  };
+  const authenticatedUser = (request) => {
+    if (scenario === "staff-expired") return null;
+    const authorization = String(request.headers.authorization || "");
+    return authorization.startsWith("Bearer ") ? accessSessions.get(authorization.slice(7)) || null : null;
+  };
+  const endTimeFor = (start) => {
+    const [hours, minutes] = start.split(":").map(Number);
+    const end = hours * 60 + minutes + service.durationMinutes;
+    return `${String(Math.floor(end / 60)).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}`;
+  };
+  const versionConflict = (response, appointment) => send(response, 409, {
+    success: false,
+    code: "APPOINTMENT_VERSION_CONFLICT",
+    message: "Synthetic stale appointment version",
+    details: { currentMutationVersion: appointment.mutationVersion },
+  });
 
   return http.createServer(async (request, response) => {
     const url = new URL(request.url || "/", `http://127.0.0.1:${port}`);
+    const origin = String(request.headers.origin || "");
+    if (origin === frontendOrigin) response.previewCorsOrigin = origin;
     if (request.method === "OPTIONS") {
+      if (origin !== frontendOrigin) return send(response, 403, { success: false, message: "Origin not allowed" });
       response.writeHead(204, {
-        "access-control-allow-origin": "*",
-        "access-control-allow-methods": "GET, POST, OPTIONS",
-        "access-control-allow-headers": "Content-Type, Idempotency-Key",
+        "access-control-allow-origin": frontendOrigin,
+        "access-control-allow-credentials": "true",
+        "access-control-allow-methods": "GET, POST, PATCH, OPTIONS",
+        "access-control-allow-headers": "Authorization, Content-Type, Idempotency-Key",
         "access-control-max-age": "600",
+        vary: "Origin",
       });
       return response.end();
     }
@@ -253,8 +396,189 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
       }
       scenario = requested;
       conflictReturned = false;
+      staffConflictReturned = false;
+      appointments = initialAppointments();
       idempotentResults.clear();
+      if (requested === "success") {
+        refreshSessions.clear();
+        accessSessions.clear();
+      }
       return send(response, 200, { success: true, data: { scenario } });
+    }
+    if (request.method === "POST" && url.pathname === "/api/v1/auth/login") {
+      let body;
+      try { body = await readJson(request); } catch { return send(response, 400, { success: false, code: "VALIDATION_ERROR" }); }
+      const user = previewUsersByEmail.get(String(body.email || "").trim().toLowerCase());
+      if (!user || body.password !== previewPassword) {
+        return send(response, 401, { success: false, code: "INVALID_CREDENTIALS", message: "Invalid credentials" });
+      }
+      issueRefreshCookie(response, user);
+      return send(response, 200, { success: true, data: { accessToken: issueAccessToken(user), user } });
+    }
+    if (request.method === "POST" && url.pathname === "/api/v1/auth/refresh") {
+      const session = parseCookie(request, "preview_refresh");
+      const user = session ? refreshSessions.get(session) : null;
+      if (!user || scenario === "staff-expired") {
+        if (session) refreshSessions.delete(session);
+        response.setHeader("set-cookie", "preview_refresh=; HttpOnly; SameSite=Strict; Path=/api/v1/auth; Max-Age=0");
+        return send(response, 401, { success: false, code: "INVALID_REFRESH_TOKEN", message: "Session expired" });
+      }
+      issueRefreshCookie(response, user, session);
+      return send(response, 200, { success: true, data: { accessToken: issueAccessToken(user), user } });
+    }
+    if (request.method === "POST" && url.pathname === "/api/v1/auth/logout") {
+      const session = parseCookie(request, "preview_refresh");
+      if (session) refreshSessions.delete(session);
+      response.setHeader("set-cookie", "preview_refresh=; HttpOnly; SameSite=Strict; Path=/api/v1/auth; Max-Age=0");
+      return send(response, 200, { success: true, message: "Logged out" });
+    }
+    if (request.method === "POST" && url.pathname === "/api/v1/auth/forgot-password") {
+      await readJson(request).catch(() => ({}));
+      return send(response, 202, { success: true, message: "If eligible, instructions were sent" });
+    }
+    if (request.method === "POST" && (url.pathname === "/api/v1/auth/reset-password" || url.pathname === "/api/v1/auth/setup-password")) {
+      const body = await readJson(request).catch(() => ({}));
+      const expectedToken = url.pathname.includes("setup") ? "preview-setup-token-000000000000000000000000" : "preview-reset-token-000000000000000000000000";
+      if (body.token !== expectedToken || typeof body.password !== "string" ||
+          [...body.password].length < 6 || Buffer.byteLength(body.password, "utf8") > 72) {
+        return send(response, 400, { success: false, code: "INVALID_TOKEN", message: "Invalid token" });
+      }
+      return send(response, 200, { success: true, message: "Password saved" });
+    }
+    if (request.method === "GET" && url.pathname === "/api/v1/auth/me") {
+      const user = authenticatedUser(request);
+      return user
+        ? send(response, 200, { success: true, data: { user } })
+        : send(response, 401, { success: false, code: "UNAUTHORIZED", message: "Authentication required" });
+    }
+    if (request.method === "POST" && url.pathname === "/api/v1/auth/change-password") {
+      const user = authenticatedUser(request);
+      if (!user) return send(response, 401, { success: false, code: "UNAUTHORIZED", message: "Authentication required" });
+      const body = await readJson(request).catch(() => ({}));
+      if (body.currentPassword !== previewPassword || typeof body.newPassword !== "string" ||
+          [...body.newPassword].length < 6 || Buffer.byteLength(body.newPassword, "utf8") > 72) {
+        return send(response, 400, { success: false, code: "VALIDATION_ERROR", message: "Invalid password" });
+      }
+      for (const [key, value] of refreshSessions) if (value.id === user.id) refreshSessions.delete(key);
+      for (const [key, value] of accessSessions) if (value.id === user.id) accessSessions.delete(key);
+      response.setHeader("set-cookie", "preview_refresh=; HttpOnly; SameSite=Strict; Path=/api/v1/auth; Max-Age=0");
+      return send(response, 200, { success: true, message: "Password changed" });
+    }
+    const appointmentRoute = url.pathname.match(/^\/api\/v1\/appointments\/([0-9a-f]{24})(?:\/(availability|status|cancel|reschedule))?$/i);
+    const protectedAppointmentsRoute =
+      url.pathname === "/api/v1/appointments/admin" ||
+      (url.pathname === "/api/v1/appointments" && request.method === "GET") ||
+      Boolean(appointmentRoute);
+    if (protectedAppointmentsRoute) {
+      const user = authenticatedUser(request);
+      if (!user) return send(response, 401, { success: false, code: "UNAUTHORIZED", message: "Authentication required" });
+      if (user.role === "dentist") return send(response, 403, { success: false, code: "FORBIDDEN", message: "Access denied" });
+
+      if (request.method === "GET" && url.pathname === "/api/v1/appointments") {
+        const page = Math.max(1, Number(url.searchParams.get("page") || "1"));
+        const limit = Math.min(25, Math.max(1, Number(url.searchParams.get("limit") || "25")));
+        const filtered = appointments.filter((appointment) => (
+          (!url.searchParams.get("date") || appointment.date === url.searchParams.get("date")) &&
+          (!url.searchParams.get("from") || appointment.date >= url.searchParams.get("from")) &&
+          (!url.searchParams.get("to") || appointment.date <= url.searchParams.get("to")) &&
+          (!url.searchParams.get("status") || appointment.status === url.searchParams.get("status")) &&
+          (!url.searchParams.get("dentistId") || appointment.dentist === url.searchParams.get("dentistId")) &&
+          (!url.searchParams.get("serviceId") || appointment.service === url.searchParams.get("serviceId"))
+        ));
+        const start = (page - 1) * limit;
+        return send(response, 200, { success: true, data: {
+          appointments: filtered.slice(start, start + limit),
+          pagination: { page, limit, total: filtered.length, pages: Math.ceil(filtered.length / limit) },
+        } });
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/v1/appointments/admin") {
+        const body = await readJson(request).catch(() => null);
+        if (!body || typeof body.patientName !== "string" || typeof body.patientPhone !== "string" || body.privacyAccepted !== true) {
+          return send(response, 400, { success: false, code: "VALIDATION_ERROR", message: "Invalid appointment" });
+        }
+        const endTime = endTimeFor(body.startTime);
+        const created = {
+          ...makeAppointment({
+            id: "64b000000000000000000079", code: "DC-PREVIEW00000009", status: "pending",
+            date: body.date, startTime: body.startTime, endTime,
+            patientName: body.patientName, patientPhone: body.patientPhone, patientEmail: body.patientEmail || "",
+          }),
+          patientComment: body.patientComment || "",
+          internalNote: body.internalNote || "",
+          privacyConsentMethod: body.consentMethod,
+          notificationLocale: body.locale,
+          source: body.source,
+        };
+        appointments = [created, ...appointments.filter((item) => item._id !== created._id)];
+        return send(response, 201, { success: true, data: { appointment: created } });
+      }
+
+      const appointment = appointments.find((item) => item._id === appointmentRoute?.[1]);
+      if (!appointment) return send(response, 404, { success: false, code: "NOT_FOUND", message: "Appointment not found" });
+      const action = appointmentRoute?.[2];
+      if (request.method === "GET" && !action) {
+        return send(response, 200, { success: true, data: { appointment } });
+      }
+      if (request.method === "GET" && action === "availability") {
+        const expectedVersion = Number(url.searchParams.get("expectedMutationVersion"));
+        if (expectedVersion !== appointment.mutationVersion) return versionConflict(response, appointment);
+        if (scenario === "staff-stale-availability" && !staffConflictReturned) {
+          staffConflictReturned = true;
+          appointment.mutationVersion += 1;
+          appointment.updatedAt = new Date().toISOString();
+          return versionConflict(response, appointment);
+        }
+        const date = url.searchParams.get("date") || appointment.date;
+        const starts = ["09:00", "12:00", "14:30"];
+        const slots = starts.map((start) => {
+          const end = endTimeFor(start);
+          return { start, end, ...appointmentTimes(date, start, end) };
+        });
+        return send(response, 200, { success: true, data: { availability: {
+          date,
+          timezone: clinic.timezone,
+          available: true,
+          reason: null,
+          dentist: { id: url.searchParams.get("dentistId") },
+          service: { id: url.searchParams.get("serviceId") },
+          rules: { slotIntervalMinutes: 30, bufferMinutes: 0, minBookingNoticeMinutes: 120 },
+          slots,
+        } } });
+      }
+      if (["status", "cancel", "reschedule"].includes(action) && ["POST", "PATCH"].includes(request.method)) {
+        const body = await readJson(request).catch(() => null);
+        if (!body || body.expectedMutationVersion !== appointment.mutationVersion) return versionConflict(response, appointment);
+        if (scenario === "staff-conflict" && !staffConflictReturned) {
+          staffConflictReturned = true;
+          appointment.mutationVersion += 1;
+          appointment.updatedAt = new Date().toISOString();
+          return versionConflict(response, appointment);
+        }
+        if (action === "status") appointment.status = body.status;
+        if (action === "cancel") {
+          appointment.status = "cancelled";
+          appointment.cancellationReason = body.reason;
+          appointment.cancelledAt = new Date().toISOString();
+        }
+        if (action === "reschedule") {
+          const previous = {
+            date: appointment.date, startTime: appointment.startTime, endTime: appointment.endTime,
+            dentist: appointment.dentist, service: appointment.service, reason: body.reason || "",
+          };
+          appointment.date = body.date;
+          appointment.startTime = body.startTime;
+          appointment.endTime = endTimeFor(body.startTime);
+          Object.assign(appointment, appointmentTimes(appointment.date, appointment.startTime, appointment.endTime));
+          appointment.dentist = body.dentistId || appointment.dentist;
+          appointment.service = body.serviceId || appointment.service;
+          appointment.rescheduleHistory = [...appointment.rescheduleHistory, previous];
+        }
+        appointment.mutationVersion += 1;
+        appointment.updatedAt = new Date().toISOString();
+        return send(response, 200, { success: true, data: { appointment } });
+      }
+      return send(response, 405, { success: false, code: "METHOD_NOT_ALLOWED", message: "Method not allowed" });
     }
     if (scenario === "catalog-error" && url.pathname.startsWith("/api/v1/")) {
       return send(response, 503, { success: false, code: "TEST_UPSTREAM_UNAVAILABLE", message: "Synthetic test failure" });

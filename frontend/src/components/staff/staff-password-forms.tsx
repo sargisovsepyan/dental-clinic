@@ -72,14 +72,25 @@ export function OneTimePasswordForm({ kind }: { kind: "reset" | "setup" }) {
 
   useEffect(() => {
     let active = true;
-    if (tokenRef.current === undefined) {
+    const captureToken = () => {
       const params = new URLSearchParams(window.location.hash.slice(1));
       const token = params.get("token");
       window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
       tokenRef.current = token && token.length >= 40 && token.length <= 200 ? token : null;
-    }
-    queueMicrotask(() => { if (active) setHasToken(tokenRef.current !== null); });
-    return () => { active = false; };
+      queueMicrotask(() => {
+        if (!active) return;
+        setHasToken(tokenRef.current !== null);
+        setComplete(false);
+        setError(null);
+      });
+    };
+    if (tokenRef.current === undefined) captureToken();
+    else queueMicrotask(() => { if (active) setHasToken(tokenRef.current !== null); });
+    window.addEventListener("hashchange", captureToken);
+    return () => {
+      active = false;
+      window.removeEventListener("hashchange", captureToken);
+    };
   }, []);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
