@@ -193,18 +193,20 @@ function parseAvailability(body: unknown, expected: { date: string; dentistId: s
 }
 
 let sameTabRefresh: Promise<{ accessToken: string; user: StaffUser }> | null = null;
+const sessionLockName = "dental-clinic-staff-refresh";
+
+async function withSessionLock<T>(operation: () => Promise<T>) {
+  if (typeof navigator !== "undefined" && navigator.locks) {
+    return navigator.locks.request(sessionLockName, { mode: "exclusive" }, operation);
+  }
+  return operation();
+}
 
 async function coordinatedRefresh() {
   if (sameTabRefresh) return sameTabRefresh;
-  sameTabRefresh = (async () => {
-    const refresh = async () => parseAuth(await rawRequest({
+  sameTabRefresh = withSessionLock(async () => parseAuth(await rawRequest({
       path: "auth/refresh", method: "POST", credentials: "include", timeoutMs: 10_000,
-    }));
-    if (typeof navigator !== "undefined" && navigator.locks) {
-      return navigator.locks.request("dental-clinic-staff-refresh", { mode: "exclusive" }, refresh);
-    }
-    return refresh();
-  })();
+  })));
   try {
     return await sameTabRefresh;
   } finally {
@@ -214,6 +216,7 @@ async function coordinatedRefresh() {
 
 export class StaffApiClient {
   #accessToken: string | null = null;
+  #sessionEpoch = 0;
 
   hasAccessToken() {
     return this.#accessToken !== null;
@@ -221,18 +224,28 @@ export class StaffApiClient {
 
   clearSession() {
     this.#accessToken = null;
+    this.#sessionEpoch += 1;
   }
 
   async login(email: string, password: string) {
+    const sessionEpoch = ++this.#sessionEpoch;
+    this.#accessToken = null;
     const result = parseAuth(await rawRequest({
       path: "auth/login", method: "POST", credentials: "include", body: { email, password },
     }));
+    if (sessionEpoch !== this.#sessionEpoch) {
+      throw new StaffApiError({ kind: "cancelled", status: 401 });
+    }
     this.#accessToken = result.accessToken;
     return result.user;
   }
 
   async bootstrap() {
+    const sessionEpoch = this.#sessionEpoch;
     const refreshed = await coordinatedRefresh();
+    if (sessionEpoch !== this.#sessionEpoch) {
+      throw new StaffApiError({ kind: "cancelled", status: 401 });
+    }
     this.#accessToken = refreshed.accessToken;
     try {
       const body = await rawRequest({ path: "auth/me", authorization: this.#accessToken });
@@ -244,10 +257,16 @@ export class StaffApiClient {
   }
 
   async logout() {
+    const locksAvailable = typeof navigator !== "undefined" && Boolean(navigator.locks);
+    const pendingRefresh = sameTabRefresh;
+    this.clearSession();
     try {
-      await rawRequest({ path: "auth/logout", method: "POST", credentials: "include" });
+      if (!locksAvailable && pendingRefresh) await pendingRefresh.catch(() => undefined);
+      await withSessionLock(() => rawRequest({
+        path: "auth/logout", method: "POST", credentials: "include",
+      }));
     } finally {
-      this.clearSession();
+      this.#accessToken = null;
     }
   }
 
@@ -265,19 +284,26 @@ export class StaffApiClient {
 
   async #protected(options: Omit<RequestOptions, "authorization" | "credentials">, allowRefresh = true) {
     if (!this.#accessToken) throw new StaffApiError({ kind: "http", status: 401 });
+    const sessionEpoch = this.#sessionEpoch;
     try {
-      return await rawRequest({ ...options, authorization: this.#accessToken, credentials: "omit" });
+      const body = await rawRequest({ ...options, authorization: this.#accessToken, credentials: "omit" });
+      if (sessionEpoch !== this.#sessionEpoch) throw new StaffApiError({ kind: "cancelled", status: 401 });
+      return body;
     } catch (error) {
       if (!(error instanceof StaffApiError) || error.status !== 401 || !allowRefresh) throw error;
+      if (sessionEpoch !== this.#sessionEpoch) throw new StaffApiError({ kind: "cancelled", status: 401 });
       try {
         const refreshed = await coordinatedRefresh();
+        if (sessionEpoch !== this.#sessionEpoch) throw new StaffApiError({ kind: "cancelled", status: 401 });
         this.#accessToken = refreshed.accessToken;
       } catch (refreshError) {
         this.clearSession();
         throw refreshError;
       }
       try {
-        return await rawRequest({ ...options, authorization: this.#accessToken, credentials: "omit" });
+        const body = await rawRequest({ ...options, authorization: this.#accessToken, credentials: "omit" });
+        if (sessionEpoch !== this.#sessionEpoch) throw new StaffApiError({ kind: "cancelled", status: 401 });
+        return body;
       } catch (retryError) {
         if (retryError instanceof StaffApiError && retryError.status === 401) this.clearSession();
         throw retryError;

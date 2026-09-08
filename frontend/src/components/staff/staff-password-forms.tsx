@@ -55,7 +55,7 @@ export function ForgotPasswordForm() {
       {message && <Alert className="mb-5"><AlertDescription>{message}</AlertDescription></Alert>}
       <form onSubmit={submit} className="space-y-5">
         <label className="block text-sm font-medium">{copy.email}<input className={fieldClass} name="email" type="email" autoComplete="email" required maxLength={254} disabled={pending} /></label>
-        <Button className="w-full" size="lg" disabled={pending}>{pending ? copy.sending : copy.sendReset}</Button>
+        <Button className="w-full" size="lg" type="submit" disabled={pending}>{pending ? copy.sending : copy.sendReset}</Button>
       </form>
       <Link href={`/${locale}/staff/login` as Route} className="mt-5 inline-flex min-h-11 items-center text-sm font-semibold text-primary underline-offset-4 hover:underline">{copy.backToLogin}</Link>
     </StaffAuthCard>
@@ -122,7 +122,7 @@ export function OneTimePasswordForm({ kind }: { kind: "reset" | "setup" }) {
         <form onSubmit={submit} className="space-y-5">
           {error && <Alert variant="destructive" role="alert"><AlertDescription>{error}</AlertDescription></Alert>}
           <PasswordFields copy={copy} disabled={pending} />
-          <Button className="w-full" size="lg" disabled={pending}>{pending ? copy.savingPassword : copy.savePassword}</Button>
+          <Button className="w-full" size="lg" type="submit" disabled={pending}>{pending ? copy.savingPassword : copy.savePassword}</Button>
         </form>
       )}
       <Link href={`/${locale}/staff/login` as Route} className="mt-5 inline-flex min-h-11 items-center text-sm font-semibold text-primary underline-offset-4 hover:underline">{copy.backToLogin}</Link>
@@ -161,7 +161,7 @@ export function ChangePasswordForm() {
       {error && <Alert variant="destructive" role="alert"><AlertDescription>{error}</AlertDescription></Alert>}
       <label className="block text-sm font-medium">{copy.currentPassword}<input className={fieldClass} name="currentPassword" type="password" autoComplete="current-password" required minLength={6} disabled={pending} /></label>
       <PasswordFields copy={copy} disabled={pending} />
-      <Button disabled={pending}>{pending ? copy.changingPassword : copy.changePassword}</Button>
+      <Button type="submit" disabled={pending}>{pending ? copy.changingPassword : copy.changePassword}</Button>
     </form>
   );
 }

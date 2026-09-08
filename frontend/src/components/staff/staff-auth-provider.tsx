@@ -96,13 +96,11 @@ export function StaffAuthProvider({ locale, children }: { locale: Locale; childr
 
   const logout = useCallback(async () => {
     setNotice(null);
+    clearLocalSession();
+    publishClear();
     try {
       await staffApi.logout();
-      clearLocalSession();
-      publishClear();
     } catch (error) {
-      clearLocalSession();
-      publishClear();
       setNotice(copy.logoutUncertain);
       throw error;
     }

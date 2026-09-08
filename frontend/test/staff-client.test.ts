@@ -38,6 +38,30 @@ afterEach(() => {
 });
 
 describe("staff API authentication boundary", () => {
+  it("normalizes invalid, rate-limited, and network login failures without credential leakage", async () => {
+    const password = "PrivatePreview1!";
+    const storageSpy = vi.spyOn(Storage.prototype, "setItem");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ success: false, code: "INVALID_CREDENTIALS", message: `Rejected ${password}` }, 401))
+      .mockResolvedValueOnce(json({ success: false, code: "RATE_LIMITED", message: `Wait ${password}` }, 429, { "retry-after": "45" }))
+      .mockRejectedValueOnce(new TypeError(`offline ${password}`));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const invalid = await new StaffApiClient().login(user.email, password).catch((error) => error);
+    const limited = await new StaffApiClient().login(user.email, password).catch((error) => error);
+    const network = await new StaffApiClient().login(user.email, password).catch((error) => error);
+
+    expect(invalid).toMatchObject({ kind: "http", status: 401, code: "INVALID_CREDENTIALS" });
+    expect(limited).toMatchObject({ kind: "http", status: 429, code: "RATE_LIMITED", retryAfterSeconds: 45 });
+    expect(network).toMatchObject({ kind: "network", status: 0 });
+    expect(JSON.stringify([invalid, limited, network])).not.toContain(password);
+    expect(storageSpy).not.toHaveBeenCalled();
+    for (const [url, options] of fetchMock.mock.calls as Array<[URL, RequestInit]>) {
+      expect(url.href).not.toContain(password);
+      expect(JSON.stringify(options.headers)).not.toContain(password);
+    }
+  });
+
   it("keeps tokens in memory and scopes credentials to cookie-auth endpoints", async () => {
     const storageSpy = vi.spyOn(Storage.prototype, "setItem");
     const fetchMock = vi.fn()
@@ -147,6 +171,64 @@ describe("staff API authentication boundary", () => {
     await expect(client.listAppointments({})).rejects.toMatchObject({ kind: "network" });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(client.hasAccessToken()).toBe(false);
+  });
+
+  it("does not allow an in-flight refresh to restore a logged-out session", async () => {
+    let releaseRefresh!: () => void;
+    const refreshGate = new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    const paths: string[] = [];
+    const fetchMock = vi.fn(async (input: URL) => {
+      paths.push(input.pathname);
+      if (input.pathname.endsWith("/auth/login")) return successAuth("old-access-token-value");
+      if (input.pathname.endsWith("/appointments")) return json({ success: false }, 401);
+      if (input.pathname.endsWith("/auth/refresh")) {
+        await refreshGate;
+        return successAuth("refreshed-access-token-value");
+      }
+      return json({ success: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new StaffApiClient();
+    await client.login(user.email, "Preview1!");
+    const protectedRequest = client.listAppointments({});
+    await vi.waitFor(() => expect(paths).toContain("/api/v1/auth/refresh"));
+    const logout = client.logout();
+    expect(client.hasAccessToken()).toBe(false);
+    releaseRefresh();
+
+    await expect(protectedRequest).rejects.toMatchObject({ kind: "cancelled", status: 401 });
+    await expect(logout).resolves.toBeUndefined();
+    expect(paths.at(-1)).toBe("/api/v1/auth/logout");
+    expect(paths.filter((path) => path.endsWith("/appointments"))).toHaveLength(1);
+    expect(client.hasAccessToken()).toBe(false);
+  });
+
+  it("keeps one-time tokens in request bodies and clears the session after password change", async () => {
+    const resetToken = "reset-token-private-value-000000000000000000";
+    const setupToken = "setup-token-private-value-000000000000000000";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(successAuth())
+      .mockResolvedValueOnce(json({ success: true }))
+      .mockResolvedValueOnce(json({ success: true }))
+      .mockResolvedValueOnce(json({ success: true }))
+      .mockResolvedValueOnce(json({ success: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new StaffApiClient();
+
+    await client.login(user.email, "Preview1!");
+    await client.changePassword("Preview1!", "Changed1!");
+    expect(client.hasAccessToken()).toBe(false);
+    await client.forgotPassword(user.email);
+    await client.resetPassword(resetToken, "Changed1!");
+    await client.setupPassword(setupToken, "Changed1!");
+
+    for (const [url] of fetchMock.mock.calls as Array<[URL, RequestInit]>) {
+      expect(url.href).not.toContain(resetToken);
+      expect(url.href).not.toContain(setupToken);
+    }
+    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toMatchObject({ token: resetToken });
+    expect(JSON.parse(String((fetchMock.mock.calls[4][1] as RequestInit).body))).toMatchObject({ token: setupToken });
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ credentials: "omit" });
   });
 
   it("normalizes mutation conflicts and exposes only safe concurrency metadata", async () => {
