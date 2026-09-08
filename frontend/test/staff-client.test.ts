@@ -203,6 +203,35 @@ describe("staff API authentication boundary", () => {
     expect(client.hasAccessToken()).toBe(false);
   });
 
+  it("serializes a new login behind logout so late revocation cannot erase its cookie session", async () => {
+    let releaseLogout!: () => void;
+    const logoutGate = new Promise<void>((resolve) => { releaseLogout = resolve; });
+    const paths: string[] = [];
+    const fetchMock = vi.fn(async (input: URL) => {
+      paths.push(input.pathname);
+      if (input.pathname.endsWith("/auth/logout")) {
+        await logoutGate;
+        return json({ success: true });
+      }
+      return successAuth(paths.filter((path) => path.endsWith("/auth/login")).length === 1
+        ? "first-access-token-value"
+        : "second-access-token-value");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new StaffApiClient();
+    await client.login(user.email, "Preview1!");
+    const logout = client.logout();
+    const relogin = client.login(user.email, "Preview1!");
+    await Promise.resolve();
+    expect(paths.filter((path) => path.endsWith("/auth/login"))).toHaveLength(1);
+    releaseLogout();
+
+    await expect(logout).resolves.toBeUndefined();
+    await expect(relogin).resolves.toEqual(user);
+    expect(paths.slice(-2)).toEqual(["/api/v1/auth/logout", "/api/v1/auth/login"]);
+    expect(client.hasAccessToken()).toBe(true);
+  });
+
   it("keeps one-time tokens in request bodies and clears the session after password change", async () => {
     const resetToken = "reset-token-private-value-000000000000000000";
     const setupToken = "setup-token-private-value-000000000000000000";

@@ -193,13 +193,16 @@ function parseAvailability(body: unknown, expected: { date: string; dentistId: s
 }
 
 let sameTabRefresh: Promise<{ accessToken: string; user: StaffUser }> | null = null;
+let sameTabSessionTail: Promise<void> = Promise.resolve();
 const sessionLockName = "dental-clinic-staff-refresh";
 
 async function withSessionLock<T>(operation: () => Promise<T>) {
   if (typeof navigator !== "undefined" && navigator.locks) {
     return navigator.locks.request(sessionLockName, { mode: "exclusive" }, operation);
   }
-  return operation();
+  const result = sameTabSessionTail.then(operation, operation);
+  sameTabSessionTail = result.then(() => undefined, () => undefined);
+  return result;
 }
 
 async function coordinatedRefresh() {
@@ -230,9 +233,9 @@ export class StaffApiClient {
   async login(email: string, password: string) {
     const sessionEpoch = ++this.#sessionEpoch;
     this.#accessToken = null;
-    const result = parseAuth(await rawRequest({
+    const result = parseAuth(await withSessionLock(() => rawRequest({
       path: "auth/login", method: "POST", credentials: "include", body: { email, password },
-    }));
+    })));
     if (sessionEpoch !== this.#sessionEpoch) {
       throw new StaffApiError({ kind: "cancelled", status: 401 });
     }
