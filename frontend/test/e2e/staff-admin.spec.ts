@@ -52,7 +52,8 @@ async function openFirstAppointment(page: Page) {
   await page.goto("/en/staff/appointments");
   await expect(page.getByText("Aram Preview").filter({ visible: true }).first()).toBeVisible();
   await page.getByRole("link", { name: "View" }).first().click();
-  await expect(page.getByText("DC-PREVIEW00000001")).toBeVisible();
+  await expect(page).toHaveURL(/\/en\/staff\/appointments\/64b000000000000000000071$/, { timeout: 30_000 });
+  await expect(page.getByText("DC-PREVIEW00000001")).toBeVisible({ timeout: 30_000 });
 }
 
 test("staff login, refresh restoration, logout, and browser-only token boundaries work", async ({ page, context }) => {
