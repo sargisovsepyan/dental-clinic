@@ -5,12 +5,13 @@ Production-oriented dental-clinic public website and backend for catalog publish
 ## Repository map
 
 - `backend/` — Express 5 API, MongoDB models/migrations, durable notification worker/reconciliation, and tests
-- `frontend/` — Next.js 16 public website for Armenian, Russian, and English content
+- `frontend/` — Next.js 16 public site, booking flow, and authenticated staff appointment workspace for HY/RU/EN
 - `docs/openapi.yaml` — machine-readable API contract
 - `docs/API_CONTRACT.md` — frontend-facing behavior and invariants
 - `docs/FRONTEND_ARCHITECTURE.md` — frontend boundaries, rendering, localization, and security design
 - `docs/FRONTEND_FOUNDATION_FINAL_REPORT.md` — Phase 1 scope, verification evidence, limitations, and verdicts
 - `docs/FRONTEND_BOOKING_FINAL_REPORT.md` — Phase 2 booking architecture, QA evidence, and release limitations
+- `docs/FRONTEND_STAFF_ADMIN_FOUNDATION_FINAL_REPORT.md` — Phase 3A staff authentication, appointment operations, QA, and verdicts
 - `docs/PRODUCTION_RUNBOOK.md` — deployment and operations sequence
 - `docs/FINAL_BACKEND_HARDENING_REPORT.md` — authoritative final hardening evidence, verdicts, and residual responsibilities
 - `docs/APPOINTMENT_NOTIFICATIONS_FINAL_REPORT.md` — notification architecture, verification evidence, and delivery limitations
@@ -65,7 +66,7 @@ npm run api:types
 npm run dev
 ```
 
-The public site is available under explicit `/hy`, `/ru`, and `/en` routes, with Armenian as the primary editorial fallback. It includes services, dentists, clinic/contact information, gallery, consent-approved before/after publications, and no-account booking. Staff administration remains a later phase.
+The public site is available under explicit `/hy`, `/ru`, and `/en` routes, with Armenian as the primary editorial fallback. It includes services, dentists, clinic/contact information, gallery, consent-approved before/after publications, and no-account booking. Phase 3A also provides localized staff login/account pages and an admin/receptionist appointment workspace; dentists receive the authenticated shell but no patient appointment access. Content, schedule, and staff management remain Phase 3B.
 
 ### LOCAL FRONTEND PREVIEW
 
@@ -76,7 +77,7 @@ cd D:\projects\dental-clinic\frontend
 npm run dev:preview
 ```
 
-Open `http://localhost:3000/hy`; press Ctrl+C to stop. See `frontend/README.md` for deterministic pending, confirmed, conflict, empty, validation, rate-limit, and service-error scenarios.
+Open `http://127.0.0.1:3000/hy` or `http://127.0.0.1:3000/hy/staff/login`; press Ctrl+C to stop. The launcher prints local-only admin/receptionist/dentist credentials plus deterministic public-booking, stale-appointment, stale-availability, and session-expiry scenarios. See `frontend/README.md` for exact details.
 
 For real-backend mode, configure and start `backend/` on port 5000, copy `frontend/.env.example` to the untracked `frontend/.env.local`, then run `npm run dev` from `frontend/`. The local examples explicitly disable the booking challenge on both sides; production requires Turnstile with only its public site key in frontend configuration.
 

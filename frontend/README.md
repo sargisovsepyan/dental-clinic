@@ -1,6 +1,6 @@
-# Dental clinic public frontend
+# Dental clinic frontend
 
-Next.js 16 App Router frontend for the clinic’s public website and no-account online booking flow. Armenian (`hy`) is the primary publication locale; Russian (`ru`) and English (`en`) are explicit routes with field-level Armenian fallback when an authored translation is absent.
+Next.js 16 App Router frontend for the clinic’s public website, no-account booking flow, and authenticated Phase 3A staff appointment workspace. Armenian (`hy`) is the primary publication locale; Russian (`ru`) and English (`en`) are explicit routes with field-level Armenian fallback when authored public content is absent.
 
 ## Scope
 
@@ -13,9 +13,12 @@ Implemented public routes:
 - `/{locale}/gallery`
 - `/{locale}/before-after` and `/before-after/{id}`
 - `/{locale}/book` — fresh service/dentist eligibility, live availability, and idempotent public booking
+- `/{locale}/staff/login`, `/forgot-password`, `/reset-password`, and `/setup-password`
+- `/{locale}/staff` and `/account` — role-aware staff shell and password change
+- `/{locale}/staff/appointments` and `/appointments/{id}` — admin/receptionist list, create, detail, status, reschedule, and cancellation
 - `/robots.txt`, `/sitemap.xml`, generated app icon, canonical links, and locale alternates
 
-Patient accounts, staff authentication, and administration remain intentionally out of scope. Booking never stores patient details in browser storage or URLs.
+Patient accounts, clinical records, and Phase 3B content/schedule/staff management remain intentionally out of scope. Public booking and staff operations never store patient details or bearer tokens in browser storage or URLs.
 
 ## LOCAL FRONTEND PREVIEW
 
@@ -26,7 +29,15 @@ cd D:\projects\dental-clinic\frontend
 npm run dev:preview
 ```
 
-Open `http://localhost:3000/hy`. The launcher also prints the booking URL and mock API URL. Press Ctrl+C to stop; it terminates only the child process it owns, closes its mock server connections, releases ports 3000/5000, and removes only its validated `.next-preview` cache.
+Open `http://127.0.0.1:3000/hy` for the public site or `http://127.0.0.1:3000/hy/staff/login` for staff. The launcher prints all local URLs, scenarios, and fake credentials. Press Ctrl+C to stop; it terminates only the child process it owns, closes its mock server connections, releases ports 3000/5000, and removes only its validated `.next-preview` cache.
+
+Local-only staff accounts all use password `Preview123!`:
+
+- `admin@preview.local`
+- `reception@preview.local`
+- `dentist@preview.local`
+
+These accounts, their session tokens, and their patient fixtures exist only inside the deterministic mock module under `test/`; production code does not import them.
 
 The default scenario returns available slots and a pending booking. Start another deterministic scenario, for example:
 
@@ -40,6 +51,8 @@ npm run dev:preview -- --scenario=error
 ```
 
 While preview is running, the printed local scenario endpoint can switch between `success`, `pending`, `confirmed`, `conflict`, `empty-availability`, `validation`, `rate-limit`, `error`, `empty`, and `catalog-error` without source edits. All fixtures are development-only and are imported only by test/preview launchers.
+
+Staff scenarios use the same local endpoint and add `staff-conflict`, `staff-stale-availability`, and `staff-expired`. The launcher also prints deterministic local-only setup/reset links.
 
 ## Requirements and setup
 
@@ -92,5 +105,8 @@ npm audit --audit-level=moderate
 - The frontend never handles consent evidence or other governance metadata for before/after publications.
 - One UUIDv4 idempotency key belongs to one canonical booking attempt. Uncertain retries retain it; changed appointment data generates another key. The challenge token is deliberately excluded from request identity.
 - The consent control is explicit and initially unchecked. Approved clinic privacy-policy text and a public policy URL have not been supplied and remain a deployment content requirement; the frontend does not invent either.
+- Staff access tokens are memory-only. The refresh token remains in a backend-owned HttpOnly cookie; refresh/login/logout are single-flight/serialized around rotation, and `403` never masquerades as logout.
+- Appointment mutations always send the reviewed `mutationVersion`, never auto-retry stale writes, and refetch authoritative state. Availability responses are bound to the selected version/service/dentist/date.
+- Frontend role-aware navigation is convenience only. The backend remains authoritative for admin/receptionist appointment access and dentist denial.
 
-See `../docs/FRONTEND_ARCHITECTURE.md`, `../docs/FRONTEND_FOUNDATION_FINAL_REPORT.md`, and `../docs/FRONTEND_BOOKING_FINAL_REPORT.md` for the complete design and verification record.
+See `../docs/FRONTEND_ARCHITECTURE.md`, `../docs/FRONTEND_FOUNDATION_FINAL_REPORT.md`, `../docs/FRONTEND_BOOKING_FINAL_REPORT.md`, and `../docs/FRONTEND_STAFF_ADMIN_FOUNDATION_FINAL_REPORT.md` for the complete design and verification record.

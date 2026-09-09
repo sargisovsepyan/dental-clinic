@@ -2,9 +2,9 @@
 
 ## Purpose and scope
 
-The `frontend/` application is the public presentation and no-account booking layer for the dental clinic. It publishes clinic information, services, dentists, gallery media, and already-approved before/after cases, and it creates public appointment requests through the authoritative backend. It does not provide patient accounts, authenticate staff, administer content, or store clinical records. Staff administration belongs to Phase 3.
+The `frontend/` application contains two deliberately separated surfaces: the public presentation/no-account booking site and the authenticated staff workspace. The public side publishes clinic information, services, dentists, gallery media, and already-approved before/after cases. Phase 3A adds staff authentication, account security, and appointment operations for administrators and receptionists. It does not provide patient accounts, content/schedule/staff management, or clinical records.
 
-The frontend consumes only `/api/v1` public endpoints described by `openapi.yaml`. It does not connect directly to MongoDB or any provider SDK.
+The frontend consumes only documented `/api/v1` endpoints described by `openapi.yaml`. It does not connect directly to MongoDB or any backend provider SDK.
 
 ## Stack
 
@@ -25,6 +25,8 @@ The locale layout owns the shared header, footer, skip link, and clinic identity
 
 The root layout reads the locale set by `proxy.ts` so the server emits the correct `<html lang>` value. This makes the route shell request-time rendered. Ordinary editorial API GETs remain explicitly revalidated for five minutes; governed before/after reads and booking eligibility/settings are `no-store`.
 
+Staff routes use a separate `(staff)` route group under `/{locale}/staff`. This keeps the interactive client authentication boundary out of the public marketing layout while preserving explicit HY/RU/EN routes. The staff auth provider and workspace shell own session state, identity, role-aware navigation, responsive navigation, and logged-out/unavailable boundaries. The staff document routes are `noindex`, excluded from the sitemap, and covered by private/no-store production response headers.
+
 ## Data flow and contract boundary
 
 ```text
@@ -36,6 +38,8 @@ OpenAPI contract
 ```
 
 `src/api/public-client.ts` is the only public API transport boundary. It permits only fixed relative paths, constructs query parameters through `URL`, sends no browser credentials, enforces an eight-second timeout, and normalizes network, timeout, HTTP, protocol, and configuration failures into `PublicApiError`. Raw backend error messages never reach the rendered UI. Safe request IDs may be shown for support correlation.
+
+`src/api/staff-client.ts` is the authenticated transport boundary. It runtime-validates staff users, appointment responses, pagination, and availability correlation; sends bearer credentials only to the configured API origin; uses the refresh cookie only on auth endpoints with `credentials: include`; marks protected reads and mutations `no-store`; bounds requests; and surfaces only safe error codes, request IDs, retry delay, and current mutation version. Patient fields and backend error text are not copied into error objects or logs.
 
 Generated types prevent accidental contract drift but are not treated as a privacy boundary. `src/api/public-view-models.ts` separately copies only fields needed by each page. This is especially important for before/after content: consent evidence, policy versions, publication workflow, withdrawal state, cleanup state, and other governance metadata are neither represented nor rendered. The booking client likewise validates runtime appointment summaries and copies only confirmation code, status, date/time, names, duration, and price; all returned ObjectIds are discarded before result rendering.
 
@@ -50,6 +54,22 @@ Availability comes only from `GET /availability` through a `cache: "no-store"`, 
 Submission uses the exact public contract. One lowercase UUIDv4 key is generated for one canonical payload. The canonical identity trims patient text, lowercases email, includes locale/consent and all scheduling fields, and excludes the replaceable challenge token. A double submit is guarded in memory and by the disabled progress control, while backend idempotency remains authoritative. A network or timeout uncertainty preserves the same key for an unchanged retry; any changed canonical payload receives another key. A `409` clears only the stale slot, refreshes availability, focuses the time section, and preserves patient fields. A `404` clears stale service/dentist/date/slot state while retaining patient fields for a new valid selection. Pending and confirmed results use the backend status and returned schedule summaries; the frontend never upgrades pending to confirmed.
 
 Production uses an isolated explicit-render Cloudflare Turnstile adapter because that matches the backend provider contract. The public site key is browser configuration; the secret remains backend-only. Production configuration fails before startup/build if Turnstile or its site key is absent. Development preview and all automated tests explicitly select the disabled adapter and block non-local browser traffic.
+
+## Staff authentication and session lifecycle
+
+The access token exists only in a private field on the in-memory staff API client. It is never written to `localStorage`, `sessionStorage`, IndexedDB, cookies, URLs, React Server Component props, or logs. The backend owns the rotating refresh token in an HttpOnly cookie; JavaScript can request refresh or logout but cannot read the token.
+
+Initial staff bootstrap performs one refresh and confirms the returned identity with `/auth/me`. Concurrent same-tab refresh demand shares one promise. Refresh, login, and logout are serialized locally, and Web Locks provide the same critical section across supporting tabs so refresh-cookie rotation is not raced. A session epoch prevents a late refresh or protected response from restoring/rendering state after logout. Logout clears the local UI and broadcasts session removal before the network revocation completes; the backend logout is still attempted after any in-flight refresh finishes. An uncertain refresh is never automatically retried. A protected request receives at most one refresh and one retry after a definitive `401`; `403` preserves the authenticated session and renders an authorization failure.
+
+Password setup and reset tokens arrive only in URL fragments, are captured into an ephemeral ref, and are removed immediately with `history.replaceState`. Hash changes on an already-mounted form are handled without retaining the new fragment. Tokens are sent only in POST bodies and cleared after use. Login, forgot/reset/setup, and change-password forms use the backend's exact minimum of six Unicode characters; new passwords are also limited to 72 UTF-8 bytes to prevent bcrypt truncation. Changing a password revokes sessions server-side and clears the local session.
+
+## Staff RBAC and appointment operations
+
+The shell removes appointment navigation for dentists and renders an access-denied boundary on direct dentist navigation, but this is only UX. The backend remains authoritative: every staff request carries the memory token, and appointment endpoints independently require administrator or receptionist roles. No staff role or permission is inferred from a route parameter.
+
+Appointment list filters are limited to documented date, status, dentist, service, page, and bounded limit fields. Patient names, phone numbers, email addresses, comments, and notes never enter URLs. Authorized list/detail views may display the minimum operational contact fields returned by the protected API. Creation records an explicit phone or in-person privacy-consent method and never invents consent evidence.
+
+Status actions expose only the backend transition graph. Cancellation and rescheduling are available only in documented states. Every mutation sends the exact `mutationVersion` currently under review; the UI never auto-retries a `409`, never applies optimistic appointment state, and always replaces the view through a fresh authoritative read after success or conflict. Protected reschedule availability includes the reviewed mutation version and is correlated to the chosen service, dentist, and clinic-local date. Selection changes abort requests and advance a generation counter so stale availability cannot replace newer state. The backend database lock, quota, cancellation release, and reschedule rollback remain the concurrency authorities.
 
 ## Localization
 
@@ -73,7 +93,7 @@ Otherwise the UI renders a deliberate accessible placeholder. Contact and social
 
 Ordinary public catalog reads use `next.revalidate: 300`. Before/after list and detail reads deliberately use `cache: "no-store"`; the same wrappers serve collection pages, detail pages, home previews, and sitemap generation, so withdrawn consent is reflected on the next request rather than after a cache interval. Route loading UI is deliberate and nonblank. Collection pages distinguish empty content from upstream failure. Expected not-found records become the localized 404 page; unexpected failures enter the localized error boundary. Error rendering does not expose backend messages, stacks, secrets, or patient data.
 
-Booking catalog eligibility and clinic settings are fetched fresh rather than inheriting editorial revalidation. Live availability and mutations use the dedicated booking client with no-store, omitted browser credentials, bounded timeouts, runtime response checks, normalized non-sensitive errors, and `Retry-After` parsing. Authenticated future staff state must use a separate boundary.
+Booking catalog eligibility and clinic settings are fetched fresh rather than inheriting editorial revalidation. Live availability and mutations use the dedicated booking client with no-store, omitted browser credentials, bounded timeouts, runtime response checks, normalized non-sensitive errors, and `Retry-After` parsing. Staff catalog labels are built server-side from the same fresh public-safe catalog view models; all patient and mutation state is loaded only through the authenticated client boundary.
 
 ## Browser and response security
 
@@ -93,7 +113,7 @@ The public frontend has no secrets. `.env*` files are ignored except the safe `.
 - reduced-motion handling, 44px-or-larger interactive targets, and no horizontal overflow at 375, 430, 768, 1024, or 1440 px
 - semantic pressed-state service/dentist/slot controls, native mobile date input, explicit progress summary, live loading/results, focus movement after stale-slot and invalid-selection failures, and connected form labels/hints
 
-Automated axe checks cover representative landing, collection, dentist detail, and before/after detail pages. Automated results complement rather than replace deployment-time assistive-technology testing.
+Automated axe checks cover representative public pages and a staff appointment detail view. Staff forms use native labels, deliberate status/alert regions, keyboard-safe Base UI dialogs/sheets with focus management, and mobile cards instead of forcing the desktop table into narrow viewports. Automated results complement rather than replace deployment-time assistive-technology testing.
 
 ## SEO
 
@@ -103,9 +123,9 @@ Each page produces a canonical URL and HY/RU/EN alternates. Paginated before/aft
 
 Unit tests cover environment parsing, localization/fallback, URL safety, public transport behavior, response allowlisting, literal text rendering, loading/error/empty components, production/development security-header branches, booking dates, stale-response races, idempotency lifecycle, failure recovery, challenge isolation, privacy, and basic accessibility. The intended unit boundary is explicit in the coverage configuration, and thresholds are enforced against that complete boundary.
 
-Playwright uses a localhost-only deterministic mock API. Browser requests to non-local hosts are aborted, the challenge provider is explicitly disabled, and the Cloudinary cloud name is deliberately empty, so no automated test can contact Cloudflare, real Cloudinary, or another external provider. Booking E2E covers entry-point preselection, all locales, pending/confirmed results, uncertain retry key reuse, conflict recovery, error scenarios, accessibility, and the required viewport matrix. The runner uses a fresh `.next-e2e` directory for every run to prevent revalidation-cache pollution between scenarios, then removes only that validated generated directory. It owns and terminates only the Next.js and Playwright process trees it starts, including on interrupt and termination signals.
+Playwright uses a localhost-only deterministic mock API. Browser requests to non-local hosts are aborted, the challenge provider is explicitly disabled, and the Cloudinary cloud name is deliberately empty, so no automated test can contact Cloudflare, real Cloudinary, or another external provider. Public/booking coverage remains intact. Staff E2E adds all three roles, HY/RU/EN shells, login/refresh restoration/logout, noindex/storage/cookie checks, list/filter/create/detail, status/reschedule/cancel mutations, stale CAS/availability refusal, session expiry, password setup/reset, responsive navigation, and axe. The runner uses a fresh `.next-e2e` directory for every run to prevent revalidation-cache pollution between scenarios, then removes only that validated generated directory. It owns and terminates only the Next.js and Playwright process trees it starts, including on interrupt and termination signals.
 
-`npm run dev:preview` reuses the same fixtures in a separate localhost-only launcher on ports 3000/5000. It imports mock data only from the test tree, prints homepage/booking/scenario URLs, and on Ctrl+C closes mock connections, terminates only its Next child tree, and removes only the validated `.next-preview` directory. Production code never imports the preview server or fixtures.
+`npm run dev:preview` reuses the same fixtures in a separate localhost-only launcher on ports 3000/5000. It imports mock data only from the test tree and prints public/booking/staff URLs, local-only admin/receptionist/dentist accounts, reset/setup links, and scenario controls. The mock implements credentialed localhost CORS, an HttpOnly rotating cookie, bearer authorization, realistic role denial, representative appointment states, version/availability conflicts, and expiry without contacting external services. On Ctrl+C the launcher closes mock connections, terminates only its Next child tree, and removes only the validated `.next-preview` directory. Production code never imports the preview server, identities, credentials, tokens, or fixtures.
 
 The backend regression suite remains responsible for disposable MongoDB safety and fake Cloudinary enforcement. Frontend E2E does not start or mutate a real backend database.
 
