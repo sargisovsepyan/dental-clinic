@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { StaffApiError, type StaffAppointment } from "@/api/staff-client";
 import { StaffAppointmentDetail } from "@/components/staff/staff-appointment-detail";
 import { StaffAppointments } from "@/components/staff/staff-appointments";
+import { CreateAppointmentDialog } from "@/components/staff/staff-create-appointment";
 import { staffMessages } from "@/i18n/staff-messages";
 
 vi.mock("next/link", () => ({ default: ({ href, ...props }: ComponentProps<"a">) => <a href={href} {...props} /> }));
@@ -54,6 +55,50 @@ beforeEach(() => {
 });
 
 describe("staff appointment workspace", () => {
+  it("requires fresh availability after a successful staff-created appointment", async () => {
+    api.getAvailability.mockResolvedValue({
+      date: appointment.date, timezone: "Asia/Yerevan", available: true, reason: null,
+      dentist: { id: catalog.dentists[0].id }, service: { id: catalog.services[0].id }, rules: {},
+      slots: [{ start: "09:00", end: "10:00", startAt: appointment.startAt, endAt: appointment.endAt }],
+    });
+    api.createAppointment.mockResolvedValue(appointment);
+    const onCreated = vi.fn();
+    render(<CreateAppointmentDialog catalog={catalog} onCreated={onCreated} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "New appointment" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(screen.getByLabelText("Patient name"), { target: { value: "Created Patient" } });
+    fireEvent.change(screen.getByLabelText("Patient phone"), { target: { value: "+374 99 000099" } });
+    fireEvent.change(dialog.querySelectorAll("select")[0], { target: { value: catalog.services[0].id } });
+    fireEvent.change(dialog.querySelectorAll("select")[1], { target: { value: catalog.dentists[0].id } });
+    fireEvent.change(screen.getByLabelText("Date", { selector: "input" }), { target: { value: appointment.date } });
+    fireEvent.click(screen.getByRole("button", { name: "Check availability" }));
+    fireEvent.click(await screen.findByRole("button", { name: /09:00–10:00/ }));
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Create appointment" }));
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(appointment));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "New appointment" }));
+
+    const reopened = screen.getByRole("dialog");
+    expect(reopened.querySelectorAll("select")[0]).toHaveValue("");
+    expect(reopened.querySelectorAll("select")[1]).toHaveValue("");
+    expect(screen.getByLabelText("Date", { selector: "input" })).toHaveValue("");
+    expect(screen.queryByRole("button", { name: /09:00–10:00/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Create appointment" })).toBeDisabled();
+    expect(api.getAvailability).toHaveBeenCalledTimes(1);
+    expect(api.createAppointment).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(reopened.querySelectorAll("select")[0], { target: { value: catalog.services[0].id } });
+    fireEvent.change(reopened.querySelectorAll("select")[1], { target: { value: catalog.dentists[0].id } });
+    fireEvent.change(screen.getByLabelText("Date", { selector: "input" }), { target: { value: appointment.date } });
+    expect(screen.queryByRole("button", { name: /09:00–10:00/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Create appointment" })).toBeDisabled();
+    expect(api.getAvailability).toHaveBeenCalledTimes(1);
+    expect(api.createAppointment).toHaveBeenCalledTimes(1);
+  });
+
   it("renders a bounded appointment list and applies non-PII filters", async () => {
     render(<StaffAppointments catalog={catalog} />);
     expect(await screen.findAllByText("Preview Patient")).not.toHaveLength(0);

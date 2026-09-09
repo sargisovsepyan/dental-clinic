@@ -42,6 +42,14 @@ export function CreateAppointmentDialog({ catalog, onCreated }: { catalog: Staff
     setLoadingSlots(false);
   }
 
+  function resetSchedulingState() {
+    setServiceId("");
+    setDentistId("");
+    setDate("");
+    setError(null);
+    invalidateAvailability();
+  }
+
   async function loadAvailability(): Promise<boolean> {
     if (!serviceId || !dentistId || !date || loadingSlots) return false;
     invalidateAvailability();
@@ -84,6 +92,7 @@ export function CreateAppointmentDialog({ catalog, onCreated }: { catalog: Staff
         consentMethod: String(data.get("consentMethod")) as "phone" | "in_person",
         source: "phone",
       });
+      resetSchedulingState();
       onCreated(created);
       setOpen(false);
     } catch (caught) {

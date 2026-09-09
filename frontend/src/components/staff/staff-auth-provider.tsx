@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { StaffApiError, staffApi, type StaffUser } from "@/api/staff-client";
 import type { Locale } from "@/i18n/locales";
 import { staffMessages, type StaffMessages } from "@/i18n/staff-messages";
@@ -24,12 +24,23 @@ type StaffAuthValue = {
 const StaffAuthContext = createContext<StaffAuthValue | null>(null);
 const channelName = "dental-clinic-staff-session";
 
+function createDocumentSessionId() {
+  const entropy = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(entropy);
+  return Array.from(entropy, (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
 export function StaffAuthProvider({ locale, children }: { locale: Locale; children: React.ReactNode }) {
   const copy = staffMessages[locale];
   const [status, setStatus] = useState<SessionStatus>("loading");
   const [user, setUser] = useState<StaffUser | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const tabId = useId();
+  const documentSessionId = useRef<string | null>(null);
+
+  const getDocumentSessionId = useCallback(() => {
+    documentSessionId.current ??= createDocumentSessionId();
+    return documentSessionId.current;
+  }, []);
 
   const clearLocalSession = useCallback((next: Exclude<SessionStatus, "authenticated" | "loading"> = "anonymous") => {
     staffApi.clearSession();
@@ -40,9 +51,9 @@ export function StaffAuthProvider({ locale, children }: { locale: Locale; childr
   const publishClear = useCallback(() => {
     if (typeof BroadcastChannel === "undefined") return;
     const channel = new BroadcastChannel(channelName);
-    channel.postMessage({ type: "session-cleared", source: tabId });
+    channel.postMessage({ type: "session-cleared", source: getDocumentSessionId() });
     channel.close();
-  }, [tabId]);
+  }, [getDocumentSessionId]);
 
   const retryBootstrap = useCallback(async () => {
     setStatus("loading");
@@ -76,16 +87,17 @@ export function StaffAuthProvider({ locale, children }: { locale: Locale; childr
 
   useEffect(() => {
     if (typeof BroadcastChannel === "undefined") return;
+    const source = getDocumentSessionId();
     const channel = new BroadcastChannel(channelName);
     channel.onmessage = (event: MessageEvent<unknown>) => {
       if (event.data && typeof event.data === "object" && "type" in event.data &&
-          event.data.type === "session-cleared" && (!("source" in event.data) || event.data.source !== tabId)) {
+          event.data.type === "session-cleared" && (!("source" in event.data) || event.data.source !== source)) {
         clearLocalSession();
         setNotice(copy.sessionEnded);
       }
     };
     return () => channel.close();
-  }, [clearLocalSession, copy.sessionEnded, tabId]);
+  }, [clearLocalSession, copy.sessionEnded, getDocumentSessionId]);
 
   const login = useCallback(async (email: string, password: string) => {
     setNotice(null);

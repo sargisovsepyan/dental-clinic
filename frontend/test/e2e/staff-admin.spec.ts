@@ -78,6 +78,74 @@ test("staff login, refresh restoration, logout, and browser-only token boundarie
   expect((await context.cookies()).some((cookie) => cookie.name === "preview_refresh")).toBe(false);
 });
 
+test("logout clears another authenticated tab and a late refresh cannot restore it", async ({ page, context, request }) => {
+  await login(page);
+  await expect(page.getByRole("heading", { name: "Clinic operations" })).toBeVisible();
+
+  const secondPage = await context.newPage();
+  await secondPage.route("**/*", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname === "127.0.0.1" || url.hostname === "localhost") await route.continue();
+    else await route.abort("blockedbyclient");
+  });
+  await secondPage.goto("/en/staff");
+  await expect(secondPage.getByText("Preview Admin").first()).toBeVisible();
+  expect(await secondPage.evaluate(() => ({
+    local: Object.entries(localStorage), session: Object.entries(sessionStorage),
+  }))).toEqual({ local: [], session: [] });
+
+  const lateAuthResponse = await request.post("http://127.0.0.1:5100/api/v1/auth/login", {
+    data: { email: previewAccounts.admin.email, password: previewPassword },
+  });
+  expect(lateAuthResponse.ok()).toBe(true);
+  const lateAuth = (await lateAuthResponse.json()).data;
+  let releaseRefresh!: () => void;
+  const refreshRelease = new Promise<void>((resolve) => { releaseRefresh = resolve; });
+  let observeRefresh!: () => void;
+  const refreshObserved = new Promise<void>((resolve) => { observeRefresh = resolve; });
+  let observeRefreshFulfilled!: () => void;
+  const refreshFulfilled = new Promise<void>((resolve) => { observeRefreshFulfilled = resolve; });
+  await secondPage.route("**/api/v1/auth/refresh", async (route) => {
+    observeRefresh();
+    await refreshRelease;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: {
+        "access-control-allow-origin": "http://127.0.0.1:3100",
+        "access-control-allow-credentials": "true",
+      },
+      body: JSON.stringify({ success: true, data: lateAuth }),
+    });
+    observeRefreshFulfilled();
+  });
+
+  await secondPage.reload();
+  await refreshObserved;
+  await expect(secondPage.getByRole("status")).toContainText("Checking your secure session");
+
+  try {
+    await page.getByRole("button", { name: "Sign out" }).last().click();
+    await expect(page).toHaveURL(/\/en\/staff\/login$/);
+    await expect(secondPage).toHaveURL(/\/en\/staff\/login$/);
+    await expect(secondPage.getByRole("heading", { name: "Sign in to the clinic workspace" })).toBeVisible();
+    await expect(secondPage.getByText("Preview Admin")).toHaveCount(0);
+  } finally {
+    releaseRefresh();
+  }
+
+  await refreshFulfilled;
+  await expect(secondPage.getByRole("heading", { name: "Sign in to the clinic workspace" })).toBeVisible();
+  await secondPage.waitForTimeout(250);
+  await expect(secondPage).toHaveURL(/\/en\/staff\/login$/);
+  await expect(secondPage.getByText("Preview Admin")).toHaveCount(0);
+
+  await secondPage.unroute("**/api/v1/auth/refresh");
+  await secondPage.goto("/en/staff");
+  await expect(secondPage).toHaveURL(/\/en\/staff\/login$/);
+  await expect(secondPage.getByRole("heading", { name: "Sign in to the clinic workspace" })).toBeVisible();
+});
+
 test("HY, RU, and EN staff shells render the correct locale without overflow", async ({ page }) => {
   for (const locale of ["hy", "ru", "en"] as const) {
     await login(page, "admin", locale);
@@ -131,6 +199,19 @@ test("appointment creation and non-PII filtering use confirmed server state", as
   await page.getByRole("button", { name: "Create appointment" }).click();
   await expect(page.getByText("Appointment created.")).toBeVisible();
   await expect(page.getByText("Created Preview").filter({ visible: true }).first()).toBeVisible();
+
+  await page.getByRole("button", { name: "New appointment" }).click();
+  const reopenedDialog = page.getByRole("dialog");
+  await expect(reopenedDialog.locator("select").nth(0)).toHaveValue("");
+  await expect(reopenedDialog.locator("select").nth(1)).toHaveValue("");
+  await expect(reopenedDialog.locator('input[type="date"]')).toHaveValue("");
+  await expect(reopenedDialog.getByRole("button", { name: /12:00–13:00/ })).toHaveCount(0);
+  await expect(reopenedDialog.getByRole("button", { name: "Create appointment" })).toBeDisabled();
+  await reopenedDialog.locator("select").nth(0).selectOption("64b000000000000000000011");
+  await reopenedDialog.locator("select").nth(1).selectOption("64b000000000000000000021");
+  await reopenedDialog.locator('input[type="date"]').fill(appointmentDate);
+  await expect(reopenedDialog.getByRole("button", { name: /12:00–13:00/ })).toHaveCount(0);
+  await expect(reopenedDialog.getByRole("button", { name: "Create appointment" })).toBeDisabled();
 });
 
 test("status, reschedule, and cancellation mutations refetch authoritative versions", async ({ page }) => {
