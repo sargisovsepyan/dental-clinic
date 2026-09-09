@@ -19,6 +19,7 @@ The backend remains authoritative for identity, role, refresh-token rotation, st
 - Initial restoration performs one refresh followed by `/auth/me` identity confirmation. A protected `401` receives at most one refresh and one request retry. A `403` preserves the authenticated session and renders an authorization boundary.
 - Concurrent same-tab refresh demand shares one promise. Refresh, login, and logout are serialized locally; supporting browsers also use Web Locks for the cross-tab refresh-cookie critical section.
 - A session epoch prevents a late refresh or protected response from restoring state after logout. Logout clears and broadcasts local state before awaiting backend revocation, while still serializing revocation behind any in-flight refresh. A new login cannot race behind a late logout that would revoke it.
+- Broadcast logout propagation uses a cryptographically random, 128-bit source identifier created lazily for each mounted browser document. It exists only in a React ref: it is not persisted, rendered, placed in a URL, sent to the backend, or logged. This preserves SSR/hydration output while preventing separate tabs from mistaking each other for the message source.
 - Uncertain refresh requests are never retried automatically.
 
 Password setup and reset tokens are accepted only from URL fragments, captured into an ephemeral ref, and immediately scrubbed with `history.replaceState`, including same-path hash navigation and React development double effects. Tokens are sent only in POST bodies and cleared after use. Login, setup, reset, and change-password forms enforce the backend's exact minimum of six Unicode characters and maximum of 72 UTF-8 bytes. Successful password change/reset relies on backend session invalidation and returns the UI to sign-in.
@@ -36,6 +37,7 @@ The appointment workspace includes:
 - date/status/dentist/service filters, bounded pagination, desktop tables, and mobile cards;
 - patient contact information only inside authenticated list/detail views, never in filter URLs;
 - a staff-create dialog with fresh eligible catalog data, correlated live availability, explicit phone/in-person consent method, and no invented consent evidence;
+- successful staff creation invalidates the reviewed availability generation and clears service, dentist, date, slot, slot controls, and loaded/error state before the dialog closes, so reopening cannot submit until availability is fetched and reviewed again;
 - detail views with clinic-timezone labels, permitted status actions, cancellation, and rescheduling;
 - accessible alerts, disabled/progress states, labeled controls, keyboard-safe dialogs, and authoritative result rendering.
 
@@ -75,6 +77,15 @@ Issues found and closed during adversarial review included:
 
 The final preview shutdown implementation uses raw ETX handling plus normal signal handling, bounded owned-tree termination, a child-exit fence, drained shutdown output, mock connection closure, and validated cache deletion. Commit `ea199b6` adds focused lifecycle regression coverage. No unresolved critical or high-severity code defect is known.
 
+## Independent-review corrective pass
+
+The final independent review found and closed two remaining Phase 3A defects in corrective commit `d7bc9f4` without changing the backend or expanding Phase 3B scope:
+
+- The BroadcastChannel source had used React `useId()`, whose purpose is stable React/DOM identity rather than cross-document uniqueness. Two tabs could therefore share a source value and ignore a remote `session-cleared` event. The provider now creates one cryptographically random 128-bit identifier per mounted browser document, held only in memory. Same-tab session epochs, Web Locks refresh serialization, and logout broadcasting remain intact.
+- The successful staff-create path closed its dialog without clearing controlled scheduling and availability state. It now aborts/increments the availability generation and resets service, dentist, date, selected slot, returned slots, loaded/loading state, and stale errors. Patient fields remain normal dialog-local controls, while every later scheduling attempt must perform a fresh availability review.
+
+Regression evidence includes a real two-page Chromium test in one browser context. Both pages establish authenticated state, page A logs out while page B has a deliberately delayed but valid refresh response, page B immediately loses protected UI and returns to sign-in, and release of the late response cannot restore the session. The same test verifies no identifier is written to local or session storage. Focused component and browser checks also create an appointment, reopen the dialog, restore the same scheduling selections, and prove the previous slot is absent and Create remains disabled until availability is fetched again.
+
 ## Deterministic local preview
 
 `npm run dev:preview` owns localhost ports 3000 and 5000, uses only test-tree fixtures, and prints public/staff URLs, fake accounts, password setup/reset links, and scenario controls. The local accounts are:
@@ -89,7 +100,7 @@ Ctrl+C now follows one bounded cleanup path: stop only the owned Next.js tree, c
 
 ## Browser and accessibility QA
 
-The complete deterministic Chromium suite passed 25/25, including nine staff-focused scenarios. It exercises all three roles, login/restoration/logout, list/filter/create/detail, status/reschedule/cancel mutations, double-submit protection, stale CAS refusal, stale availability refusal, expiry, setup/reset, locales, the responsive matrix, noindex/storage/cookie assertions, external-network blocking, and axe checks.
+The complete deterministic Chromium suite passed 26/26, including ten staff-focused scenarios. It exercises all three roles, login/restoration/logout, cross-tab logout with a valid late refresh race, list/filter/create/reopen/detail, status/reschedule/cancel mutations, double-submit protection, stale CAS refusal, stale availability refusal, expiry, setup/reset, locales, the responsive matrix, noindex/storage/cookie assertions, external-network blocking, and axe checks.
 
 The final manual real-browser pass additionally inspected:
 
@@ -110,13 +121,15 @@ The manual pass did not submit another destructive mock mutation. The frozen Chr
 Frontend gates:
 
 - `npm run api:types` — passed against the validated repository OpenAPI document;
-- `npm run typecheck` — passed after the final preview lifecycle fix;
-- `npm run lint` — passed with zero warnings after the final preview lifecycle fix;
-- `npm run test:coverage` — 15 files and 98 tests passed;
+- `npm run typecheck` — passed after the final corrective changes;
+- `npm run lint` — passed with zero warnings after the final corrective changes;
+- `npm run test:coverage` — 15 files and 99 tests passed;
 - coverage — 82.25% statements (714/868), 81.27% branches (725/892), 87.06% functions (175/201), and 86.07% lines (649/754);
 - preview lifecycle regression — 4/4 focused tests passed;
-- production `npm run build` — passed with HTTPS example origins, isolated `.next-phase3-final`, and every public/staff route; the validated build cache was removed;
-- `npm run test:e2e` — 25/25 Chromium tests passed;
+- production `npm run build` — passed with HTTPS example origins, isolated `.next-phase3-corrective`, and every public/staff route; the validated build cache was removed;
+- focused successful-create reset component suite — 9/9 tests passed;
+- focused cross-tab logout/late-refresh Chromium regression — 1/1 passed;
+- `npm run test:e2e` — 26/26 Chromium tests passed;
 - `npm audit --omit=dev --audit-level=moderate` — 0 vulnerabilities;
 - `npm audit --audit-level=moderate` — 0 vulnerabilities.
 
@@ -146,6 +159,7 @@ The focused and full backend evidence explicitly covers refresh rotation/replay,
 - `022e482 fix: remediate backend dependency advisories`
 - `ea199b6 fix: harden preview shutdown lifecycle`
 - `docs: finalize staff admin foundation readiness` (the documentation commit containing this report)
+- `d7bc9f4 fix: close final staff session and scheduling edge cases`
 
 History was not reset, restored, rebased, squashed, force-written, pushed, or merged.
 
@@ -175,5 +189,21 @@ PHASE 3A COMPLETE: YES
 READY FOR PHASE 3B CONTENT / SCHEDULE / STAFF MANAGEMENT: YES
 
 BACKEND CHANGED DURING PHASE 3A: YES
+
+CROSS-TAB SESSION CLEAR FIXED: YES
+
+STAFF CREATE STALE SLOT FIXED: YES
+
+FULL FRONTEND VERIFICATION PASSED: YES
+
+PHASE 3A COMPLETE AFTER INDEPENDENT REVIEW: YES
+
+FRONTEND AUDITS CLEAN: YES
+
+SAFE TO MERGE INTO MAIN: YES
+
+READY FOR PHASE 3B: YES
+
+BACKEND CHANGED DURING CORRECTIVE PASS: NO
 
 Final branch: `feature/staff-admin-foundation`. Final working tree: clean after the documentation commit. Nothing was pushed or merged.
