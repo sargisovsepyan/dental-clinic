@@ -4,6 +4,12 @@ import net from "node:net";
 import path from "node:path";
 import process from "node:process";
 import { createMockApiServer, previewAccounts, previewPassword } from "../e2e/mock-api.mjs";
+import {
+  createPreviewChildIsolation,
+  finishPreviewLifecycle,
+  preparePreviewStdin,
+  waitForChildTermination,
+} from "./preview-lifecycle.mjs";
 
 const host = "127.0.0.1";
 const frontendPort = 3000;
@@ -30,8 +36,13 @@ const stopProcessTree = async (child) => {
     await new Promise((resolve) => {
       const killer = spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
       killer.once("error", resolve);
-      killer.once("exit", resolve);
+      killer.once("close", resolve);
     });
+    await waitForChildTermination(child);
+    // taskkill can report completion before descendant file watchers have fully
+    // quiesced. Fence cache deletion so Next.js never observes its live cache
+    // disappearing during shutdown.
+    await new Promise((resolve) => setTimeout(resolve, 500));
   } else {
     try { process.kill(-child.pid, "SIGTERM"); } catch { /* already stopped */ }
   }
@@ -51,7 +62,6 @@ await new Promise((resolve, reject) => {
 
 const next = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--hostname", host, "--port", String(frontendPort)], {
   cwd: projectRoot,
-  detached: process.platform !== "win32",
   env: {
     ...process.env,
     NEXT_PUBLIC_API_URL: `http://${host}:${apiPort}/api/v1`,
@@ -61,18 +71,27 @@ const next = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", 
     NEXT_PUBLIC_TURNSTILE_SITE_KEY: "",
     NEXT_DIST_DIR: distDir,
   },
-  shell: false,
-  stdio: ["ignore", "inherit", "inherit"],
-  windowsHide: true,
+  ...createPreviewChildIsolation(),
 });
+next.stdout?.pipe(process.stdout);
+next.stderr?.pipe(process.stderr);
 
 let cleaning;
+let releaseStdin = () => {};
 const cleanup = () => {
   cleaning ??= (async () => {
-    await stopProcessTree(next);
-    api.closeAllConnections();
-    await new Promise((resolve) => api.close(resolve));
-    await rm(distPath, { force: true, maxRetries: 3, recursive: true, retryDelay: 250 });
+    try {
+      next.stdout?.unpipe(process.stdout);
+      next.stderr?.unpipe(process.stderr);
+      next.stdout?.resume();
+      next.stderr?.resume();
+      await stopProcessTree(next);
+      api.closeAllConnections();
+      await new Promise((resolve) => api.close(resolve));
+      await rm(distPath, { force: true, maxRetries: 3, recursive: true, retryDelay: 250 });
+    } finally {
+      releaseStdin();
+    }
   })();
   return cleaning;
 };
@@ -99,17 +118,15 @@ for (const [signal, exitCode] of [["SIGINT", 130], ["SIGTERM", 143]]) {
   process.once(signal, () => requestShutdown(exitCode));
 }
 
-// Some integrated Windows terminals forward Ctrl+C as ETX on stdin instead of
-// raising SIGINT. Keep the launcher, rather than Next.js, as the sole stdin
-// owner so both terminal behaviors run the same bounded cleanup.
-process.stdin.resume();
-process.stdin.on("data", (chunk) => {
+const stdinDataHandler = (chunk) => {
   if (chunk.includes(3)) requestShutdown(130);
-});
+};
+// Raw mode makes integrated terminals deliver Ctrl+C as ETX to this launcher;
+// normal terminals can still use the SIGINT handler above.
+releaseStdin = preparePreviewStdin(process.stdin, stdinDataHandler);
 
-const exitCode = await new Promise((resolve) => {
-  next.once("error", () => resolve(1));
-  next.once("exit", (code, signal) => resolve(signal ? 1 : (code ?? 1)));
+const exitCode = await finishPreviewLifecycle({
+  child: next,
+  cleanup,
 });
-await cleanup();
 process.exitCode = exitCode;
