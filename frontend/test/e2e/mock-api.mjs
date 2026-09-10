@@ -4,10 +4,10 @@ import { randomUUID } from "node:crypto";
 const timestamp = "2026-01-01T00:00:00.000Z";
 const image = (name) => ({
   publicId: `tests/${name}`,
-  secureUrl: `https://res.cloudinary.com/test-fixture/image/upload/${name}.webp`,
+  secureUrl: "/og.png",
   width: 1200,
   height: 800,
-  format: "webp",
+  format: "png",
   bytes: 1000,
 });
 
@@ -321,6 +321,11 @@ const allowedScenarios = [
   "staff-expired",
   "management-schedule-conflict",
   "management-schedule-stale",
+  "media-conflict",
+  "media-replacement-failure",
+  "media-pair-failure",
+  "media-unsupported",
+  "media-rate-limit",
 ];
 
 function readJson(request) {
@@ -338,6 +343,54 @@ function readJson(request) {
   });
 }
 
+function readMultipart(request) {
+  return new Promise((resolve, reject) => {
+    const contentType = String(request.headers["content-type"] || "");
+    const boundaryMatch = contentType.match(/^multipart\/form-data;\s*boundary=(?:"([^"]+)"|([^;]+))$/i);
+    if (!boundaryMatch) return reject(new Error("Invalid multipart boundary"));
+    const boundary = boundaryMatch[1] || boundaryMatch[2];
+    const chunks = [];
+    let size = 0;
+    request.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > 12 * 1024 * 1024) {
+        reject(new Error("Request body too large"));
+        request.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      const parts = Buffer.concat(chunks).toString("latin1").split(`--${boundary}`);
+      const fields = {};
+      const files = {};
+      for (const rawPart of parts) {
+        const part = rawPart.replace(/^\r\n/, "").replace(/\r\n$/, "");
+        if (!part || part === "--") continue;
+        const separator = part.indexOf("\r\n\r\n");
+        if (separator < 0) continue;
+        const headers = part.slice(0, separator);
+        const content = part.slice(separator + 4).replace(/\r\n--$/, "").replace(/\r\n$/, "");
+        const disposition = headers.match(/content-disposition:\s*form-data;\s*name="([^"]+)"(?:;\s*filename="([^"]*)")?/i);
+        if (!disposition) continue;
+        const contentBuffer = Buffer.from(content, "latin1");
+        if (disposition[2] !== undefined) {
+          const mediaType = headers.match(/content-type:\s*([^\r\n]+)/i)?.[1]?.trim().toLowerCase() || "";
+          files[disposition[1]] = { filename: disposition[2], mediaType, size: contentBuffer.length };
+        } else {
+          fields[disposition[1]] = contentBuffer.toString("utf8");
+        }
+      }
+      resolve({ fields, files });
+    });
+    request.on("error", reject);
+  });
+}
+
+function parseMultipartJson(value, fallback = {}) {
+  try { return JSON.parse(value || "{}"); } catch { return fallback; }
+}
+
 export function createMockApiServer(port = 5100, initialScenario = "success") {
   let scenario = allowedScenarios.includes(initialScenario) ? initialScenario : "success";
   let conflictReturned = false;
@@ -348,6 +401,10 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
   let managedServices = [];
   let managedDentists = [];
   let managedClinic = null;
+  let managedGallery = [];
+  let managedBeforeAfter = [];
+  let mediaCleanupJobs = [];
+  let mediaSequence = 0;
   let scheduleExceptions = [];
   let clinicClosures = [];
   const idempotentResults = new Map();
@@ -389,6 +446,45 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
     managedClinic = structuredClone(clinic);
     scheduleExceptions = [];
     clinicClosures = [];
+    managedGallery = [structuredClone(galleryImage)];
+    managedBeforeAfter = [beforeAfter, secondBeforeAfter].map((item) => ({
+      ...structuredClone(item),
+      publicationStatus: "published",
+      consentStatus: "active",
+      consentPolicyVersion: "preview-2026-01",
+      consentMethod: "written",
+      consentConfirmedAt: timestamp,
+      consentRecordedBy: previewAccounts.admin.id,
+      externalConsentReference: "",
+      withdrawnAt: null,
+      withdrawnBy: null,
+      withdrawalReason: "",
+      purgedAt: null,
+      purgedBy: null,
+      consentHistory: [{
+        action: "confirmed", policyVersion: "preview-2026-01", method: "written",
+        actor: previewAccounts.admin.id, occurredAt: timestamp, reason: "",
+      }],
+      createdBy: previewAccounts.admin,
+    }));
+    mediaCleanupJobs = [{
+      _id: "64b000000000000000000061",
+      publicId: "tests/orphan-preview",
+      reason: "replacement",
+      sourceType: "dentist",
+      sourceId: dentist._id,
+      status: "failed",
+      attempts: 3,
+      maxAttempts: 5,
+      nextAttemptAt: timestamp,
+      lockedAt: null,
+      lockedBy: "",
+      lastErrorCode: "provider_unavailable",
+      completedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }];
+    mediaSequence = 0;
     managementConflictReturned = false;
   };
   resetManagement();
@@ -406,6 +502,22 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
     translations: value.translations,
     isActive: value.isActive,
     bookingEnabled: value.bookingEnabled,
+  });
+  const nextMediaId = () => `65c${(++mediaSequence).toString(16).padStart(21, "0")}`;
+  const publicBeforeAfter = (item) => ({
+    _id: item._id,
+    title: item.title,
+    description: item.description,
+    translations: item.translations,
+    service: item.service,
+    dentist: item.dentist,
+    beforeImage: item.beforeImage,
+    afterImage: item.afterImage,
+    isFeatured: item.isFeatured,
+    isActive: item.isActive,
+    sortOrder: item.sortOrder,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
   });
   const scheduleRevisionConflict = (response, currentScheduleRevision) => send(response, 409, {
     success: false,
@@ -861,6 +973,212 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
 
       return send(response, 405, { success: false, code: "METHOD_NOT_ALLOWED", message: "Method not allowed" });
     }
+
+    const galleryItemRoute = url.pathname.match(/^\/api\/v1\/media\/gallery\/([0-9a-f]{24})(?:\/(restore))?$/i);
+    const dentistMediaRoute = url.pathname.match(/^\/api\/v1\/media\/dentists\/([0-9a-f]{24})\/photo$/i);
+    const serviceMediaRoute = url.pathname.match(/^\/api\/v1\/media\/services\/([0-9a-f]{24})\/image$/i);
+    const cleanupRoute = url.pathname.match(/^\/api\/v1\/media\/cleanup-jobs(?:\/([0-9a-f]{24})\/retry)?$/i);
+    const beforeAfterAdminRoute = url.pathname.match(/^\/api\/v1\/before-after\/([0-9a-f]{24})(?:\/(restore|consent\/withdraw|purge|before-image|after-image))?$/i);
+    const mediaProtected =
+      url.pathname === "/api/v1/media/gallery/admin" ||
+      (url.pathname === "/api/v1/media/gallery" && request.method === "POST") ||
+      Boolean(galleryItemRoute) || Boolean(dentistMediaRoute) || Boolean(serviceMediaRoute) ||
+      Boolean(cleanupRoute) || url.pathname === "/api/v1/before-after/admin/all" ||
+      (url.pathname === "/api/v1/before-after" && request.method === "POST") ||
+      (Boolean(beforeAfterAdminRoute) && request.method !== "GET");
+    if (mediaProtected) {
+      const user = authenticatedUser(request);
+      if (!user) return send(response, 401, { success: false, code: "UNAUTHORIZED", message: "Authentication required" });
+      if (user.role !== "admin") return send(response, 403, { success: false, code: "FORBIDDEN", message: "Access denied" });
+      if (scenario === "media-conflict" && request.method !== "GET") {
+        return send(response, 409, { success: false, code: "MEDIA_STATE_CHANGED", message: "Synthetic media conflict" });
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/v1/media/gallery/admin") {
+        return send(response, 200, { success: true, data: { images: managedGallery } });
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/media/gallery") {
+        if (scenario === "media-rate-limit") return send(response, 429, { success: false, code: "RATE_LIMITED" }, { "retry-after": "60" });
+        if (scenario === "media-unsupported") return send(response, 415, { success: false, code: "UNSUPPORTED_MEDIA_TYPE" });
+        const form = await readMultipart(request).catch(() => null);
+        const upload = form?.files?.image;
+        const translations = parseMultipartJson(form?.fields?.translations);
+        if (!upload || upload.size === 0 || !translations?.hy?.altText) return send(response, 400, { success: false, code: "VALIDATION_ERROR" });
+        if (upload.size > 5 * 1024 * 1024) return send(response, 413, { success: false, code: "PAYLOAD_TOO_LARGE" });
+        if (!/^image\/(jpeg|png|webp|heic|heif)$/.test(upload.mediaType)) return send(response, 415, { success: false, code: "UNSUPPORTED_MEDIA_TYPE" });
+        const created = {
+          _id: nextMediaId(), type: "clinic_gallery", image: image(`gallery-upload-${mediaSequence}`),
+          altText: translations.hy.altText, caption: translations.hy.caption || "", translations,
+          sortOrder: Number(form.fields.sortOrder || 0), isActive: form.fields.isActive !== "false",
+          createdBy: user, createdAt: timestamp, updatedAt: new Date().toISOString(),
+        };
+        managedGallery = [created, ...managedGallery];
+        return send(response, 201, { success: true, data: { image: created } });
+      }
+      if (galleryItemRoute) {
+        const item = managedGallery.find((entry) => entry._id === galleryItemRoute[1]);
+        if (!item) return send(response, 404, { success: false, code: "NOT_FOUND" });
+        if (request.method === "PATCH" && galleryItemRoute[2] === "restore") {
+          item.isActive = true; item.updatedAt = new Date().toISOString();
+          return send(response, 200, { success: true, data: { image: item } });
+        }
+        if (request.method === "PATCH") {
+          const body = await readJson(request).catch(() => null);
+          if (!body) return send(response, 400, { success: false, code: "VALIDATION_ERROR" });
+          if (body.translations) {
+            for (const [locale, translation] of Object.entries(body.translations)) {
+              item.translations[locale] = { ...(item.translations[locale] || {}), ...translation };
+            }
+            item.altText = item.translations.hy?.altText || item.altText;
+            item.caption = item.translations.hy?.caption || "";
+          }
+          if (Number.isInteger(body.sortOrder)) item.sortOrder = body.sortOrder;
+          item.updatedAt = new Date().toISOString();
+          return send(response, 200, { success: true, data: { image: item } });
+        }
+        if (request.method === "DELETE") {
+          item.isActive = false; item.updatedAt = new Date().toISOString();
+          return send(response, 200, { success: true, message: "Gallery image archived" });
+        }
+      }
+
+      if (dentistMediaRoute || serviceMediaRoute) {
+        const isDentist = Boolean(dentistMediaRoute);
+        const id = (dentistMediaRoute || serviceMediaRoute)[1];
+        const collection = isDentist ? managedDentists : managedServices;
+        const item = collection.find((entry) => entry._id === id);
+        if (!item) return send(response, 404, { success: false, code: "NOT_FOUND" });
+        const field = isDentist ? "photo" : "image";
+        if (request.method === "PUT") {
+          const form = await readMultipart(request).catch(() => null);
+          if (scenario === "media-replacement-failure") return send(response, 503, { success: false, code: "SYNTHETIC_REPLACEMENT_FAILURE" });
+          if (!form?.files?.image) return send(response, 400, { success: false, code: "VALIDATION_ERROR" });
+          item[field] = image(`${isDentist ? "dentist" : "service"}-replacement-${++mediaSequence}`);
+          item.updatedAt = new Date().toISOString();
+          return send(response, 200, { success: true, data: { [isDentist ? "dentist" : "service"]: item } });
+        }
+        if (request.method === "DELETE") {
+          item[field] = null; item.updatedAt = new Date().toISOString();
+          return send(response, 200, { success: true, data: { [isDentist ? "dentist" : "service"]: item } });
+        }
+      }
+
+      if (cleanupRoute) {
+        if (request.method === "GET" && !cleanupRoute[1]) {
+          const status = url.searchParams.get("status");
+          const page = Math.max(1, Number(url.searchParams.get("page") || 1));
+          const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 50)));
+          const filtered = mediaCleanupJobs.filter((job) => !status || job.status === status);
+          const start = (page - 1) * limit;
+          return send(response, 200, { success: true, data: {
+            jobs: filtered.slice(start, start + limit),
+            pagination: { page, limit, total: filtered.length, pages: Math.ceil(filtered.length / limit) },
+          } });
+        }
+        if (request.method === "POST" && cleanupRoute[1]) {
+          const job = mediaCleanupJobs.find((entry) => entry._id === cleanupRoute[1]);
+          if (!job || !["failed", "pending"].includes(job.status)) return send(response, 404, { success: false, code: "NOT_FOUND" });
+          job.status = "pending"; job.attempts = 0; job.updatedAt = new Date().toISOString();
+          return send(response, 202, { success: true, data: { job } });
+        }
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/v1/before-after/admin/all") {
+        const page = Math.max(1, Number(url.searchParams.get("page") || 1));
+        const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 24)));
+        const start = (page - 1) * limit;
+        return send(response, 200, { success: true, data: {
+          cases: managedBeforeAfter.slice(start, start + limit),
+          pagination: { page, limit, total: managedBeforeAfter.length, pages: Math.ceil(managedBeforeAfter.length / limit) },
+        } });
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/before-after") {
+        const form = await readMultipart(request).catch(() => null);
+        if (scenario === "media-pair-failure") return send(response, 503, { success: false, code: "SYNTHETIC_PAIR_ROLLBACK" });
+        const translations = parseMultipartJson(form?.fields?.translations);
+        const active = form?.fields?.isActive !== "false";
+        if (!form?.files?.beforeImage || !form?.files?.afterImage || form?.fields?.consentConfirmed !== "true" || !form?.fields?.consentMethod || (active && !translations?.hy?.title)) {
+          return send(response, 400, { success: false, code: "VALIDATION_ERROR" });
+        }
+        if (form.fields.consentMethod === "external" && !form.fields.externalConsentReference) {
+          return send(response, 400, { success: false, code: "VALIDATION_ERROR" });
+        }
+        const created = {
+          _id: nextMediaId(), title: translations.hy?.title || "", description: translations.hy?.description || "",
+          translations,
+          service: managedServices.find((entry) => entry._id === form.fields.serviceId) || null,
+          dentist: managedDentists.find((entry) => entry._id === form.fields.dentistId) || null,
+          beforeImage: image(`before-upload-${mediaSequence}`), afterImage: image(`after-upload-${mediaSequence}`),
+          publicationStatus: active ? "published" : "draft", consentStatus: "active",
+          consentPolicyVersion: "preview-2026-01", consentMethod: form.fields.consentMethod,
+          consentConfirmedAt: new Date().toISOString(), consentRecordedBy: user.id,
+          externalConsentReference: form.fields.externalConsentReference || "", withdrawnAt: null,
+          withdrawnBy: null, withdrawalReason: "", purgedAt: null, purgedBy: null,
+          consentHistory: [{ action: "confirmed", policyVersion: "preview-2026-01", method: form.fields.consentMethod, actor: user.id, occurredAt: new Date().toISOString(), reason: "" }],
+          isFeatured: form.fields.isFeatured === "true", isActive: active,
+          sortOrder: Number(form.fields.sortOrder || 0), createdBy: user, createdAt: timestamp, updatedAt: new Date().toISOString(),
+        };
+        managedBeforeAfter = [created, ...managedBeforeAfter];
+        return send(response, 201, { success: true, data: { case: created } });
+      }
+      if (beforeAfterAdminRoute) {
+        const item = managedBeforeAfter.find((entry) => entry._id === beforeAfterAdminRoute[1]);
+        const action = beforeAfterAdminRoute[2];
+        if (!item) return send(response, 404, { success: false, code: "NOT_FOUND" });
+        if (request.method === "PATCH" && !action) {
+          const body = await readJson(request).catch(() => null);
+          if (!body) return send(response, 400, { success: false, code: "VALIDATION_ERROR" });
+          if (body.translations) {
+            for (const [locale, translation] of Object.entries(body.translations)) item.translations[locale] = { ...(item.translations[locale] || {}), ...translation };
+            item.title = item.translations.hy?.title || item.title;
+            item.description = item.translations.hy?.description || "";
+          }
+          if (body.serviceId !== undefined) item.service = managedServices.find((entry) => entry._id === body.serviceId) || null;
+          if (body.dentistId !== undefined) item.dentist = managedDentists.find((entry) => entry._id === body.dentistId) || null;
+          if (typeof body.isFeatured === "boolean") item.isFeatured = body.isFeatured;
+          if (Number.isInteger(body.sortOrder)) item.sortOrder = body.sortOrder;
+          item.updatedAt = new Date().toISOString();
+          return send(response, 200, { success: true, data: { case: item } });
+        }
+        if (request.method === "DELETE" && !action) {
+          if (item.consentStatus !== "active") return send(response, 409, { success: false, code: "CONSENT_STATE_CHANGED" });
+          item.isActive = false; item.publicationStatus = "draft"; item.updatedAt = new Date().toISOString();
+          return send(response, 200, { success: true, message: "Case unpublished" });
+        }
+        if (request.method === "PATCH" && action === "restore") {
+          if (item.consentStatus !== "active") return send(response, 409, { success: false, code: "CONSENT_STATE_CHANGED" });
+          item.isActive = true; item.publicationStatus = "published"; item.updatedAt = new Date().toISOString();
+          return send(response, 200, { success: true, data: { case: item } });
+        }
+        if (request.method === "PUT" && ["before-image", "after-image"].includes(action)) {
+          const form = await readMultipart(request).catch(() => null);
+          if (scenario === "media-replacement-failure") return send(response, 503, { success: false, code: "SYNTHETIC_REPLACEMENT_FAILURE" });
+          if (item.consentStatus !== "active" || !form?.files?.image) return send(response, 409, { success: false, code: "CONSENT_STATE_CHANGED" });
+          item[action === "before-image" ? "beforeImage" : "afterImage"] = image(`${action}-${++mediaSequence}`);
+          item.updatedAt = new Date().toISOString();
+          return send(response, 200, { success: true, data: { case: item } });
+        }
+        if (request.method === "POST" && action === "consent/withdraw") {
+          const body = await readJson(request).catch(() => null);
+          if (!body?.reason || item.consentStatus !== "active") return send(response, 409, { success: false, code: "CONSENT_STATE_CHANGED" });
+          item.consentStatus = "withdrawn"; item.publicationStatus = "withdrawn"; item.isActive = false;
+          item.isFeatured = false; item.withdrawnAt = new Date().toISOString(); item.withdrawnBy = user.id;
+          item.withdrawalReason = body.reason; item.updatedAt = new Date().toISOString();
+          return send(response, 200, { success: true, data: { case: item } });
+        }
+        if (request.method === "POST" && action === "purge") {
+          const body = await readJson(request).catch(() => null);
+          if (!body || body.confirmation !== "PERMANENTLY PURGE BEFORE AFTER MEDIA") return send(response, 400, { success: false, code: "VALIDATION_ERROR" });
+          if (item.consentStatus !== "withdrawn") return send(response, 409, { success: false, code: "CONSENT_STATE_CHANGED" });
+          item.beforeImage = null; item.afterImage = null; item.consentStatus = "purged"; item.publicationStatus = "purged";
+          item.externalConsentReference = ""; item.purgedAt = new Date().toISOString(); item.purgedBy = user.id;
+          item.updatedAt = new Date().toISOString();
+          return send(response, 202, { success: true, data: { case: item } });
+        }
+      }
+      return send(response, 405, { success: false, code: "METHOD_NOT_ALLOWED" });
+    }
+
     const appointmentRoute = url.pathname.match(/^\/api\/v1\/appointments\/([0-9a-f]{24})(?:\/(availability|status|cancel|reschedule))?$/i);
     const protectedAppointmentsRoute =
       url.pathname === "/api/v1/appointments/admin" ||
@@ -1051,20 +1369,22 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
         slots,
       } } });
     }
-    if (url.pathname === "/api/v1/media/gallery") return send(response, 200, { success: true, data: { images: [galleryImage] } });
+    if (url.pathname === "/api/v1/media/gallery") return send(response, 200, { success: true, data: { images: managedGallery.filter((item) => item.isActive) } });
     if (url.pathname === "/api/v1/before-after") {
       const page = Number(url.searchParams.get("page") || "1");
       const limit = Number(url.searchParams.get("limit") || "24");
       if (scenario === "empty") {
         return send(response, 200, { success: true, data: { cases: [], pagination: { page, limit, total: 0, pages: 0 } } });
       }
+      const visible = managedBeforeAfter.filter((item) => item.isActive && item.publicationStatus === "published" && item.consentStatus === "active").map(publicBeforeAfter);
+      const legacyFixturePaging = visible.length === 2 && visible.some((item) => item._id === beforeAfter._id) && visible.some((item) => item._id === secondBeforeAfter._id);
       const sitemapRead = limit >= 100;
-      const pages = sitemapRead ? 1 : 2;
-      const cases = sitemapRead ? [beforeAfter, secondBeforeAfter] : page === 2 ? [secondBeforeAfter] : [beforeAfter];
-      return send(response, 200, { success: true, data: { cases, pagination: { page, limit, total: 25, pages } } });
+      const pages = legacyFixturePaging && !sitemapRead ? 2 : Math.ceil(visible.length / limit);
+      const cases = sitemapRead ? visible : legacyFixturePaging ? (page === 2 ? [visible[1]] : [visible[0]]) : visible.slice((page - 1) * limit, page * limit);
+      return send(response, 200, { success: true, data: { cases, pagination: { page, limit, total: legacyFixturePaging ? 25 : visible.length, pages } } });
     }
-    if (url.pathname === `/api/v1/before-after/${beforeAfter._id}`) return send(response, 200, { success: true, data: { case: beforeAfter } });
-    if (url.pathname === `/api/v1/before-after/${secondBeforeAfter._id}`) return send(response, 200, { success: true, data: { case: secondBeforeAfter } });
+    const publicCase = managedBeforeAfter.find((item) => url.pathname === `/api/v1/before-after/${item._id}` && item.isActive && item.publicationStatus === "published" && item.consentStatus === "active");
+    if (publicCase) return send(response, 200, { success: true, data: { case: publicBeforeAfter(publicCase) } });
     return send(response, 404, { success: false, message: "Not found" });
   });
 }

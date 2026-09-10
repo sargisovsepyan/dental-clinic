@@ -66,7 +66,7 @@ const next = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", 
     ...process.env,
     NEXT_PUBLIC_API_URL: `http://${host}:${apiPort}/api/v1`,
     NEXT_PUBLIC_SITE_URL: `http://${host}:${frontendPort}`,
-    NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: "",
+    NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: "preview-local",
     NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: "disabled",
     NEXT_PUBLIC_TURNSTILE_SITE_KEY: "",
     NEXT_DIST_DIR: distDir,
@@ -99,6 +99,8 @@ const cleanup = () => {
 console.log(`Preview site: http://${host}:${frontendPort}/hy`);
 console.log(`Booking flow: http://${host}:${frontendPort}/hy/book`);
 console.log(`Staff login: http://${host}:${frontendPort}/hy/staff/login`);
+console.log(`Admin media: http://${host}:${frontendPort}/hy/staff/media`);
+console.log(`Admin before/after: http://${host}:${frontendPort}/hy/staff/before-after`);
 console.log(`Staff accounts: ${previewAccounts.admin.email}, ${previewAccounts.receptionist.email}, ${previewAccounts.dentist.email}`);
 console.log(`Local-only password (all staff accounts): ${previewPassword}`);
 console.log(`Reset link: http://${host}:${frontendPort}/staff/reset-password#token=preview-reset-token-000000000000000000000000`);
@@ -106,6 +108,7 @@ console.log(`Setup link: http://${host}:${frontendPort}/staff/setup-password#tok
 console.log(`Mock API: http://${host}:${apiPort}/api/v1 (scenario: ${initialScenario})`);
 console.log("Switch scenarios without editing source: open http://127.0.0.1:5000/__test__/scenario/confirmed then refresh the booking page.");
 console.log("Staff scenarios: /__test__/scenario/staff-conflict, /staff-stale-availability, or /staff-expired.");
+console.log("Media scenarios: /__test__/scenario/media-conflict, /media-replacement-failure, /media-pair-failure, /media-unsupported, or /media-rate-limit.");
 
 let shutdownRequested = false;
 const requestShutdown = (exitCode) => {
