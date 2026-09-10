@@ -141,6 +141,41 @@ describe("staff schedule management", () => {
     }]);
   });
 
+  it("discards a stale override acknowledgement before allowing a fresh proposal", async () => {
+    const acknowledgementToken = "b".repeat(64);
+    api.setClinicClosure
+      .mockRejectedValueOnce(new StaffApiError({
+        kind: "http", status: 409, code: "SCHEDULE_CONFLICT_ACKNOWLEDGEMENT_REQUIRED",
+        scheduleConflict: { currentScheduleRevision: 0, conflictCount: 1, conflicts: [conflict], conflictsTruncated: false, acknowledgementToken },
+      }))
+      .mockRejectedValueOnce(new StaffApiError({
+        kind: "http", status: 409, code: "SCHEDULE_REVISION_CONFLICT",
+        scheduleConflict: { currentScheduleRevision: 1 },
+      }))
+      .mockResolvedValueOnce(undefined);
+    api.getClinic.mockResolvedValueOnce(clinic).mockResolvedValue({
+      ...clinic, scheduleRevision: 1, updatedAt: "2026-01-02T00:00:00.000Z",
+    });
+
+    render(<StaffScheduleManagement />);
+    await screen.findByText("Clinic timezone: Asia/Yerevan");
+    fireEvent.click(screen.getByRole("tab", { name: "Clinic date overrides" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add date override" }));
+    fireEvent.change(screen.getByLabelText("Clinic date"), { target: { value: "2026-09-20" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "I reviewed the impact. Save these exact hours" }));
+
+    await waitFor(() => expect(api.setClinicClosure).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Appointments are affected" })).toBeNull());
+    expect(await screen.findByText("Schedule revision: 1")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(api.setClinicClosure).toHaveBeenCalledTimes(3));
+    expect(api.setClinicClosure.mock.calls[2]).toEqual(["2026-09-20", {
+      expectedScheduleRevision: 1, isOpen: false, shifts: [], note: "",
+    }]);
+  });
+
   it("creates and removes dentist date exceptions with the current dentist revision", async () => {
     api.listScheduleExceptions.mockResolvedValue([exception]);
     api.setScheduleException.mockResolvedValue(undefined);

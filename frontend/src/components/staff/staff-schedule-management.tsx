@@ -92,6 +92,7 @@ function WeeklyPanel({ kind, schedule, revision, title, pendingGlobal, save, ref
       if (nextImpact) {
         setImpact(nextImpact);
       } else {
+        setImpact(null);
         if (error instanceof StaffApiError && (error.code === "SCHEDULE_REVISION_CONFLICT" || error.kind === "network" || error.kind === "timeout")) {
           await refresh().catch(() => undefined);
         }
@@ -201,6 +202,7 @@ function OverridePanel({ mode, items, revision, from, to, disabled, onRange, per
       const nextImpact = error instanceof StaffApiError ? impactFromError(error, operation) : null;
       if (nextImpact) setImpact(nextImpact);
       else {
+        setImpact(null);
         if (error instanceof StaffApiError && (error.code === "SCHEDULE_REVISION_CONFLICT" || error.kind === "network" || error.kind === "timeout")) await refresh().catch(() => undefined);
         feedback(managementFeedback(error, copy));
       }
