@@ -6,7 +6,7 @@
 - MongoDB, Redis, SMTP, Cloudinary, and monitoring credentials are injected by the deployment secret manager; none belong in Git or an image.
 - Browser credential origins are an exact HTTPS allowlist. Production cookie-authenticated login/refresh/logout rejects missing or untrusted `Origin`.
 - Administrative authorization is decided from the current MongoDB user, not a stale JWT role claim.
-- Authentication, staff, authenticated catalog/scheduling management, appointment, and availability responses are marked `Cache-Control: no-store`; authenticated frontend requests also bypass shared caches. Public catalog and clinic reads are not forced private.
+- Authentication, staff, authenticated catalog/scheduling/media/consent management, appointment, availability, and public before/after responses are marked `Cache-Control: no-store`; authenticated frontend requests also bypass shared caches. Public catalog, gallery, and clinic reads are not forced private. The governed before/after exception prevents a withdrawn publication from surviving in a shared response cache.
 
 ## Attacker-oriented controls
 

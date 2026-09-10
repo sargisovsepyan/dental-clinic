@@ -44,6 +44,8 @@ import asyncHandler from '../../utils/asyncHandler.js';
 
 import auditAction from '../audit/audit.middleware.js';
 
+import noStore from '../../middlewares/noStore.js';
+
 
 const router =
   express.Router();
@@ -51,6 +53,7 @@ const router =
 
 router.get(
   '/cleanup-jobs',
+  noStore,
   auth,
   authorize('admin'),
   validate(cleanupListSchema),
@@ -60,6 +63,7 @@ router.get(
 
 router.post(
   '/cleanup-jobs/:id/retry',
+  noStore,
   auth,
   authorize('admin'),
   validate(entityIdSchema),
@@ -83,6 +87,7 @@ router.get(
 
 router.get(
   '/gallery/admin',
+  noStore,
   auth,
   authorize('admin'),
   asyncHandler(
@@ -93,6 +98,7 @@ router.get(
 
 router.post(
   '/gallery',
+  noStore,
   auth,
   authorize('admin'),
 
@@ -121,6 +127,7 @@ router.post(
 
 router.patch(
   '/gallery/:id/restore',
+  noStore,
   auth,
   authorize('admin'),
 
@@ -144,6 +151,7 @@ router.patch(
 
 router.patch(
   '/gallery/:id',
+  noStore,
   auth,
   authorize('admin'),
 
@@ -167,6 +175,7 @@ router.patch(
 
 router.delete(
   '/gallery/:id',
+  noStore,
   auth,
   authorize('admin'),
 
@@ -190,6 +199,7 @@ router.delete(
 
 router.put(
   '/dentists/:id/photo',
+  noStore,
   auth,
   authorize('admin'),
 
@@ -218,6 +228,7 @@ router.put(
 
 router.delete(
   '/dentists/:id/photo',
+  noStore,
   auth,
   authorize('admin'),
 
@@ -241,6 +252,7 @@ router.delete(
 
 router.put(
   '/services/:id/image',
+  noStore,
   auth,
   authorize('admin'),
 
@@ -269,6 +281,7 @@ router.put(
 
 router.delete(
   '/services/:id/image',
+  noStore,
   auth,
   authorize('admin'),
 

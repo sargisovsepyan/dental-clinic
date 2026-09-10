@@ -755,6 +755,7 @@ paths:
     get:
       tags: [BeforeAfter]
       operationId: listBeforeAfterCases
+      description: Governed public listing; responses are never shared-cacheable so consent withdrawal is visible on the next request.
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/BeforeAfterLimit' }
@@ -773,6 +774,8 @@ paths:
     get:
       tags: [BeforeAfter]
       operationId: listAllBeforeAfterCases
+      description: >-
+        Admin only. Every response is marked Cache-Control: no-store.
       security: [{ bearerAuth: [] }]
       parameters:
         - { $ref: '#/components/parameters/Page' }
@@ -783,6 +786,7 @@ paths:
     get:
       tags: [BeforeAfter]
       operationId: getBeforeAfterCase
+      description: Governed public detail; responses are never shared-cacheable so consent withdrawal is visible on the next request.
       responses: { '200': { $ref: '#/components/responses/BeforeAfterDetailSuccess' }, '404': { $ref: '#/components/responses/Error' } }
     patch:
       tags: [BeforeAfter]
@@ -874,6 +878,10 @@ components:
       type: apiKey
       in: cookie
       name: refresh_token
+  headers:
+    NoStore:
+      description: This governed response must not be stored by shared or browser caches.
+      schema: { type: string, const: no-store }
   parameters:
     Id:
       name: id
@@ -1132,11 +1140,15 @@ components:
           schema: { $ref: '#/components/schemas/GalleryPublicEnvelope' }
     BeforeAfterListSuccess:
       description: Published public before/after cases with consent evidence omitted.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
       content:
         application/json:
           schema: { $ref: '#/components/schemas/BeforeAfterListEnvelope' }
     BeforeAfterDetailSuccess:
       description: Published public before/after case with consent evidence omitted.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
       content:
         application/json:
           schema: { $ref: '#/components/schemas/BeforeAfterDetailEnvelope' }

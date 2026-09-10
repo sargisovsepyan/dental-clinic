@@ -139,6 +139,20 @@ const localizedCase = (title) => ({
   consentMethod: 'written',
 });
 
+test('governed before/after and authenticated media responses are not cacheable', async () => {
+  const publicCases = await request(app).get('/api/v1/before-after');
+  const protectedCases = await request(app).get('/api/v1/before-after/admin/all');
+  const protectedGallery = await request(app).get('/api/v1/media/gallery/admin');
+  const adminGallery = await request(app)
+    .get('/api/v1/media/gallery/admin')
+    .set(admin());
+
+  assert.equal(publicCases.headers['cache-control'], 'no-store');
+  assert.equal(protectedCases.headers['cache-control'], 'no-store');
+  assert.equal(protectedGallery.headers['cache-control'], 'no-store');
+  assert.equal(adminGallery.headers['cache-control'], 'no-store');
+});
+
 test('media upload requires admin and rejects fake, invalid, unsupported, and oversized files', async () => {
   assert.equal(
     (await request(app).post('/api/v1/media/gallery').attach('image', png, 'image.png')).status,

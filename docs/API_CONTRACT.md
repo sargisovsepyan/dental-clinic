@@ -51,7 +51,7 @@ Public detail routes interpret the final category, service, or dentist path segm
 - `POST /auth/change-password` verifies the current password, changes it, revokes all sessions, increments `authVersion`, and requires a new login.
 - `POST /auth/forgot-password` always returns the same public response for known and unknown email addresses.
 - `POST /auth/reset-password` and `POST /auth/setup-password` atomically consume a hashed, expiring, single-use token.
-- Authentication, staff-administration, authenticated catalog/scheduling management, appointment, and availability responses send `Cache-Control: no-store`; authenticated browser clients must also avoid shared framework caches. Public catalog and clinic reads retain their public cache policy.
+- Authentication, staff-administration, authenticated catalog/scheduling/media/consent management, appointment, availability, and all public before/after responses send `Cache-Control: no-store`; authenticated browser clients must also avoid shared framework caches. Public catalog, gallery, and clinic reads retain their public cache policy. Governed before/after reads are deliberately not shared-cacheable so consent withdrawal is reflected on the next request.
 - The minimum new password length is exactly 6 Unicode characters. Five is rejected. New passwords over 72 UTF-8 bytes are rejected to avoid bcrypt truncation; login remains compatible with existing longer hashes. Passwords are never trimmed.
 - Production login/refresh/recovery/setup endpoints use shared Redis-backed limits. Cookie-authenticated login, refresh, and logout require an exact trusted `Origin` in production.
 
