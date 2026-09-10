@@ -160,6 +160,32 @@ describe("staff API authentication boundary", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("fails closed when refresh rotates into a different staff identity", async () => {
+    const differentUser = {
+      id: "64b000000000000000000092",
+      name: "Preview Reception",
+      email: "reception@preview.local",
+      role: "receptionist",
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(successAuth("old-access-token-value"))
+      .mockResolvedValueOnce(json({ success: false }, 401))
+      .mockResolvedValueOnce(json({
+        success: true,
+        data: { accessToken: "other-user-access-token", user: differentUser },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new StaffApiClient();
+    await client.login(user.email, "Preview1!");
+
+    await expect(client.listAppointments({})).rejects.toMatchObject({
+      status: 401,
+      code: "SESSION_IDENTITY_CHANGED",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(client.hasAccessToken()).toBe(false);
+  });
+
   it("does not retry an uncertain refresh outcome", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(successAuth())
@@ -282,6 +308,86 @@ describe("staff API authentication boundary", () => {
       reason: "Requested by patient",
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("allowlists bounded schedule conflict metadata and drops patient-shaped extras", async () => {
+    const acknowledgementToken = "a".repeat(64);
+    const conflict = {
+      appointmentId: appointment._id,
+      date: appointment.date,
+      startTime: appointment.startTime,
+      endTime: appointment.endTime,
+      dentistId: appointment.dentist,
+      status: appointment.status,
+      patientName: "Must not escape",
+      patientPhone: "+374-secret",
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(successAuth())
+      .mockResolvedValueOnce(json({
+        success: false,
+        message: "private backend message",
+        code: "SCHEDULE_CONFLICT_ACKNOWLEDGEMENT_REQUIRED",
+        details: {
+          currentScheduleRevision: 7,
+          conflictCount: 1,
+          conflicts: [conflict],
+          conflictsTruncated: false,
+          acknowledgementToken,
+        },
+      }, 409));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new StaffApiClient();
+    await client.login(user.email, "Preview1!");
+    const error = await client.updateClinic({
+      expectedScheduleRevision: 7,
+      weeklySchedule: [],
+    }).catch((value) => value);
+
+    expect(error).toMatchObject({
+      status: 409,
+      code: "SCHEDULE_CONFLICT_ACKNOWLEDGEMENT_REQUIRED",
+      scheduleConflict: {
+        currentScheduleRevision: 7,
+        conflictCount: 1,
+        conflictsTruncated: false,
+        acknowledgementToken,
+      },
+    });
+    expect(error.scheduleConflict.conflicts[0]).toEqual({
+      appointmentId: appointment._id,
+      date: appointment.date,
+      startTime: appointment.startTime,
+      endTime: appointment.endTime,
+      dentistId: appointment.dentist,
+      status: appointment.status,
+    });
+    expect(JSON.stringify(error)).not.toContain("Must not escape");
+    expect(JSON.stringify(error)).not.toContain("+374-secret");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects malformed or oversized schedule conflict details as a protocol failure", async () => {
+    const malformed = Array.from({ length: 26 }, () => ({
+      appointmentId: appointment._id,
+      date: appointment.date,
+      startTime: appointment.startTime,
+      endTime: appointment.endTime,
+      dentistId: appointment.dentist,
+      status: appointment.status,
+    }));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(successAuth())
+      .mockResolvedValueOnce(json({
+        success: false,
+        code: "SCHEDULE_CONFLICT_ACKNOWLEDGEMENT_REQUIRED",
+        details: { conflicts: malformed },
+      }, 409));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new StaffApiClient();
+    await client.login(user.email, "Preview1!");
+    await expect(client.updateClinic({ expectedScheduleRevision: 0, weeklySchedule: [] }))
+      .rejects.toMatchObject({ kind: "protocol", status: 409 });
   });
 
   it("keeps list filters bounded and does not place patient contact data in the URL", async () => {

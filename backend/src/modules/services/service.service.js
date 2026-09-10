@@ -303,7 +303,7 @@ const restoreService = async (id) => runTransaction(async (session) => {
   service.isFeatured = false;
   service.bookingGuardVersion = (service.bookingGuardVersion || 0) + 1;
   await service.save({ session });
-  return service;
+  return Service.findById(id).session(session);
 });
 
 export {

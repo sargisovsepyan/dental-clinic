@@ -19,6 +19,7 @@ import {
 
 import auth from '../../middlewares/auth.js';
 import authorize from '../../middlewares/authorize.js';
+import noStore from '../../middlewares/noStore.js';
 import validate from '../../middlewares/validate.js';
 import asyncHandler from '../../utils/asyncHandler.js';
 
@@ -42,6 +43,7 @@ router.get(
 
 router.get(
   '/admin/all',
+  noStore,
   auth,
   authorize('admin'),
   asyncHandler(
@@ -52,6 +54,7 @@ router.get(
 
 router.post(
   '/',
+  noStore,
   auth,
   authorize('admin'),
   validate(
@@ -82,6 +85,7 @@ router.post(
 
 router.patch(
   '/:id/restore',
+  noStore,
   auth,
   authorize('admin'),
   validate(
@@ -103,6 +107,7 @@ router.patch(
 
 router.patch(
   '/:id',
+  noStore,
   auth,
   authorize('admin'),
   validate(
@@ -124,6 +129,7 @@ router.patch(
 
 router.delete(
   '/:id',
+  noStore,
   auth,
   authorize('admin'),
   validate(

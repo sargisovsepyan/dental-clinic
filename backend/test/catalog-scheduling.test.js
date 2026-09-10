@@ -73,7 +73,47 @@ test('category CRUD enforces unique slugs, active public visibility, disable con
   assert.equal(publicList.body.data.categories.some(({ slug }) => slug === 'preventive-care'), false);
   const adminList = await request(app).get('/api/v1/service-categories/admin/all').set(admin());
   assert.equal(adminList.body.data.categories.some(({ slug }) => slug === 'preventive-care'), true);
-  await request(app).patch(`/api/v1/service-categories/${core.category._id}/restore`).set(admin()).expect(200);
+  const restored = await request(app).patch(`/api/v1/service-categories/${core.category._id}/restore`).set(admin()).expect(200);
+  assert.equal(Object.hasOwn(restored.body.data.category, 'serviceMutationVersion'), false);
+});
+
+test('catalog and scheduling administration responses are private while public reads remain cacheable', async () => {
+  const protectedRequests = [
+    request(app).get('/api/v1/service-categories/admin/all').set(admin()),
+    request(app).get('/api/v1/services/admin/all').set(admin()),
+    request(app).get('/api/v1/dentists/admin/all').set(admin()),
+    request(app).get(`/api/v1/dentists/${core.dentist._id}/schedule-exceptions`).set(admin()),
+    request(app).get('/api/v1/clinic/closures').set(admin()),
+  ];
+  for (const response of await Promise.all(protectedRequests)) {
+    assert.equal(response.status, 200);
+    assert.equal(response.headers['cache-control'], 'no-store');
+  }
+
+  const rejectedRequests = [
+    request(app).get('/api/v1/services/admin/all'),
+    request(app).get('/api/v1/services/admin/all').set({
+      Authorization: `Bearer ${staff.receptionistToken}`,
+    }),
+    request(app).get('/api/v1/services/admin/all').set({
+      Authorization: `Bearer ${staff.dentistToken}`,
+    }),
+  ];
+  for (const response of await Promise.all(rejectedRequests)) {
+    assert.equal([401, 403].includes(response.status), true);
+    assert.equal(response.headers['cache-control'], 'no-store');
+  }
+
+  const publicResponses = await Promise.all([
+    request(app).get('/api/v1/service-categories'),
+    request(app).get('/api/v1/services'),
+    request(app).get('/api/v1/dentists'),
+    request(app).get('/api/v1/clinic'),
+  ]);
+  for (const response of publicResponses) {
+    assert.equal(response.status, 200);
+    assert.notEqual(response.headers['cache-control'], 'no-store');
+  }
 });
 
 test('service creation validates category, pricing combinations, duration, and duplicate slug', async () => {
@@ -137,7 +177,8 @@ test('service update normalizes price fields and disable/restore respects catego
   await request(app).delete(`/api/v1/service-categories/${core.category._id}`).set(admin()).expect(200);
   assert.equal((await request(app).patch(`/api/v1/services/${core.service._id}/restore`).set(admin())).status, 400);
   await request(app).patch(`/api/v1/service-categories/${core.category._id}/restore`).set(admin()).expect(200);
-  await request(app).patch(`/api/v1/services/${core.service._id}/restore`).set(admin()).expect(200);
+  const restored = await request(app).patch(`/api/v1/services/${core.service._id}/restore`).set(admin()).expect(200);
+  assert.equal(Object.hasOwn(restored.body.data.service, 'bookingGuardVersion'), false);
 });
 
 test('dentist creation validates service relations, duplicate weekdays, shift order, and overlap', async () => {

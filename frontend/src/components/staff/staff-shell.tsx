@@ -3,13 +3,14 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
-import { CalendarDays, LayoutDashboard, LockKeyhole, LogOut, Menu, ShieldCheck, UserRound } from "lucide-react";
+import { Building2, CalendarClock, CalendarDays, LayoutDashboard, LockKeyhole, LogOut, Menu, ShieldCheck, Stethoscope, UserRound, UsersRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useStaffAuth } from "@/components/staff/staff-auth-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { staffManagementMessages } from "@/i18n/staff-management-messages";
 
 function roleLabel(role: "admin" | "receptionist" | "dentist", copy: ReturnType<typeof useStaffAuth>["copy"]) {
   return role === "admin" ? copy.roleAdmin : role === "receptionist" ? copy.roleReceptionist : copy.roleDentist;
@@ -17,11 +18,18 @@ function roleLabel(role: "admin" | "receptionist" | "dentist", copy: ReturnType<
 
 function StaffNavigation({ mobile = false, onNavigate }: { mobile?: boolean; onNavigate?: () => void }) {
   const { locale, copy, user } = useStaffAuth();
+  const managementCopy = staffManagementMessages[locale];
   const pathname = usePathname();
   if (!user) return null;
   const links = [
     { href: `/${locale}/staff`, label: copy.dashboard, icon: LayoutDashboard, exact: true },
     ...(user.role !== "dentist" ? [{ href: `/${locale}/staff/appointments`, label: copy.appointments, icon: CalendarDays, exact: false }] : []),
+    ...(user.role === "admin" ? [
+      { href: `/${locale}/staff/services`, label: managementCopy.catalogNav, icon: Stethoscope, exact: false },
+      { href: `/${locale}/staff/dentists`, label: managementCopy.dentistsNav, icon: UsersRound, exact: false },
+      { href: `/${locale}/staff/schedules`, label: managementCopy.schedulesNav, icon: CalendarClock, exact: false },
+      { href: `/${locale}/staff/clinic`, label: managementCopy.clinicNav, icon: Building2, exact: false },
+    ] : []),
     { href: `/${locale}/staff/account`, label: copy.account, icon: UserRound, exact: false },
   ];
   return (

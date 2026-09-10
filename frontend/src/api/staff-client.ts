@@ -1,4 +1,25 @@
 import type { components } from "@/api/generated/schema";
+import {
+  localDatePattern,
+  objectIdPattern,
+  parseCategory,
+  parseClinic,
+  parseClinicClosure,
+  parseDentist,
+  parseScheduleConflictDetails,
+  parseScheduleException,
+  parseService,
+  type ClinicClosurePayload,
+  type CreateCategoryPayload,
+  type CreateDentistPayload,
+  type CreateServicePayload,
+  type ScheduleConflictDetails,
+  type ScheduleExceptionPayload,
+  type UpdateCategoryPayload,
+  type UpdateClinicPayload,
+  type UpdateDentistPayload,
+  type UpdateServicePayload,
+} from "@/api/staff-management";
 import { getFrontendEnvironment } from "@/lib/env";
 
 export type StaffRole = components["schemas"]["Role"];
@@ -19,6 +40,7 @@ export class StaffApiError extends Error {
   readonly requestId?: string;
   readonly retryAfterSeconds?: number;
   readonly currentMutationVersion?: number;
+  readonly scheduleConflict?: ScheduleConflictDetails;
 
   constructor(options: {
     kind: ErrorKind;
@@ -27,6 +49,7 @@ export class StaffApiError extends Error {
     requestId?: string;
     retryAfterSeconds?: number;
     currentMutationVersion?: number;
+    scheduleConflict?: ScheduleConflictDetails;
     cause?: unknown;
   }) {
     super("The staff API request could not be completed", { cause: options.cause });
@@ -37,12 +60,13 @@ export class StaffApiError extends Error {
     this.requestId = options.requestId;
     this.retryAfterSeconds = options.retryAfterSeconds;
     this.currentMutationVersion = options.currentMutationVersion;
+    this.scheduleConflict = options.scheduleConflict;
   }
 }
 
 type RequestOptions = {
   path: string;
-  method?: "GET" | "POST" | "PATCH";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   signal?: AbortSignal;
   credentials?: RequestCredentials;
@@ -54,7 +78,7 @@ const roles = new Set<unknown>(["admin", "receptionist", "dentist"]);
 const statuses = new Set<unknown>([
   "pending", "confirmed", "checked_in", "in_progress", "completed", "cancelled", "no_show",
 ]);
-const objectId = /^[0-9a-f]{24}$/i;
+const objectId = objectIdPattern;
 const safeHeader = /^[A-Za-z0-9._:-]{1,128}$/;
 const safeCode = /^[A-Z0-9_]{1,80}$/;
 
@@ -118,6 +142,13 @@ async function rawRequest(options: RequestOptions) {
     const codeValue = isRecord(body) ? body.code : undefined;
     const details = isRecord(body) && isRecord(body.details) ? body.details : undefined;
     const currentMutationVersion = details?.currentMutationVersion;
+    let scheduleConflict: ScheduleConflictDetails | undefined;
+    try {
+      const parsed = parseScheduleConflictDetails(details);
+      if (Object.keys(parsed).length > 0) scheduleConflict = parsed;
+    } catch (cause) {
+      throw new StaffApiError({ kind: "protocol", status: response.status, requestId, cause });
+    }
     throw new StaffApiError({
       kind: "http",
       status: response.status,
@@ -127,6 +158,7 @@ async function rawRequest(options: RequestOptions) {
       currentMutationVersion: Number.isInteger(currentMutationVersion)
         ? currentMutationVersion as number
         : undefined,
+      scheduleConflict,
     });
   }
   if (!isRecord(body) || body.success !== true) {
@@ -219,6 +251,7 @@ async function coordinatedRefresh() {
 
 export class StaffApiClient {
   #accessToken: string | null = null;
+  #principal: Pick<StaffUser, "id" | "role"> | null = null;
   #sessionEpoch = 0;
 
   hasAccessToken() {
@@ -227,7 +260,16 @@ export class StaffApiClient {
 
   clearSession() {
     this.#accessToken = null;
+    this.#principal = null;
     this.#sessionEpoch += 1;
+  }
+
+  #setPrincipal(user: StaffUser) {
+    this.#principal = { id: user.id, role: user.role };
+  }
+
+  #samePrincipal(user: StaffUser) {
+    return this.#principal?.id === user.id && this.#principal.role === user.role;
   }
 
   async login(email: string, password: string) {
@@ -240,6 +282,7 @@ export class StaffApiClient {
       throw new StaffApiError({ kind: "cancelled", status: 401 });
     }
     this.#accessToken = result.accessToken;
+    this.#setPrincipal(result.user);
     return result.user;
   }
 
@@ -250,9 +293,16 @@ export class StaffApiClient {
       throw new StaffApiError({ kind: "cancelled", status: 401 });
     }
     this.#accessToken = refreshed.accessToken;
+    this.#setPrincipal(refreshed.user);
     try {
       const body = await rawRequest({ path: "auth/me", authorization: this.#accessToken });
-      return parseUser(dataRecord(body).user);
+      const current = parseUser(dataRecord(body).user);
+      if (!this.#samePrincipal(current)) {
+        this.clearSession();
+        throw new StaffApiError({ kind: "http", status: 401, code: "SESSION_IDENTITY_CHANGED" });
+      }
+      this.#setPrincipal(current);
+      return current;
     } catch (error) {
       this.clearSession();
       throw error;
@@ -298,6 +348,10 @@ export class StaffApiClient {
       try {
         const refreshed = await coordinatedRefresh();
         if (sessionEpoch !== this.#sessionEpoch) throw new StaffApiError({ kind: "cancelled", status: 401 });
+        if (!this.#samePrincipal(refreshed.user)) {
+          this.clearSession();
+          throw new StaffApiError({ kind: "http", status: 401, code: "SESSION_IDENTITY_CHANGED" });
+        }
         this.#accessToken = refreshed.accessToken;
       } catch (refreshError) {
         this.clearSession();
@@ -403,6 +457,150 @@ export class StaffApiClient {
     return parseAppointmentResponse(await this.#protected({
       path: `appointments/${id}/reschedule`, method: "PATCH", body: payload, timeoutMs: 12_000,
     }));
+  }
+
+  async listCategories(signal?: AbortSignal) {
+    const data = dataRecord(await this.#protected({ path: "service-categories/admin/all", signal }));
+    if (!Array.isArray(data.categories)) throw new StaffApiError({ kind: "protocol" });
+    try { return data.categories.map(parseCategory); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async createCategory(payload: CreateCategoryPayload) {
+    await this.#protected({ path: "service-categories", method: "POST", body: payload });
+  }
+
+  async updateCategory(id: string, payload: UpdateCategoryPayload) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    await this.#protected({ path: `service-categories/${id}`, method: "PATCH", body: payload });
+  }
+
+  async disableCategory(id: string) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    await this.#protected({ path: `service-categories/${id}`, method: "DELETE" });
+  }
+
+  async restoreCategory(id: string) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    await this.#protected({ path: `service-categories/${id}/restore`, method: "PATCH" });
+  }
+
+  async listServices(signal?: AbortSignal) {
+    const data = dataRecord(await this.#protected({ path: "services/admin/all", signal }));
+    if (!Array.isArray(data.services)) throw new StaffApiError({ kind: "protocol" });
+    try { return data.services.map(parseService); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async createService(payload: CreateServicePayload) {
+    await this.#protected({ path: "services", method: "POST", body: payload });
+  }
+
+  async updateService(id: string, payload: UpdateServicePayload) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    await this.#protected({ path: `services/${id}`, method: "PATCH", body: payload });
+  }
+
+  async disableService(id: string) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    await this.#protected({ path: `services/${id}`, method: "DELETE" });
+  }
+
+  async restoreService(id: string) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    await this.#protected({ path: `services/${id}/restore`, method: "PATCH" });
+  }
+
+  async listDentists(signal?: AbortSignal) {
+    const data = dataRecord(await this.#protected({ path: "dentists/admin/all", signal }));
+    if (!Array.isArray(data.dentists)) throw new StaffApiError({ kind: "protocol" });
+    try { return data.dentists.map(parseDentist); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async createDentist(payload: CreateDentistPayload) {
+    await this.#protected({ path: "dentists", method: "POST", body: payload });
+  }
+
+  async updateDentist(id: string, payload: UpdateDentistPayload) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    const data = dataRecord(await this.#protected({ path: `dentists/${id}`, method: "PATCH", body: payload, timeoutMs: 15_000 }));
+    try { return parseDentist(data.dentist); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async disableDentist(id: string) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    await this.#protected({ path: `dentists/${id}`, method: "DELETE" });
+  }
+
+  async restoreDentist(id: string) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    await this.#protected({ path: `dentists/${id}/restore`, method: "PATCH" });
+  }
+
+  async getClinic(signal?: AbortSignal) {
+    const data = dataRecord(await this.#protected({ path: "clinic", signal }));
+    try { return parseClinic(data.clinic); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async updateClinic(payload: UpdateClinicPayload) {
+    const data = dataRecord(await this.#protected({ path: "clinic", method: "PATCH", body: payload, timeoutMs: 15_000 }));
+    try { return parseClinic(data.clinic); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async listScheduleExceptions(id: string, from?: string, to?: string, signal?: AbortSignal) {
+    if (!objectId.test(id) || (from && !localDatePattern.test(from)) || (to && !localDatePattern.test(to))) {
+      throw new StaffApiError({ kind: "configuration" });
+    }
+    const query = new URLSearchParams();
+    if (from) query.set("from", from);
+    if (to) query.set("to", to);
+    const suffix = query.size ? `?${query}` : "";
+    const data = dataRecord(await this.#protected({ path: `dentists/${id}/schedule-exceptions${suffix}`, signal }));
+    if (!Array.isArray(data.exceptions)) throw new StaffApiError({ kind: "protocol" });
+    try { return data.exceptions.map(parseScheduleException); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async setScheduleException(id: string, date: string, payload: ScheduleExceptionPayload) {
+    if (!objectId.test(id) || !localDatePattern.test(date)) throw new StaffApiError({ kind: "configuration" });
+    await this.#protected({ path: `dentists/${id}/schedule-exceptions/${date}`, method: "PUT", body: payload, timeoutMs: 15_000 });
+  }
+
+  async deleteScheduleException(id: string, date: string, expectedScheduleRevision: number, acknowledgement?: string) {
+    if (!objectId.test(id) || !localDatePattern.test(date)) throw new StaffApiError({ kind: "configuration" });
+    const query = new URLSearchParams({ expectedScheduleRevision: String(expectedScheduleRevision) });
+    if (acknowledgement) query.set("scheduleConflictAcknowledgement", acknowledgement);
+    await this.#protected({ path: `dentists/${id}/schedule-exceptions/${date}?${query}`, method: "DELETE", timeoutMs: 15_000 });
+  }
+
+  async listClinicClosures(from?: string, to?: string, signal?: AbortSignal) {
+    if ((from && !localDatePattern.test(from)) || (to && !localDatePattern.test(to))) {
+      throw new StaffApiError({ kind: "configuration" });
+    }
+    const query = new URLSearchParams();
+    if (from) query.set("from", from);
+    if (to) query.set("to", to);
+    const suffix = query.size ? `?${query}` : "";
+    const data = dataRecord(await this.#protected({ path: `clinic/closures${suffix}`, signal }));
+    if (!Array.isArray(data.closures)) throw new StaffApiError({ kind: "protocol" });
+    try { return data.closures.map(parseClinicClosure); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async setClinicClosure(date: string, payload: ClinicClosurePayload) {
+    if (!localDatePattern.test(date)) throw new StaffApiError({ kind: "configuration" });
+    await this.#protected({ path: `clinic/closures/${date}`, method: "PUT", body: payload, timeoutMs: 15_000 });
+  }
+
+  async deleteClinicClosure(date: string, expectedScheduleRevision: number, acknowledgement?: string) {
+    if (!localDatePattern.test(date)) throw new StaffApiError({ kind: "configuration" });
+    const query = new URLSearchParams({ expectedScheduleRevision: String(expectedScheduleRevision) });
+    if (acknowledgement) query.set("scheduleConflictAcknowledgement", acknowledgement);
+    await this.#protected({ path: `clinic/closures/${date}?${query}`, method: "DELETE", timeoutMs: 15_000 });
   }
 }
 

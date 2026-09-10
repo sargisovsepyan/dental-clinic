@@ -148,7 +148,7 @@ const restoreCategory = async (id) => {
   category.serviceMutationVersion =
     (category.serviceMutationVersion || 0) + 1;
   await category.save();
-  return category;
+  return ServiceCategory.findById(id);
 };
 
 export {
