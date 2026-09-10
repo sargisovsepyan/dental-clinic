@@ -1,6 +1,6 @@
 # Dental clinic frontend
 
-Next.js 16 App Router frontend for the clinic’s public website, no-account booking flow, and authenticated Phase 3A staff appointment workspace. Armenian (`hy`) is the primary publication locale; Russian (`ru`) and English (`en`) are explicit routes with field-level Armenian fallback when authored public content is absent.
+Next.js 16 App Router frontend for the clinic’s public website, no-account booking flow, authenticated staff appointment workspace, and Phase 3B admin clinic management. Armenian (`hy`) is the primary publication locale; Russian (`ru`) and English (`en`) are explicit routes with field-level Armenian fallback when authored public content is absent.
 
 ## Scope
 
@@ -16,9 +16,13 @@ Implemented public routes:
 - `/{locale}/staff/login`, `/forgot-password`, `/reset-password`, and `/setup-password`
 - `/{locale}/staff` and `/account` — role-aware staff shell and password change
 - `/{locale}/staff/appointments` and `/appointments/{id}` — admin/receptionist list, create, detail, status, reschedule, and cancellation
+- `/{locale}/staff/services` — admin-only localized service-category and service lifecycle management
+- `/{locale}/staff/dentists` — admin-only public dentist profiles and service assignments
+- `/{locale}/staff/schedules` — admin-only clinic/dentist weekly hours, dentist exceptions, and clinic date overrides
+- `/{locale}/staff/clinic` — admin-only safe public clinic settings and booking-policy controls
 - `/robots.txt`, `/sitemap.xml`, generated app icon, canonical links, and locale alternates
 
-Patient accounts, clinical records, and Phase 3B content/schedule/staff management remain intentionally out of scope. Public booking and staff operations never store patient details or bearer tokens in browser storage or URLs.
+Patient accounts and clinical records remain intentionally out of scope. Phase 3C owns generalized media/gallery and before/after consent administration, staff invitation/role/lifecycle UI, and audit-log UI. Public booking and staff operations never store patient details or bearer tokens in browser storage or URLs.
 
 ## LOCAL FRONTEND PREVIEW
 
@@ -52,7 +56,7 @@ npm run dev:preview -- --scenario=error
 
 While preview is running, the printed local scenario endpoint can switch between `success`, `pending`, `confirmed`, `conflict`, `empty-availability`, `validation`, `rate-limit`, `error`, `empty`, and `catalog-error` without source edits. All fixtures are development-only and are imported only by test/preview launchers.
 
-Staff scenarios use the same local endpoint and add `staff-conflict`, `staff-stale-availability`, and `staff-expired`. The launcher also prints deterministic local-only setup/reset links.
+Staff scenarios use the same local endpoint and add `staff-conflict`, `staff-stale-availability`, `staff-expired`, `management-schedule-conflict`, and `management-schedule-stale`. The stateful preview supports category/service/dentist lifecycle operations, safe clinic settings, weekly schedules, exceptions, closures, role denial, and public-site reflection. The launcher also prints deterministic local-only setup/reset links.
 
 ## Requirements and setup
 
@@ -108,5 +112,8 @@ npm audit --audit-level=moderate
 - Staff access tokens are memory-only. The refresh token remains in a backend-owned HttpOnly cookie; refresh/login/logout are single-flight/serialized around rotation, and `403` never masquerades as logout.
 - Appointment mutations always send the reviewed `mutationVersion`, never auto-retry stale writes, and refetch authoritative state. Availability responses are bound to the selected version/service/dentist/date.
 - Frontend role-aware navigation is convenience only. The backend remains authoritative for admin/receptionist appointment access and dentist denial.
+- Clinic-management navigation and direct routes are admin-only. Protected responses are runtime-allowlisted and no-store; `403` preserves the current session.
+- Schedule and date-override mutations send the reviewed `scheduleRevision`. Appointment-impact responses freeze the exact proposal and bounded conflict metadata; only an explicit acknowledgement replays that proposal and token. Stale or indeterminate acknowledgement results discard the old token, refetch authority, and never auto-retry.
+- Clinic-local dates and weekly clock times are sent as contract strings under the displayed backend timezone. The frontend neither converts them through the browser timezone nor offers live timezone mutation.
 
-See `../docs/FRONTEND_ARCHITECTURE.md`, `../docs/FRONTEND_FOUNDATION_FINAL_REPORT.md`, `../docs/FRONTEND_BOOKING_FINAL_REPORT.md`, and `../docs/FRONTEND_STAFF_ADMIN_FOUNDATION_FINAL_REPORT.md` for the complete design and verification record.
+See `../docs/FRONTEND_ARCHITECTURE.md`, `../docs/FRONTEND_FOUNDATION_FINAL_REPORT.md`, `../docs/FRONTEND_BOOKING_FINAL_REPORT.md`, `../docs/FRONTEND_STAFF_ADMIN_FOUNDATION_FINAL_REPORT.md`, and `../docs/FRONTEND_CLINIC_MANAGEMENT_FINAL_REPORT.md` for the complete design and verification record.
