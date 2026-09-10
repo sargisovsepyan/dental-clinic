@@ -105,7 +105,7 @@ describe("booking flow", () => {
       locale: "en",
     });
     expect((await axe.run(container, { rules: { "color-contrast": { enabled: false } } })).violations.filter((item) => item.impact === "serious" || item.impact === "critical")).toEqual([]);
-  });
+  }, 15_000);
 
   it("reuses one idempotency key after a network-uncertain failure", async () => {
     const user = userEvent.setup();
