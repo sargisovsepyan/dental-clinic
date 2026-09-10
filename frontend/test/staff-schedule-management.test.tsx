@@ -4,6 +4,12 @@ import { StaffApiError } from "@/api/staff-client";
 import { StaffScheduleManagement } from "@/components/staff/staff-schedule-management";
 import { staffMessages } from "@/i18n/staff-messages";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => { resolve = next; });
+  return { promise, resolve };
+}
+
 const timestamp = "2026-01-01T00:00:00.000Z";
 const clinic = {
   _id: "64b000000000000000000031", key: "default", clinicName: "Կլինիկա", tagline: "", description: "",
@@ -20,6 +26,14 @@ const dentist = {
   experienceYears: 5, photoUrl: "", photo: null, languages: ["hy"], services: [],
   weeklySchedule: [], scheduleRevision: 0, isFeatured: false, bookingEnabled: false, isActive: true, sortOrder: 1,
   createdAt: timestamp, updatedAt: timestamp,
+};
+const secondDentist = {
+  ...dentist,
+  _id: "64b000000000000000000022",
+  firstName: "Aram",
+  lastName: "Second",
+  slug: "aram-second",
+  scheduleRevision: 4,
 };
 const conflict = {
   appointmentId: "64b000000000000000000071", date: "2026-09-20", startTime: "10:00", endTime: "11:00",
@@ -198,5 +212,84 @@ describe("staff schedule management", () => {
     await waitFor(() => expect(api.deleteScheduleException).toHaveBeenCalledWith(
       dentist._id, "2026-09-22", 0, undefined,
     ));
+  });
+
+  it("rejects exception records that do not belong to the requested dentist", async () => {
+    api.listScheduleExceptions.mockResolvedValue([{ ...exception, dentist: secondDentist._id }]);
+    render(<StaffScheduleManagement />);
+    await screen.findByText("Clinic timezone: Asia/Yerevan");
+    fireEvent.click(screen.getByRole("tab", { name: "Dentist exceptions" }));
+    fireEvent.change(screen.getByLabelText("Select a dentist"), { target: { value: dentist._id } });
+
+    await waitFor(() => expect(authState.handleApiError).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "protocol" }),
+    ));
+    expect(screen.queryByText(exception.date)).toBeNull();
+  });
+
+  it("correlates out-of-order dentist and range responses before rendering or mutating exceptions", async () => {
+    const requests: Array<{
+      dentistId: string;
+      from: string;
+      to: string;
+      result: ReturnType<typeof deferred<Array<typeof exception>>>;
+    }> = [];
+    api.listDentists.mockResolvedValue([dentist, secondDentist]);
+    api.listScheduleExceptions.mockImplementation((dentistId: string, from: string, to: string) => {
+      const result = deferred<Array<typeof exception>>();
+      requests.push({ dentistId, from, to, result });
+      return result.promise;
+    });
+    api.deleteScheduleException.mockResolvedValue(undefined);
+
+    render(<StaffScheduleManagement />);
+    await screen.findByText("Clinic timezone: Asia/Yerevan");
+    fireEvent.click(screen.getByRole("tab", { name: "Dentist exceptions" }));
+    const selector = screen.getByLabelText("Select a dentist");
+
+    fireEvent.change(selector, { target: { value: dentist._id } });
+    await waitFor(() => expect(requests).toHaveLength(1));
+    fireEvent.change(selector, { target: { value: secondDentist._id } });
+    await waitFor(() => expect(requests).toHaveLength(2));
+
+    const secondException = { ...exception, _id: "64b000000000000000000042", dentist: secondDentist._id, date: "2026-09-24", note: "Second dentist" };
+    requests[1].result.resolve([secondException]);
+    expect(await screen.findByText("2026-09-24")).toBeVisible();
+
+    requests[0].result.resolve([exception]);
+    await waitFor(() => {
+      expect(screen.queryByText("2026-09-22")).toBeNull();
+      expect(screen.getByText("2026-09-24")).toBeVisible();
+    });
+
+    fireEvent.change(screen.getByLabelText("From date"), { target: { value: "2026-10-01" } });
+    fireEvent.change(screen.getByLabelText("To date"), { target: { value: "2026-10-31" } });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(requests).toHaveLength(3));
+
+    fireEvent.change(screen.getByLabelText("From date"), { target: { value: "2026-11-01" } });
+    fireEvent.change(screen.getByLabelText("To date"), { target: { value: "2026-11-30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(requests).toHaveLength(4));
+
+    const newestException = { ...secondException, _id: "64b000000000000000000043", date: "2026-11-10", note: "Newest range" };
+    requests[3].result.resolve([newestException]);
+    expect(await screen.findByText("2026-11-10")).toBeVisible();
+
+    const staleRangeException = { ...secondException, _id: "64b000000000000000000044", date: "2026-10-10", note: "Stale range" };
+    requests[2].result.resolve([staleRangeException]);
+    await waitFor(() => {
+      expect(screen.queryByText("2026-10-10")).toBeNull();
+      expect(screen.getByText("2026-11-10")).toBeVisible();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove override" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm removal" }));
+    await waitFor(() => expect(api.deleteScheduleException).toHaveBeenCalledWith(
+      secondDentist._id, newestException.date, secondDentist.scheduleRevision, undefined,
+    ));
+    expect(api.deleteScheduleException).not.toHaveBeenCalledWith(
+      secondDentist._id, exception.date, expect.anything(), expect.anything(),
+    );
   });
 });

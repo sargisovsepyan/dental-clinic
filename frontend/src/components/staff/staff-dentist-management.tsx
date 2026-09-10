@@ -63,6 +63,14 @@ function DentistDialog({ value, services, open, pending, onOpenChange, onSubmit 
     () => value?.services.map((service) => service._id) ?? [],
     [value],
   );
+  const inactiveAssignedIds = useMemo(
+    () => value?.services.filter((service) => !service.isActive).map((service) => service._id) ?? [],
+    [value],
+  );
+  const activeAssignedIds = useMemo(
+    () => value?.services.filter((service) => service.isActive).map((service) => service._id) ?? [],
+    [value],
+  );
   const availableServices = useMemo(
     () => services.filter((service) => service.isActive || assignedIds.includes(service._id)),
     [assignedIds, services],
@@ -78,12 +86,17 @@ function DentistDialog({ value, services, open, pending, onOpenChange, onSubmit 
     const sortOrder = Number(data.get("sortOrder"));
     const languages = data.getAll("languages").map(String) as DentistLanguage[];
     const selectedServices = data.getAll("services").map(String);
+    const serviceSelectionChanged = !sameIds(activeAssignedIds, selectedServices);
     const specializations = translations.hy.specializations.trim().split(/\r?\n/).filter(Boolean);
     if (firstName.length < 2 || lastName.length < 2 || (active && translations.hy.title.trim().length < 2) ||
         specializations.some((item) => item.trim().length < 2) || specializations.length > 20 ||
         !Number.isInteger(experienceYears) || experienceYears < 0 || experienceYears > 70 ||
         !Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 10_000) {
       setError(copy.validationError);
+      return;
+    }
+    if (value && inactiveAssignedIds.length > 0 && serviceSelectionChanged) {
+      setError(copy.inactiveServiceAssignmentsLocked);
       return;
     }
     const common: UpdateDentistPayload = {
@@ -96,7 +109,7 @@ function DentistDialog({ value, services, open, pending, onOpenChange, onSubmit 
       bookingEnabled: data.get("bookingEnabled") === "on",
       sortOrder,
     };
-    if (value && sameIds(assignedIds, selectedServices)) delete common.services;
+    if (value && !serviceSelectionChanged) delete common.services;
     setError(null);
     await onSubmit(value ? common : {
       ...common,
@@ -133,7 +146,7 @@ function DentistDialog({ value, services, open, pending, onOpenChange, onSubmit 
             <label className={labelClass}>{copy.sortOrder}<input className={fieldClass} name="sortOrder" type="number" min={0} max={10_000} step={1} defaultValue={value?.sortOrder ?? 0} required disabled={pending} /></label>
           </div>
           <fieldset className="rounded-xl border p-4"><legend className="px-1 text-sm font-semibold">{copy.languages}</legend><div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">{languageValues.map((language) => <label key={language} className="flex min-h-10 items-center gap-2 text-sm"><input className="size-4" type="checkbox" name="languages" value={language} defaultChecked={value?.languages.includes(language) ?? language === "hy"} disabled={pending} />{language.toUpperCase()}</label>)}</div></fieldset>
-          <fieldset className="rounded-xl border p-4"><legend className="px-1 text-sm font-semibold">{copy.assignedServices}</legend><div className="mt-2 grid gap-2 sm:grid-cols-2">{availableServices.length === 0 ? <p className="text-sm text-muted-foreground">{copy.noServices}</p> : availableServices.map((service) => <label key={service._id} className="flex min-h-11 items-center gap-3 rounded-lg border bg-background px-3 text-sm"><input className="size-4" type="checkbox" name="services" value={service._id} defaultChecked={assignedIds.includes(service._id)} disabled={pending || !service.isActive} />{serviceName(service, locale)}{!service.isActive && <span className="ml-auto text-xs text-muted-foreground">{copy.inactive}</span>}</label>)}</div></fieldset>
+          <fieldset className="rounded-xl border p-4"><legend className="px-1 text-sm font-semibold">{copy.assignedServices}</legend>{inactiveAssignedIds.length > 0 && <p className="mt-2 text-sm text-muted-foreground">{copy.inactiveServiceAssignmentsNotice}</p>}<div className="mt-2 grid gap-2 sm:grid-cols-2">{availableServices.length === 0 ? <p className="text-sm text-muted-foreground">{copy.noServices}</p> : availableServices.map((service) => <label key={service._id} className="flex min-h-11 items-center gap-3 rounded-lg border bg-background px-3 text-sm"><input className="size-4" type="checkbox" name="services" value={service._id} defaultChecked={assignedIds.includes(service._id)} disabled={pending || !service.isActive} />{serviceName(service, locale)}{!service.isActive && <span className="ml-auto text-xs text-muted-foreground">{copy.inactive}</span>}</label>)}</div></fieldset>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="flex min-h-11 items-center gap-3 text-sm font-medium"><input className="size-4" name="bookingEnabled" type="checkbox" defaultChecked={value?.bookingEnabled ?? false} disabled={pending} />{copy.bookingEnabled}</label>
             <label className="flex min-h-11 items-center gap-3 text-sm font-medium"><input className="size-4" name="isFeatured" type="checkbox" defaultChecked={value?.isFeatured ?? false} disabled={pending} />{copy.featured}</label>

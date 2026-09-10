@@ -1,7 +1,7 @@
 "use client";
 
 import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { StaffApiError } from "@/api/staff-client";
 import type {
   ClinicClosurePayload,
@@ -49,6 +49,17 @@ type FrozenImpact<T> = {
   count: number;
   truncated: boolean;
 };
+
+type RequestFence = {
+  generation: number;
+  controller: AbortController | null;
+};
+
+type DateRange = { from: string; to: string };
+
+function sameRange(first: DateRange, second: DateRange) {
+  return first.from === second.from && first.to === second.to;
+}
 
 function impactFromError<T>(error: StaffApiError, operation: T): FrozenImpact<T> | null {
   if (error.code !== "SCHEDULE_CONFLICT_ACKNOWLEDGEMENT_REQUIRED") return null;
@@ -240,53 +251,168 @@ function ScheduleAdminContent() {
   const [range, setRange] = useState({ from: "", to: "" });
   const [loading, setLoading] = useState(true);
   const [feedbackValue, setFeedbackValue] = useState<ManagementFeedbackValue | null>(null);
+  const selectedDentistIdRef = useRef("");
+  const rangeRef = useRef<DateRange>({ from: "", to: "" });
+  const loadRequestRef = useRef<RequestFence>({ generation: 0, controller: null });
+  const exceptionRequestRef = useRef<RequestFence>({ generation: 0, controller: null });
+  const closureRequestRef = useRef<RequestFence>({ generation: 0, controller: null });
 
-  const load = useCallback(async (
-    signal?: AbortSignal,
-    dentistId = "",
-    requestedRange: { from: string; to: string } = { from: "", to: "" },
+  const requestExceptions = useCallback(async (
+    dentistId: string,
+    requestedRange: DateRange,
+    parentSignal?: AbortSignal,
   ) => {
+    exceptionRequestRef.current.controller?.abort();
+    const generation = exceptionRequestRef.current.generation + 1;
+    if (!dentistId || !requestedRange.from || !requestedRange.to) {
+      exceptionRequestRef.current = { generation, controller: null };
+      setExceptions([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    exceptionRequestRef.current = { generation, controller };
+    const signal = parentSignal
+      ? AbortSignal.any([parentSignal, controller.signal])
+      : controller.signal;
+    const isCurrent = () => (
+      exceptionRequestRef.current.generation === generation &&
+      !signal.aborted &&
+      selectedDentistIdRef.current === dentistId &&
+      sameRange(rangeRef.current, requestedRange)
+    );
+
+    try {
+      const nextExceptions = await api.listScheduleExceptions(
+        dentistId,
+        requestedRange.from,
+        requestedRange.to,
+        signal,
+      );
+      if (!isCurrent()) return;
+      if (nextExceptions.some((item) => (
+        item.dentist !== dentistId ||
+        item.date < requestedRange.from ||
+        item.date > requestedRange.to
+      ))) {
+        throw new StaffApiError({ kind: "protocol" });
+      }
+      setExceptions(nextExceptions);
+    } catch (error) {
+      if (!isCurrent() || (error instanceof StaffApiError && error.kind === "cancelled")) return;
+      handleApiError(error);
+      setFeedbackValue(managementFeedback(error, copy));
+    }
+  }, [api, copy, handleApiError]);
+
+  const requestClosures = useCallback(async (
+    requestedRange: DateRange,
+    parentSignal?: AbortSignal,
+  ) => {
+    closureRequestRef.current.controller?.abort();
+    const generation = closureRequestRef.current.generation + 1;
+    if (!requestedRange.from || !requestedRange.to) {
+      closureRequestRef.current = { generation, controller: null };
+      setClosures([]);
+      return;
+    }
+
+    const controller = new AbortController();
+    closureRequestRef.current = { generation, controller };
+    const signal = parentSignal
+      ? AbortSignal.any([parentSignal, controller.signal])
+      : controller.signal;
+    const isCurrent = () => (
+      closureRequestRef.current.generation === generation &&
+      !signal.aborted &&
+      sameRange(rangeRef.current, requestedRange)
+    );
+
+    try {
+      const nextClosures = await api.listClinicClosures(
+        requestedRange.from,
+        requestedRange.to,
+        signal,
+      );
+      if (!isCurrent()) return;
+      if (nextClosures.some((item) => item.date < requestedRange.from || item.date > requestedRange.to)) {
+        throw new StaffApiError({ kind: "protocol" });
+      }
+      setClosures(nextClosures);
+    } catch (error) {
+      if (!isCurrent() || (error instanceof StaffApiError && error.kind === "cancelled")) return;
+      handleApiError(error);
+      setFeedbackValue(managementFeedback(error, copy));
+    }
+  }, [api, copy, handleApiError]);
+
+  const load = useCallback(async (parentSignal?: AbortSignal) => {
+    loadRequestRef.current.controller?.abort();
+    const generation = loadRequestRef.current.generation + 1;
+    const controller = new AbortController();
+    loadRequestRef.current = { generation, controller };
+    const signal = parentSignal
+      ? AbortSignal.any([parentSignal, controller.signal])
+      : controller.signal;
+    const isCurrent = () => loadRequestRef.current.generation === generation && !signal.aborted;
     setLoading(true);
     try {
       const [nextClinic, nextDentists] = await Promise.all([api.getClinic(signal), api.listDentists(signal)]);
-      const nextRange = requestedRange.from && requestedRange.to ? requestedRange : (() => {
+      if (!isCurrent()) return;
+      setClinic(nextClinic);
+      setDentists(nextDentists);
+
+      let nextRange = rangeRef.current;
+      if (!nextRange.from || !nextRange.to) {
         const from = clinicLocalDate(nextClinic.timezone);
-        return { from, to: addCalendarDays(from, 90) };
-      })();
-      const [nextClosures, nextExceptions] = await Promise.all([
-        api.listClinicClosures(nextRange.from, nextRange.to, signal),
-        dentistId ? api.listScheduleExceptions(dentistId, nextRange.from, nextRange.to, signal) : Promise.resolve([]),
+        nextRange = { from, to: addCalendarDays(from, 90) };
+        rangeRef.current = nextRange;
+        setRange(nextRange);
+      }
+      const dentistId = selectedDentistIdRef.current;
+      await Promise.all([
+        requestClosures(nextRange, signal),
+        requestExceptions(dentistId, nextRange, signal),
       ]);
-      setClinic(nextClinic); setDentists(nextDentists); setClosures(nextClosures); setExceptions(nextExceptions); setRange(nextRange);
     } catch (error) {
-      if (error instanceof StaffApiError && error.kind === "cancelled") return;
-      handleApiError(error); setFeedbackValue({ ...managementFeedback(error, copy), message: copy.loadError });
-    } finally { if (!signal?.aborted) setLoading(false); }
-  }, [api, copy, handleApiError]);
+      if (!isCurrent() || (error instanceof StaffApiError && error.kind === "cancelled")) return;
+      handleApiError(error);
+      setFeedbackValue({ ...managementFeedback(error, copy), message: copy.loadError });
+    } finally {
+      if (isCurrent()) setLoading(false);
+    }
+  }, [api, copy, handleApiError, requestClosures, requestExceptions]);
 
   useEffect(() => {
     const controller = new AbortController();
-    queueMicrotask(() => { if (!controller.signal.aborted) void load(controller.signal, "", { from: "", to: "" }); });
-    return () => controller.abort();
+    queueMicrotask(() => { if (!controller.signal.aborted) void load(controller.signal); });
+    return () => {
+      controller.abort();
+      loadRequestRef.current.controller?.abort();
+      exceptionRequestRef.current.controller?.abort();
+      closureRequestRef.current.controller?.abort();
+    };
   }, [load]);
 
   const selectedDentist = dentists.find((dentist) => dentist._id === selectedDentistId) ?? null;
-  async function changeDentist(id: string) {
-    setSelectedDentistId(id); setExceptions([]);
-    if (!id || !range.from || !range.to) return;
-    try { setExceptions(await api.listScheduleExceptions(id, range.from, range.to)); }
-    catch (error) { handleApiError(error); setFeedbackValue(managementFeedback(error, copy)); }
+  function changeDentist(id: string) {
+    selectedDentistIdRef.current = id;
+    setSelectedDentistId(id);
+    setExceptions([]);
+    void requestExceptions(id, rangeRef.current);
   }
   async function updateRange(from: string, to: string) {
-    setRange({ from, to });
-    try {
-      if (view === "closures") setClosures(await api.listClinicClosures(from, to));
-      else if (selectedDentistId) setExceptions(await api.listScheduleExceptions(selectedDentistId, from, to));
-    } catch (error) { handleApiError(error); setFeedbackValue(managementFeedback(error, copy)); }
+    const nextRange = { from, to };
+    rangeRef.current = nextRange;
+    setRange(nextRange);
+    await Promise.all([
+      requestClosures(nextRange),
+      requestExceptions(selectedDentistIdRef.current, nextRange),
+    ]);
   }
 
   if (loading && !clinic) return <section><ManagementHeader eyebrow={copy.schedulesNav} title={copy.schedulesTitle} intro={copy.schedulesIntro} /><p role="status" className="mt-8 text-sm text-muted-foreground">{copy.loading}</p></section>;
-  if (!clinic) return <section><ManagementHeader eyebrow={copy.schedulesNav} title={copy.schedulesTitle} intro={copy.schedulesIntro} /><ManagementFeedback value={feedbackValue} onRetry={() => void load(undefined, selectedDentistId, range)} /></section>;
+  if (!clinic) return <section><ManagementHeader eyebrow={copy.schedulesNav} title={copy.schedulesTitle} intro={copy.schedulesIntro} /><ManagementFeedback value={feedbackValue} onRetry={() => void load()} /></section>;
   const tabs = [
     ["clinic", copy.clinicWeekly], ["dentist", copy.dentistWeekly], ["exceptions", copy.exceptions], ["closures", copy.closures],
   ] as const;
@@ -294,21 +420,21 @@ function ScheduleAdminContent() {
     <section className="max-w-7xl">
       <ManagementHeader eyebrow={copy.schedulesNav} title={copy.schedulesTitle} intro={copy.schedulesIntro} />
       <div className="mt-5 flex flex-wrap gap-2 text-sm"><span className="rounded-full bg-secondary px-3 py-1.5">{copy.timezone}: {clinic.timezone}</span></div>
-      <ManagementFeedback value={feedbackValue} onRetry={() => void load(undefined, selectedDentistId, range)} />
+      <ManagementFeedback value={feedbackValue} onRetry={() => void load()} />
       <div role="tablist" aria-label={copy.schedulesTitle} className="mt-7 flex flex-wrap gap-2">{tabs.map(([id, label]) => <Button key={id} role="tab" aria-selected={view === id} variant={view === id ? "secondary" : "outline"} onClick={() => setView(id)}>{label}</Button>)}</div>
       {(view === "dentist" || view === "exceptions") && <label className={`${labelClass} mt-6 max-w-xl`}>{copy.selectDentist}<select className={fieldClass} value={selectedDentistId} onChange={(event) => void changeDentist(event.target.value)}><option value="">{copy.selectDentist}</option>{dentists.map((dentist) => <option key={dentist._id} value={dentist._id}>{dentist.firstName} {dentist.lastName}{dentist.isActive ? "" : ` — ${copy.inactive}`}</option>)}</select></label>}
       <div className="mt-6">
-        {view === "clinic" && <WeeklyPanel key={`clinic-${clinic.scheduleRevision}`} kind="clinic" schedule={clinic.weeklySchedule} revision={clinic.scheduleRevision} title={copy.clinicWeekly} pendingGlobal={loading} save={(schedule, revision, acknowledgement) => api.updateClinic({ weeklySchedule: schedule as ClinicWorkingDay[], expectedScheduleRevision: revision, ...(acknowledgement ? { scheduleConflictAcknowledgement: acknowledgement } : {}) }).then(() => undefined)} refresh={() => load(undefined, selectedDentistId, range)} feedback={setFeedbackValue} />}
-        {view === "dentist" && (selectedDentist ? <WeeklyPanel key={`dentist-${selectedDentist._id}-${selectedDentist.scheduleRevision}`} kind="dentist" schedule={selectedDentist.weeklySchedule} revision={selectedDentist.scheduleRevision} title={`${copy.dentistWeekly} · ${selectedDentist.firstName} ${selectedDentist.lastName}`} pendingGlobal={loading} save={(schedule, revision, acknowledgement) => api.updateDentist(selectedDentist._id, { weeklySchedule: schedule as DentistWorkingDay[], expectedScheduleRevision: revision, ...(acknowledgement ? { scheduleConflictAcknowledgement: acknowledgement } : {}) }).then(() => undefined)} refresh={() => load(undefined, selectedDentist._id, range)} feedback={setFeedbackValue} /> : <p className="rounded-xl border bg-card p-5 text-muted-foreground">{copy.selectDentist}</p>)}
-        {view === "exceptions" && <OverridePanel mode="dentist" items={exceptions} revision={selectedDentist?.scheduleRevision ?? 0} from={range.from} to={range.to} disabled={!selectedDentist} onRange={updateRange} perform={async (operation, acknowledgement) => {
+        {view === "clinic" && <WeeklyPanel key={`clinic-${clinic.scheduleRevision}`} kind="clinic" schedule={clinic.weeklySchedule} revision={clinic.scheduleRevision} title={copy.clinicWeekly} pendingGlobal={loading} save={(schedule, revision, acknowledgement) => api.updateClinic({ weeklySchedule: schedule as ClinicWorkingDay[], expectedScheduleRevision: revision, ...(acknowledgement ? { scheduleConflictAcknowledgement: acknowledgement } : {}) }).then(() => undefined)} refresh={load} feedback={setFeedbackValue} />}
+        {view === "dentist" && (selectedDentist ? <WeeklyPanel key={`dentist-${selectedDentist._id}-${selectedDentist.scheduleRevision}`} kind="dentist" schedule={selectedDentist.weeklySchedule} revision={selectedDentist.scheduleRevision} title={`${copy.dentistWeekly} · ${selectedDentist.firstName} ${selectedDentist.lastName}`} pendingGlobal={loading} save={(schedule, revision, acknowledgement) => api.updateDentist(selectedDentist._id, { weeklySchedule: schedule as DentistWorkingDay[], expectedScheduleRevision: revision, ...(acknowledgement ? { scheduleConflictAcknowledgement: acknowledgement } : {}) }).then(() => undefined)} refresh={load} feedback={setFeedbackValue} /> : <p className="rounded-xl border bg-card p-5 text-muted-foreground">{copy.selectDentist}</p>)}
+        {view === "exceptions" && <OverridePanel key={`exceptions-${selectedDentist?._id ?? "none"}`} mode="dentist" items={exceptions} revision={selectedDentist?.scheduleRevision ?? 0} from={range.from} to={range.to} disabled={!selectedDentist} onRange={updateRange} perform={async (operation, acknowledgement) => {
           if (!selectedDentist) return;
           if (operation.type === "set") await api.setScheduleException(selectedDentist._id, operation.date, { expectedScheduleRevision: operation.revision, isWorking: operation.enabled, shifts: operation.shifts, note: operation.note, ...(acknowledgement ? { scheduleConflictAcknowledgement: acknowledgement } : {}) } as ScheduleExceptionPayload);
           else await api.deleteScheduleException(selectedDentist._id, operation.date, operation.revision, acknowledgement);
-        }} refresh={() => load(undefined, selectedDentist?._id ?? "", range)} feedback={setFeedbackValue} />}
+        }} refresh={load} feedback={setFeedbackValue} />}
         {view === "closures" && <OverridePanel mode="clinic" items={closures} revision={clinic.scheduleRevision} from={range.from} to={range.to} onRange={updateRange} perform={async (operation, acknowledgement) => {
           if (operation.type === "set") await api.setClinicClosure(operation.date, { expectedScheduleRevision: operation.revision, isOpen: operation.enabled, shifts: operation.shifts, note: operation.note, ...(acknowledgement ? { scheduleConflictAcknowledgement: acknowledgement } : {}) } as ClinicClosurePayload);
           else await api.deleteClinicClosure(operation.date, operation.revision, acknowledgement);
-        }} refresh={() => load(undefined, selectedDentistId, range)} feedback={setFeedbackValue} />}
+        }} refresh={load} feedback={setFeedbackValue} />}
       </div>
     </section>
   );

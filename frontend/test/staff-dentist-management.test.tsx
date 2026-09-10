@@ -19,6 +19,36 @@ const dentist = {
   weeklySchedule: [], scheduleRevision: 3, isFeatured: false, bookingEnabled: false, isActive: true, sortOrder: 1,
   createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
 };
+const inactiveAssignedService = {
+  ...service,
+  _id: "64b000000000000000000012",
+  name: "Արխիվացված կապ",
+  slug: "archived-assignment",
+  translations: { hy: { name: "Արխիվացված կապ" }, en: { name: "Archived assignment" } },
+  isActive: false,
+  bookingEnabled: false,
+};
+const inactiveUnassignedService = {
+  ...inactiveAssignedService,
+  _id: "64b000000000000000000013",
+  name: "Չկցված արխիվացված",
+  slug: "unassigned-archived",
+  translations: { hy: { name: "Չկցված արխիվացված" }, en: { name: "Unassigned archived" } },
+};
+const dentistWithInactiveAssignment = {
+  ...dentist,
+  services: [
+    dentist.services[0],
+    {
+      _id: inactiveAssignedService._id,
+      name: inactiveAssignedService.name,
+      slug: inactiveAssignedService.slug,
+      translations: inactiveAssignedService.translations,
+      isActive: false,
+      bookingEnabled: false,
+    },
+  ],
+};
 
 const api = {
   listDentists: vi.fn(), listServices: vi.fn(), createDentist: vi.fn(), updateDentist: vi.fn(),
@@ -84,5 +114,36 @@ describe("staff dentist management", () => {
     });
     expect(payload).not.toHaveProperty("slug");
     expect(payload).not.toHaveProperty("photoUrl");
+  });
+
+  it("preserves an existing inactive service assignment during unrelated profile edits", async () => {
+    api.listDentists.mockResolvedValue([dentistWithInactiveAssignment]);
+    api.listServices.mockResolvedValue([service, inactiveAssignedService, inactiveUnassignedService]);
+    render(<StaffDentistManagement />);
+    expect(await screen.findByText("Ani Preview")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const retainedInactive = screen.getByRole("checkbox", { name: /Archived assignment/ });
+    expect(retainedInactive).toBeChecked();
+    expect(retainedInactive).toBeDisabled();
+    expect(screen.queryByRole("checkbox", { name: /Unassigned archived/ })).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Years of experience"), { target: { value: "6" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(api.updateDentist).toHaveBeenCalledTimes(1));
+    expect(api.updateDentist.mock.calls[0][1]).not.toHaveProperty("services");
+  });
+
+  it("blocks service-assignment changes while inactive relationships must be retained", async () => {
+    api.listDentists.mockResolvedValue([dentistWithInactiveAssignment]);
+    api.listServices.mockResolvedValue([service, inactiveAssignedService]);
+    render(<StaffDentistManagement />);
+    expect(await screen.findByText("Ani Preview")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Cleaning" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByText(/retains archived service assignments/i)).toBeVisible();
+    expect(api.updateDentist).not.toHaveBeenCalled();
   });
 });
