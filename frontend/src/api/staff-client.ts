@@ -20,6 +20,22 @@ import {
   type UpdateDentistPayload,
   type UpdateServicePayload,
 } from "@/api/staff-management";
+import {
+  beforeAfterUploadForm,
+  galleryUploadForm,
+  isMediaRecord,
+  parseBeforeAfterCase,
+  parseBeforeAfterMutation,
+  parseCleanupJob,
+  parseGalleryImage,
+  parseImageMutation,
+  parseMediaPagination,
+  type BeforeAfterUpdatePayload,
+  type BeforeAfterUploadPayload,
+  type GalleryUpdatePayload,
+  type GalleryUploadPayload,
+  type MediaCleanupStatus,
+} from "@/api/staff-media";
 import { getFrontendEnvironment } from "@/lib/env";
 
 export type StaffRole = components["schemas"]["Role"];
@@ -68,6 +84,7 @@ type RequestOptions = {
   path: string;
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
+  formData?: FormData;
   signal?: AbortSignal;
   credentials?: RequestCredentials;
   authorization?: string;
@@ -103,6 +120,9 @@ function parsePositiveInteger(value: string | null) {
 }
 
 async function rawRequest(options: RequestOptions) {
+  if (options.body !== undefined && options.formData) {
+    throw new StaffApiError({ kind: "configuration" });
+  }
   const timeoutController = new AbortController();
   const timeout = setTimeout(() => timeoutController.abort("timeout"), options.timeoutMs ?? 10_000);
   const signal = options.signal
@@ -120,7 +140,11 @@ async function rawRequest(options: RequestOptions) {
         ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
         ...(options.authorization ? { Authorization: `Bearer ${options.authorization}` } : {}),
       },
-      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+      ...(options.formData
+        ? { body: options.formData }
+        : options.body !== undefined
+          ? { body: JSON.stringify(options.body) }
+          : {}),
     });
   } catch (cause) {
     if (options.signal?.aborted) throw new StaffApiError({ kind: "cancelled", cause });
@@ -601,6 +625,180 @@ export class StaffApiClient {
     const query = new URLSearchParams({ expectedScheduleRevision: String(expectedScheduleRevision) });
     if (acknowledgement) query.set("scheduleConflictAcknowledgement", acknowledgement);
     await this.#protected({ path: `clinic/closures/${date}?${query}`, method: "DELETE", timeoutMs: 15_000 });
+  }
+
+  async listGallery(signal?: AbortSignal) {
+    const data = dataRecord(await this.#protected({ path: "media/gallery/admin", signal }));
+    if (!Array.isArray(data.images)) throw new StaffApiError({ kind: "protocol" });
+    try { return data.images.map(parseGalleryImage); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async createGalleryImage(payload: GalleryUploadPayload, signal?: AbortSignal) {
+    const data = dataRecord(await this.#protected({
+      path: "media/gallery", method: "POST", formData: galleryUploadForm(payload),
+      timeoutMs: 45_000, signal,
+    }));
+    try { return parseGalleryImage(data.image); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async updateGalleryImage(id: string, payload: GalleryUpdatePayload) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    const data = dataRecord(await this.#protected({
+      path: `media/gallery/${id}`, method: "PATCH", body: payload,
+    }));
+    try { return parseGalleryImage(data.image); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async disableGalleryImage(id: string) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    await this.#protected({ path: `media/gallery/${id}`, method: "DELETE" });
+  }
+
+  async restoreGalleryImage(id: string) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    const data = dataRecord(await this.#protected({ path: `media/gallery/${id}/restore`, method: "PATCH" }));
+    try { return parseGalleryImage(data.image); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async #replaceEntityImage(kind: "dentists" | "services", id: string, file: File, signal?: AbortSignal) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    const formData = new FormData();
+    formData.append("image", file);
+    // Auth runs before multipart parsing on these endpoints, so an explicit 401
+    // is safe to refresh and replay once. Timeout/network failures are never replayed.
+    const data = dataRecord(await this.#protected({
+      path: `media/${kind}/${id}/${kind === "dentists" ? "photo" : "image"}`,
+      method: "PUT", formData, timeoutMs: 45_000, signal,
+    }));
+    const field = kind === "dentists" ? "dentist" : "service";
+    if (!isMediaRecord(data[field])) throw new StaffApiError({ kind: "protocol" });
+    try { return parseImageMutation(data[field], id, kind === "dentists" ? "photo" : "image"); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async #removeEntityImage(kind: "dentists" | "services", id: string) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    const data = dataRecord(await this.#protected({
+      path: `media/${kind}/${id}/${kind === "dentists" ? "photo" : "image"}`, method: "DELETE",
+    }));
+    const field = kind === "dentists" ? "dentist" : "service";
+    if (!isMediaRecord(data[field])) throw new StaffApiError({ kind: "protocol" });
+    try { return parseImageMutation(data[field], id, kind === "dentists" ? "photo" : "image"); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  replaceDentistPhoto(id: string, file: File, signal?: AbortSignal) {
+    return this.#replaceEntityImage("dentists", id, file, signal);
+  }
+
+  removeDentistPhoto(id: string) {
+    return this.#removeEntityImage("dentists", id);
+  }
+
+  replaceServiceImage(id: string, file: File, signal?: AbortSignal) {
+    return this.#replaceEntityImage("services", id, file, signal);
+  }
+
+  removeServiceImage(id: string) {
+    return this.#removeEntityImage("services", id);
+  }
+
+  async listMediaCleanupJobs(options: { page?: number; status?: MediaCleanupStatus } = {}, signal?: AbortSignal) {
+    const query = new URLSearchParams({ page: String(options.page ?? 1), limit: "50" });
+    if (options.status) query.set("status", options.status);
+    const data = dataRecord(await this.#protected({ path: `media/cleanup-jobs?${query}`, signal }));
+    if (!Array.isArray(data.jobs)) throw new StaffApiError({ kind: "protocol" });
+    try {
+      return { jobs: data.jobs.map(parseCleanupJob), pagination: parseMediaPagination(data.pagination) };
+    } catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async retryMediaCleanupJob(id: string) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    const data = dataRecord(await this.#protected({ path: `media/cleanup-jobs/${id}/retry`, method: "POST" }));
+    try { return parseCleanupJob(data.job); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async listBeforeAfterCases(page = 1, signal?: AbortSignal) {
+    if (!Number.isInteger(page) || page < 1) throw new StaffApiError({ kind: "configuration" });
+    const data = dataRecord(await this.#protected({ path: `before-after/admin/all?page=${page}&limit=24`, signal }));
+    if (!Array.isArray(data.cases)) throw new StaffApiError({ kind: "protocol" });
+    try {
+      return { cases: data.cases.map(parseBeforeAfterCase), pagination: parseMediaPagination(data.pagination) };
+    } catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async createBeforeAfterCase(payload: BeforeAfterUploadPayload, signal?: AbortSignal) {
+    const data = dataRecord(await this.#protected({
+      path: "before-after", method: "POST", formData: beforeAfterUploadForm(payload),
+      timeoutMs: 60_000, signal,
+    }));
+    try { return parseBeforeAfterCase(data.case); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async updateBeforeAfterCase(id: string, payload: BeforeAfterUpdatePayload) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    const data = dataRecord(await this.#protected({
+      path: `before-after/${id}`,
+      method: "PATCH",
+      body: {
+        translations: payload.translations,
+        serviceId: payload.serviceId,
+        dentistId: payload.dentistId,
+        isFeatured: payload.featured,
+        sortOrder: payload.sortOrder,
+      },
+    }));
+    try { return parseBeforeAfterCase(data.case); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async disableBeforeAfterCase(id: string) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    await this.#protected({ path: `before-after/${id}`, method: "DELETE" });
+  }
+
+  async restoreBeforeAfterCase(id: string) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    const data = dataRecord(await this.#protected({ path: `before-after/${id}/restore`, method: "PATCH" }));
+    try { return parseBeforeAfterMutation(data.case, id); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async replaceBeforeAfterImage(id: string, side: "before" | "after", file: File, signal?: AbortSignal) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    const formData = new FormData();
+    formData.append("image", file);
+    const data = dataRecord(await this.#protected({
+      path: `before-after/${id}/${side}-image`, method: "PUT", formData, timeoutMs: 45_000, signal,
+    }));
+    try { return parseBeforeAfterMutation(data.case, id); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async withdrawBeforeAfterConsent(id: string, reason: string) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    const data = dataRecord(await this.#protected({
+      path: `before-after/${id}/consent/withdraw`, method: "POST", body: { reason },
+    }));
+    try { return parseBeforeAfterMutation(data.case, id); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async purgeBeforeAfterCase(id: string, reason: string) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    const data = dataRecord(await this.#protected({
+      path: `before-after/${id}/purge`, method: "POST",
+      body: { confirmation: "PERMANENTLY PURGE BEFORE AFTER MEDIA", reason },
+    }));
+    try { return parseBeforeAfterMutation(data.case, id); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
   }
 }
 

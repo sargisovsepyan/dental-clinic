@@ -21,6 +21,7 @@ describe("response security header configuration", () => {
     const headers = headerMap(false);
     expect(headers.has("Strict-Transport-Security")).toBe(false);
     expect(headers.get("Content-Security-Policy")).toContain("'unsafe-eval'");
+    expect(headers.get("Content-Security-Policy")).toContain("img-src 'self' data: blob:");
     expect(headers.get("Content-Security-Policy")).toContain("https://res.cloudinary.com/clinic-cloud/");
     expect(headers.get("Content-Security-Policy")).not.toContain("upgrade-insecure-requests");
   });

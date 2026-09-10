@@ -31,6 +31,13 @@ describe("safe public URL handling", () => {
     expect(safeManagedImage(image, undefined)).toBeNull();
   });
 
+  it("allows only the repository-owned deterministic preview asset in non-production", () => {
+    const preview = { ...image, publicId: "tests/gallery", secureUrl: "/og.png", format: "png" };
+    expect(safeManagedImage(preview, "preview-local")?.src).toBe("/og.png");
+    expect(safeManagedImage({ ...preview, secureUrl: "/private/upload.png" }, "preview-local")).toBeNull();
+    expect(safeManagedImage({ ...preview, publicId: "production/gallery" }, "preview-local")).toBeNull();
+  });
+
   it.each([
     "javascript:alert(1)",
     "data:text/html,test",

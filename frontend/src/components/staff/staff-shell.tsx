@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
-import { Building2, CalendarClock, CalendarDays, LayoutDashboard, LockKeyhole, LogOut, Menu, ShieldCheck, Stethoscope, UserRound, UsersRound } from "lucide-react";
+import { Building2, CalendarClock, CalendarDays, Images, LayoutDashboard, LockKeyhole, LogOut, Menu, PanelsTopLeft, ShieldCheck, Stethoscope, UserRound, UsersRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useStaffAuth } from "@/components/staff/staff-auth-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { staffManagementMessages } from "@/i18n/staff-management-messages";
+import { staffMediaMessages } from "@/i18n/staff-media-messages";
 
 function roleLabel(role: "admin" | "receptionist" | "dentist", copy: ReturnType<typeof useStaffAuth>["copy"]) {
   return role === "admin" ? copy.roleAdmin : role === "receptionist" ? copy.roleReceptionist : copy.roleDentist;
@@ -19,6 +20,7 @@ function roleLabel(role: "admin" | "receptionist" | "dentist", copy: ReturnType<
 function StaffNavigation({ mobile = false, onNavigate }: { mobile?: boolean; onNavigate?: () => void }) {
   const { locale, copy, user } = useStaffAuth();
   const managementCopy = staffManagementMessages[locale];
+  const mediaCopy = staffMediaMessages[locale];
   const pathname = usePathname();
   if (!user) return null;
   const links = [
@@ -29,6 +31,8 @@ function StaffNavigation({ mobile = false, onNavigate }: { mobile?: boolean; onN
       { href: `/${locale}/staff/dentists`, label: managementCopy.dentistsNav, icon: UsersRound, exact: false },
       { href: `/${locale}/staff/schedules`, label: managementCopy.schedulesNav, icon: CalendarClock, exact: false },
       { href: `/${locale}/staff/clinic`, label: managementCopy.clinicNav, icon: Building2, exact: false },
+      { href: `/${locale}/staff/media`, label: mediaCopy.mediaNav, icon: Images, exact: false },
+      { href: `/${locale}/staff/before-after`, label: mediaCopy.casesNav, icon: PanelsTopLeft, exact: false },
     ] : []),
     { href: `/${locale}/staff/account`, label: copy.account, icon: UserRound, exact: false },
   ];

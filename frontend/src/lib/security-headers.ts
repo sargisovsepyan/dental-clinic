@@ -27,7 +27,7 @@ export function buildContentSecurityPolicy({
     `script-src ${scriptSource}${challengeSource}`,
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
-    `img-src 'self' data:${cloudinarySource}`,
+    `img-src 'self' data: blob:${cloudinarySource}`,
     `connect-src 'self' ${apiOrigin}${challengeSource}`,
     `frame-src 'self'${challengeSource}`,
     "form-action 'self'",

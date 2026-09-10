@@ -907,6 +907,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @description Governed public listing; responses are never shared-cacheable so consent withdrawal is visible on the next request. */
         get: operations["listBeforeAfterCases"];
         put?: never;
         /** @description Admin only. Consent version is server-controlled. */
@@ -924,6 +925,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @description Admin only. Every response is marked Cache-Control: no-store. */
         get: operations["listAllBeforeAfterCases"];
         put?: never;
         post?: never;
@@ -942,6 +944,7 @@ export interface paths {
             };
             cookie?: never;
         };
+        /** @description Governed public detail; responses are never shared-cacheable so consent withdrawal is visible on the next request. */
         get: operations["getBeforeAfterCase"];
         put?: never;
         post?: never;
@@ -1974,6 +1977,7 @@ export interface components {
         /** @description Published public before/after cases with consent evidence omitted. */
         BeforeAfterListSuccess: {
             headers: {
+                "Cache-Control": components["headers"]["NoStore"];
                 [name: string]: unknown;
             };
             content: {
@@ -1983,6 +1987,7 @@ export interface components {
         /** @description Published public before/after case with consent evidence omitted. */
         BeforeAfterDetailSuccess: {
             headers: {
+                "Cache-Control": components["headers"]["NoStore"];
                 [name: string]: unknown;
             };
             content: {
@@ -2241,7 +2246,10 @@ export interface components {
             };
         };
     };
-    headers: never;
+    headers: {
+        /** @description This governed response must not be stored by shared or browser caches. */
+        NoStore: "no-store";
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
