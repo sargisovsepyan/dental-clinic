@@ -16,7 +16,9 @@ Phase 3C remains responsible for generalized media/gallery management, before/af
 - `a9693b3 test: harden clinic management workflows`
 - `02932aa test: enforce clinic management coverage gate`
 - `7896311 test: stabilize instrumented booking verification`
-- `docs: finalize clinic management readiness` (the documentation commit containing this report)
+- `0bc82a5 docs: finalize clinic management readiness`
+- `4041203 fix: preserve clinic management request identity`
+- `docs: record final Phase 3B corrective evidence` (the documentation-only commit containing this report update)
 
 No existing commit was rewritten. Nothing was pushed or merged.
 
@@ -70,6 +72,8 @@ Dentist management covers language-neutral names, localized professional title/b
 
 New dentist profiles submit an empty weekly schedule and booking disabled. Profile updates never submit `weeklySchedule`, `expectedScheduleRevision`, `photo`, or `photoUrl`. Existing media is preserved; replacement belongs to the Phase 3C governed-media work.
 
+The final corrective pass closed an inactive-relation loss edge. An assigned archived service is displayed as checked and read-only, while an unrelated profile edit omits the `services` field so the backend preserves the complete existing relation set. An archived unassigned service is never offered for new assignment. Because the backend correctly rejects archived service IDs in an assignment update, the UI explicitly blocks any service-list change while archived assignments exist and tells the operator to restore those services first. Deterministic tests cover preservation, the explicit block, and exclusion of unassigned archived services.
+
 ## Weekly schedules and concurrency
 
 Clinic and dentist weekly editors always show all seven days and support closed days plus up to six shifts. Client validation rejects incomplete, inverted, duplicate, and overlapping intervals before a request; the backend remains authoritative. Weekly clock strings are clinic-local values and are not converted through the browser timezone.
@@ -83,6 +87,8 @@ The final adversarial pass found and fixed one additional edge: an exception/clo
 ## Dentist exceptions and clinic closures
 
 Dentist exceptions and clinic date overrides use the backend's exact `YYYY-MM-DD` clinic-local date contract. They support a day off/closed day or explicit custom shifts and a bounded operational note. Create, edit, and delete operations carry the parent schedule revision and share the same impact acknowledgement and stale-write behavior as weekly hours. Successful operations refetch both the item range and parent revision.
+
+The corrective pass also closed the stale async exception-response race. Dentist and range reads now have independent abort controllers and monotonic generations. A response may update state only while its generation, dentist ID, `from`, and `to` still match the current selection. Parsed exception records are additionally rejected as a protocol failure if their dentist ID or date falls outside the requested identity. Switching dentists remounts the exception action panel so an editor or removal target cannot survive across identities. The same range fence is applied to clinic-closure reads. A deferred-response regression resolves dentist A after dentist B, and an older range after a newer range, then proves the visible removal mutation uses only dentist B's newest date and revision.
 
 Clinic closures never imply cancellation or rescheduling. Impact content states that existing appointments remain booked and will not be moved or cancelled.
 
@@ -125,19 +131,19 @@ Implementation was frozen before the broad final matrix. The preserved successfu
 - generated API types: passed; no generated content diff;
 - TypeScript: passed after the final source/test corrections;
 - ESLint: passed, including the final changed files;
-- frontend unit/coverage gate: exact `npm run test:coverage` passed, 21 files and 126/126 tests;
+- frontend unit/coverage gate: exact `npm run test:coverage` passed, 21 files and 130/130 tests;
 - coverage: statements 80.26% (797/993), branches 79.46% (770/969), functions 85.84% (194/226), lines 84.98% (719/846); all configured thresholds passed;
-- focused schedule-management regression after the stale-token correction: 7/7;
+- focused corrective dentist/schedule management suites: 14/14, including deferred out-of-order identity/range responses, foreign-dentist response rejection, archived-relation preservation, and blocked assignment changes;
 - focused staff-management client tests: 4/4;
 - focused Phase 3B Chromium scenarios: 6/6;
 - complete inherited plus Phase 3B Chromium suite: 32/32;
-- production build: passed with safe example HTTPS origins, Turnstile test site key, and isolated `.next-phase3b-final`; the validated cache and temporary generated config changes were removed;
-- backend catalog/scheduling suite: 16/16;
-- backend `npm run verify`: 289/289, including syntax, tracked-secret scan, OpenAPI lint, tests, and coverage;
-- standalone backend `npm test`: 289/289; and
+- production build: passed with safe example HTTPS origins, Turnstile test site key, and isolated `.next-phase3b-corrective`; the validated cache and temporary generated config changes were removed;
+- backend catalog/scheduling suite: 16/16 from the completed Phase 3B verification;
+- backend `npm run verify`: 289/289 from the completed Phase 3B verification, including syntax, tracked-secret scan, OpenAPI lint, tests, and coverage; it was not repeated because the corrective pass made no backend change;
+- standalone backend `npm test`: 289/289 from the completed Phase 3B verification; and
 - final staged secret scans: no matches.
 
-During the post-correction coverage refresh, the inherited end-to-end booking component/axe unit test twice exceeded Vitest's five-second default by 57–137 ms under V8 coverage on the slow Windows filesystem. Assertions did not fail. A test-only 15-second timeout was scoped to that single integration-style test; the exact repository command then passed 126/126 with thresholds. No production timeout or behavior changed.
+During the earlier post-correction coverage refresh, the inherited end-to-end booking component/axe unit test twice exceeded Vitest's five-second default by 57–137 ms under V8 coverage on the slow Windows filesystem. Assertions did not fail. A test-only 15-second timeout was scoped to that single integration-style test; the repository command then passed 126/126, and the final corrective rerun passed 130/130 with thresholds. No production timeout or behavior changed.
 
 ## Dependency audit status
 
@@ -148,13 +154,18 @@ Safe lockfile-only offline audits completed with zero reported vulnerabilities f
 - backend runtime dependencies; and
 - backend full dependencies.
 
-A live registry audit did not run. The environment rejected the registry request because it would export the dependency inventory outside the workspace and no explicit authorization was available. That policy was not bypassed or weakened. Therefore the accurate live-audit status is `POLICY-BLOCKED`, not passed. Deployment/release operators must run the four documented live audit commands in an approved network environment.
+The corrective pass had explicit authorization to complete the previously blocked frontend checks. Live `npm audit --omit=dev` and live `npm audit` both reached the npm registry and each reported zero vulnerabilities. Backend live audits were not repeated because this corrective pass changed no backend or backend lockfile; the established backend offline results remain recorded above.
 
 ## Final security and adversarial review
 
-The final targeted review rechecked RBAC/IDOR, direct-route zero-fetch guards, cross-account refresh identity matching, private/no-store routing, response allowlists, hidden guard projections, unsafe URL handling, duplicate mutation prevention, exact acknowledgement replay, stale revisions, indeterminate writes, clinic-local dates, timezone authority, destructive confirmations, public-site reflection, and preview ownership/cleanup.
+The final targeted review rechecked RBAC/IDOR, direct-route zero-fetch guards, cross-account refresh identity matching, private/no-store routing, response allowlists, hidden guard projections, unsafe URL handling, duplicate mutation prevention, exact acknowledgement replay, stale revisions, indeterminate writes, clinic-local dates, timezone authority, dentist/range response identity, inactive service relations, destructive confirmations, public-site reflection, and preview ownership/cleanup.
 
-No unresolved critical or high-severity Phase 3B application defect is known. The review fixed the stale override-token edge, the destructive-control contrast defect, missing client lifecycle coverage, and the inherited instrumented-test timeout without rewriting prior commits.
+No unresolved critical or high-severity Phase 3B application defect is known. Across the completed review and corrective pass, the branch fixed the stale override-token edge, destructive-control contrast defect, missing client lifecycle coverage, inherited instrumented-test timeout, stale dentist/range response race, and inactive assigned-service loss without rewriting prior commits.
+
+Two requested nonblocking concurrency/bounding investigations were also completed:
+
+- Administrative exception/closure list validators enforce real ordered local dates but do not impose a maximum span or pagination. The UI defaults to a 90-day range, records are at most one per dentist/date or one clinic closure/date, and the backing lookups use the unique `{ dentist, date }` or unique `date` indexes. This is acceptable for the current admin-only operational surface, but a server-enforced maximum or pagination remains worthwhile defense in depth before unusually large historical datasets are expected.
+- Editorial category, profile, and contact updates use field-level `$set`, so unrelated fields are not replaced wholesale; schedule and booking-critical mutations separately use schedule revisions or booking guard versions. Two administrators can still make last-write-wins changes to the same ordinary editorial field because there is no generalized editorial entity version/ETag. No critical booking or schedule invariant depends on those unguarded fields, so generalized editorial CAS is a future multi-operator hardening item rather than a Phase 3B blocker.
 
 ## Known limitations and Phase 3C boundary
 
@@ -163,7 +174,8 @@ No unresolved critical or high-severity Phase 3B application defect is known. Th
 - Staff invitation, role changes, deactivate/reactivate, session revocation, and audit-log UI remain Phase 3C.
 - The clinic timezone is deployment-owned/read-only until a dedicated migration contract can safely reconcile schedules, appointments, availability, and reminders.
 - Public editorial reads retain the documented five-minute production revalidation policy; the localhost development preview reflects stateful mock updates for deterministic QA.
-- The live registry vulnerability audit remains an approved-environment release step because this environment policy-blocked it.
+- Administrative exception/closure range reads have indexed ordered-date filtering and a 90-day UI default, but no server-enforced maximum span or pagination yet.
+- Ordinary editorial fields use field-level patches but do not yet expose generalized entity-version CAS; safety-critical schedule and booking fields remain guarded separately.
 
 ## Final Git state
 
@@ -173,4 +185,22 @@ After the documentation commit, the working tree is clean. `main` and `origin/ma
 
 ## Conclusion
 
-Phase 3B is complete and safe to merge from the application-code, test, browser-QA, concurrency, RBAC, privacy, and local-preview perspectives. The policy-blocked live registry audit is explicitly carried as an external release check; it is not represented as passed and does not indicate an application-code vulnerability by itself.
+Phase 3B is complete and safe to merge from the application-code, test, browser-QA, concurrency, RBAC, privacy, dependency-audit, and local-preview perspectives. The final corrective pass found no remaining critical or high-severity defect, changed no backend contract, and left the explicitly documented range-bound and generalized editorial-CAS items as nonblocking defense-in-depth work.
+
+## Final corrective verdicts
+
+STALE DENTIST/RANGE RESPONSE RACE FIXED: YES
+
+INACTIVE SERVICE RELATIONSHIP LOSS FIXED: YES
+
+FULL FRONTEND VERIFICATION PASSED: YES
+
+LIVE FRONTEND AUDITS CLEAN: YES
+
+BACKEND CHANGED DURING CORRECTIVE PASS: NO
+
+PHASE 3B COMPLETE AFTER INDEPENDENT REVIEW: YES
+
+SAFE TO MERGE INTO MAIN: YES
+
+READY FOR PHASE 3C: YES
