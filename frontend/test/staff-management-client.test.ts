@@ -75,6 +75,32 @@ describe("staff management API client", () => {
     expect(calls[3][0].searchParams.get("scheduleConflictAcknowledgement")).toBe("b".repeat(64));
   });
 
+  it("sends explicit archive and restore mutations for each managed catalog type", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(auth())
+      .mockImplementation(() => Promise.resolve(json({ success: true })));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new StaffApiClient();
+    await client.login(user.email, "Preview1!");
+
+    await client.disableCategory(category._id);
+    await client.restoreCategory(category._id);
+    await client.disableService(service._id);
+    await client.restoreService(service._id);
+    await client.disableDentist(dentist._id);
+    await client.restoreDentist(dentist._id);
+
+    const calls = fetchMock.mock.calls.slice(1) as Array<[URL, RequestInit]>;
+    expect(calls.map(([url, options]) => [url.pathname, options.method])).toEqual([
+      [`/api/v1/service-categories/${category._id}`, "DELETE"],
+      [`/api/v1/service-categories/${category._id}/restore`, "PATCH"],
+      [`/api/v1/services/${service._id}`, "DELETE"],
+      [`/api/v1/services/${service._id}/restore`, "PATCH"],
+      [`/api/v1/dentists/${dentist._id}`, "DELETE"],
+      [`/api/v1/dentists/${dentist._id}/restore`, "PATCH"],
+    ]);
+  });
+
   it("fails malformed admin projections closed instead of retaining unknown response data", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(auth())
