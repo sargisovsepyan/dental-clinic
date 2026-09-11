@@ -6,6 +6,7 @@ import { StaffAppointmentDetail } from "@/components/staff/staff-appointment-det
 import { StaffAppointments } from "@/components/staff/staff-appointments";
 import { CreateAppointmentDialog } from "@/components/staff/staff-create-appointment";
 import { staffMessages } from "@/i18n/staff-messages";
+import { addCalendarDays, bookingDateRange } from "@/lib/booking-date";
 
 vi.mock("next/link", () => ({ default: ({ href, ...props }: ComponentProps<"a">) => <a href={href} {...props} /> }));
 
@@ -26,6 +27,12 @@ vi.mock("@/components/staff/staff-auth-provider", () => ({
   }),
 }));
 
+const appointmentDate = addCalendarDays(bookingDateRange({
+  timezone: "Asia/Yerevan",
+  allowSameDay: true,
+  maxDaysAhead: 60,
+}).min, 1);
+
 const appointment: StaffAppointment = {
   _id: "64b000000000000000000071", confirmationCode: "DC-STAFF0000000001",
   patientName: "Preview Patient", patientPhone: "+374 00 111111", patientEmail: "patient@preview.local",
@@ -33,8 +40,8 @@ const appointment: StaffAppointment = {
   dentistSnapshot: { firstName: "Ani", lastName: "Preview", title: "Dentist", translations: {} },
   serviceSnapshot: { name: "Cleaning", durationMinutes: 60, translations: {} },
   priceSnapshot: { priceType: "fixed", priceFrom: 20000, priceTo: null, currency: "AMD" },
-  date: "2026-09-10", startTime: "09:00", endTime: "10:00",
-  startAt: "2026-09-10T05:00:00.000Z", endAt: "2026-09-10T06:00:00.000Z",
+  date: appointmentDate, startTime: "09:00", endTime: "10:00",
+  startAt: `${appointmentDate}T05:00:00.000Z`, endAt: `${appointmentDate}T06:00:00.000Z`,
   bufferMinutes: 0, mutationVersion: 0, scheduleRevision: 0, notificationLocale: "en",
   rescheduleHistory: [], status: "pending", source: "phone", patientComment: "Call first", internalNote: "Front desk",
   privacyConsentAt: "2026-09-01T10:00:00.000Z", privacyConsentMethod: "phone", privacyPolicyVersion: "v1",
@@ -185,20 +192,21 @@ describe("staff appointment workspace", () => {
   });
 
   it("reschedules only a freshly reviewed protected slot with the current version", async () => {
+    const rescheduledDate = addCalendarDays(appointment.date, 1);
     const rescheduled = {
-      ...appointment, date: "2026-09-11", startTime: "10:30", endTime: "11:30", mutationVersion: 1,
+      ...appointment, date: rescheduledDate, startTime: "10:30", endTime: "11:30", mutationVersion: 1,
     };
     api.getAppointment.mockResolvedValueOnce(appointment).mockResolvedValueOnce(rescheduled);
     api.getRescheduleAvailability.mockResolvedValue({
-      date: "2026-09-11", timezone: "Asia/Yerevan", available: true, reason: null,
+      date: rescheduledDate, timezone: "Asia/Yerevan", available: true, reason: null,
       dentist: { id: catalog.dentists[0].id }, service: { id: catalog.services[0].id }, rules: {},
-      slots: [{ start: "10:30", end: "11:30", startAt: "2026-09-11T06:30:00.000Z", endAt: "2026-09-11T07:30:00.000Z" }],
+      slots: [{ start: "10:30", end: "11:30", startAt: `${rescheduledDate}T06:30:00.000Z`, endAt: `${rescheduledDate}T07:30:00.000Z` }],
     });
     api.rescheduleAppointment.mockResolvedValue(rescheduled);
     render(<StaffAppointmentDetail appointmentId={appointment._id} catalog={catalog} />);
     await screen.findByText("Preview Patient");
 
-    fireEvent.change(screen.getByLabelText("Date", { selector: "input" }), { target: { value: "2026-09-11" } });
+    fireEvent.change(screen.getByLabelText("Date", { selector: "input" }), { target: { value: rescheduledDate } });
     fireEvent.click(screen.getByRole("button", { name: "Check availability" }));
     fireEvent.click(await screen.findByRole("button", { name: "10:30–11:30" }));
     fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "Patient request" } });
@@ -208,7 +216,7 @@ describe("staff appointment workspace", () => {
       expectedMutationVersion: 0,
       serviceId: catalog.services[0].id,
       dentistId: catalog.dentists[0].id,
-      date: "2026-09-11",
+      date: rescheduledDate,
       startTime: "10:30",
       reason: "Patient request",
     }));
