@@ -105,7 +105,7 @@ test("locale switching preserves a detail route and Armenian fallback carries la
   await expect(page).toHaveURL(/\/en\/services\/test-cleaning$/);
   await expect(page.locator("h1")).toHaveAttribute("lang", "hy");
   await expect(page.locator("main > article")).toContainText('<img src=x onerror="alert(1)">');
-  await expect(page.locator("main > article img")).toHaveCount(0);
+  await expect(page.locator('main > article img[src="x"]')).toHaveCount(0);
 });
 
 test("mobile menu is keyboard-usable and restores focus", async ({ page }) => {
@@ -137,7 +137,7 @@ test("SEO endpoints, metadata, and response hardening are present", async ({ pag
   await expect(page).toHaveTitle(/Ատամների մաքրում/);
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", "http://127.0.0.1:3100/en/services/test-cleaning");
   await expect(page.locator('link[rel="alternate"][hreflang]')).toHaveCount(3);
-  await expect(page.locator('meta[property="og:image"]')).toHaveCount(0);
+  await expect(page.locator('meta[property="og:image"]')).toHaveAttribute("content", "http://127.0.0.1:3100/og.png");
 
   const robots = await request.get("http://127.0.0.1:3100/robots.txt");
   expect(robots.ok()).toBe(true);

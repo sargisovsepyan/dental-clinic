@@ -37,7 +37,17 @@ function ManagedImage({ image, alt, lang, className, imageClassName, priority, s
   if (failed) return <Placeholder alt={alt} lang={lang} className={className} />;
   return (
     <div lang={lang} className={cn("overflow-hidden bg-muted", className)}>
-      <Image src={image.src} width={image.width} height={image.height} alt={alt} priority={priority} sizes={sizes} className={cn("h-auto w-full", imageClassName)} onError={() => setFailed(true)} />
+      <Image
+        src={image.src}
+        width={image.width}
+        height={image.height}
+        alt={alt}
+        priority={priority}
+        sizes={sizes}
+        unoptimized={image.src.startsWith("/")}
+        className={cn("h-auto w-full", imageClassName)}
+        onError={() => setFailed(true)}
+      />
     </div>
   );
 }

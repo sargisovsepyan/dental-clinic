@@ -54,6 +54,13 @@ describe("public UI safety and accessibility", () => {
     expect(screen.getByRole("img", { name: "Clinic reception" })).toHaveAttribute("aria-label", "Clinic reception");
   });
 
+  it("serves deterministic local preview images without the Next.js optimizer", () => {
+    render(<PublicImage image={{ src: "/og.png", width: 640, height: 480 }} alt="Preview image" priority />);
+    const src = screen.getByRole("img", { name: "Preview image" }).getAttribute("src");
+    expect(src).toMatch(/\/og\.png$/);
+    expect(src).not.toContain("/_next/image");
+  });
+
   it("marks fallback page-introduction content with its authored language", () => {
     render(<PageIntro title="Clinic" titleLang="en" description="Հայերեն նկարագրություն" descriptionLang="hy" />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveAttribute("lang", "en");
