@@ -14,7 +14,9 @@ The phase commits are:
 - `84e4eff` — `fix: eager-load leading governed media`
 - `ee11954` — `docs: finalize media consent readiness`
 - `624af09` — `fix: prioritize available staff media`
-- the documentation addendum commit containing the final edge-case evidence
+- `a901b9d` — `docs: record final media edge-case review`
+- `e704535` — `fix: close final media administration integration gaps`
+- the final documentation commit containing this independent corrective-pass evidence
 
 No dependency was added or upgraded during Phase 3C1.
 
@@ -34,7 +36,7 @@ Media uploads use `FormData`; the browser owns the multipart boundary and code n
 
 ## File envelope and upload UX
 
-The native file input remains available. Browser validation mirrors the backend's maximum 5 MiB and exact JPEG, PNG, WebP, HEIC, and HEIF MIME/extension combinations for early feedback only. Backend magic-byte detection and MIME/extension agreement remain the security authority.
+The native file input remains available. Browser validation mirrors the backend's maximum 5 MiB and exact JPEG, PNG, WebP, HEIC, and HEIF MIME/extension combinations for early feedback only. Backend magic-byte detection and MIME/extension agreement remain the security authority. Every accepted input is now uploaded with mandatory WebP conversion. Before persistence, the backend verifies the returned public ID, exact HTTPS Cloudinary account/path, WebP suffix/format, positive bounded dimensions, and byte count. A provider mismatch activates the pre-existing durable rollback cleanup and fails the request; it cannot become a successful but unrenderable asset.
 
 Selected files show their filename and a local preview where the browser can decode them. Preview data is never persisted or converted to stored base64. Every `URL.createObjectURL` is paired with `URL.revokeObjectURL` when the file changes or the component unmounts; a focused regression covers both paths. CSP permits `blob:` only in `img-src` for this local preview.
 
@@ -50,6 +52,8 @@ Cleanup debt uses the backend's bounded 50-item pages and optional status filter
 
 Before/after is a dedicated workspace, not a gallery album. Creation keeps two native inputs explicitly labeled Before and After and submits both through the atomic backend pair route. A partial backend upload/rollback cannot appear as a successful case. Armenian publication title remains required; Russian and English are independently authored and never synthesized.
 
+An existing case may retain a service or dentist that was archived after publication. The editor shows that exact current relation as an archived retained option, but does not expose unrelated inactive entities. On update it compares the edited relation IDs with the authoritative case: unchanged IDs are omitted from PATCH, an intentional clear sends the empty value, and replacement sends only an active selected ID. Backend validation remains unchanged and still rejects new inactive assignments.
+
 The frontend can submit only the consent fields the backend accepts: confirmation, one supported method, and an opaque external reference when that method requires it. It cannot choose the policy version, timestamp, actor, history, withdrawal, or purge state. Those values are server-owned. The client uses positive allowlists and discards consent history/actors and unrelated backend fields.
 
 Publication badges and actions derive only from the authoritative publication/consent state. Verified active consent is required for restore and image replacement. Ordinary unpublish is clearly separate from consent withdrawal: it hides publication without changing consent or deleting media. Withdrawal requires a bounded reason plus explicit acknowledgement, immediately removes public eligibility, and is not presented as reversible.
@@ -60,7 +64,7 @@ Permanent purge is available only after withdrawal. It has a separate destructiv
 
 Public pages continue to use only unauthenticated positive projections. Publication workflow, consent state/method/version/time/reference/history, withdrawal/purge metadata, actors, cleanup data, and patient/appointment information do not enter public JSON or public UI. Withdrawn and purged cases fail closed as not found.
 
-Authenticated management also uses explicit client projections. Managed URLs pass the existing exact Cloudinary cloud/path/public-ID policy before rendering. Arbitrary schemes, hosts, credentials, queries, fragments, data URLs, and mismatched public IDs render an accessible placeholder. Provider-free local testing has one development-only allowlist for `/og.png` with cloud `preview-local`, `tests/` public IDs, PNG format, and positive dimensions; arbitrary local paths remain rejected.
+Authenticated management also uses explicit client projections. Managed URLs pass the existing exact Cloudinary cloud/path/public-ID policy before rendering. Arbitrary schemes, hosts, credentials, queries, fragments, data URLs, mismatched public IDs, and direct HEIC/HEIF assets render an accessible placeholder. Newly accepted HEIC/HEIF inputs remain usable because the backend returns only a validated WebP asset on success. Provider-free local testing has one development-only allowlist for `/og.png` with cloud `preview-local`, `tests/` public IDs, PNG format, and positive dimensions; arbitrary local paths remain rejected.
 
 ## Localization, accessibility, and responsive behavior
 
@@ -76,7 +80,7 @@ The launcher prints local URLs, local-only accounts, and scenarios. One Ctrl+C f
 
 ## Focused verification and adversarial findings
 
-Before the final matrix, focused media client/shared tests passed 20/20 and focused Chromium Phase 3C1 scenarios passed 6/6. They cover multipart boundaries, explicit-401 replay, no retry after indeterminate failure, timeout/cancellation, positive projection, cleanup pagination, exact consent fields, `isFeatured` edit mapping, file validation, object URL cleanup, gallery lifecycle, failed replacement preservation, media conflict/refetch, pair atomicity, public projection, withdrawal/public disappearance, purge, zero-fetch RBAC, five responsive widths, and Axe.
+Before the final matrix, the corrective frontend safety/client/editor regressions passed 31/31 and the focused backend governed-media suite passed 37/37. They prove all six accepted extension/MIME pairs request and receive validated WebP output, recognizable unsupported AVIF fails before provider upload, unsafe provider output rolls back without persistence, direct HEIC delivery remains outside the rendering allowlist, unchanged historical relation IDs are omitted, intentional clear/replacement is explicit, unrelated inactive relations are unavailable, and priority skips malformed or unsupported assets. The frozen full Playwright matrix continues to cover multipart behavior, gallery/entity lifecycle, pair atomicity, public projection, withdrawal/purge, zero-fetch RBAC, responsive layouts, and Axe.
 
 The adversarial review found and corrected these defects in logical commits without rewriting history:
 
@@ -87,31 +91,33 @@ The adversarial review found and corrected these defects in logical commits with
 - before/after edit used frontend `featured` instead of backend `isFeatured`; and
 - upload-preview object URL lifecycle lacked a dedicated regression;
 - deterministic local media was incorrectly routed through the Next.js optimizer, which could hang page-load completion in provider-free E2E;
-- leading public and protected media was left lazy, producing an LCP warning in the final real-browser smoke; and
-- the first priority pass assumed the first staff row had media, which fails for legitimate tombstones or entities without an image.
+- leading public and protected media was left lazy, producing an LCP warning in the final real-browser smoke;
+- the first priority pass assumed the first staff row had media, which fails for legitimate tombstones or entities without an image;
+- accepted HEIC/HEIF input could previously persist an authoritative HEIC/HEIF result that the production rendering boundary correctly refused;
+- unrelated before/after edits resent historical inactive relations and could receive a backend `409`; and
+- the leading-media helper selected the first non-null asset rather than the first asset accepted by the actual rendering safety boundary.
 
-The final corrected selection gives only the first available real managed image priority. The one allowlisted local preview image is also eager because many independent deterministic fixtures deliberately share that same source; production provider images retain normal lazy loading outside the leading card.
+The final corrected selection gives priority only to the first managed image that passes `safeManagedImage`. For a before/after card, either side can establish that the card is renderable, so a malformed legacy Before asset cannot hide a valid After asset from priority selection. The one allowlisted local preview image is also eager because many independent deterministic fixtures deliberately share that same source; production provider images retain normal lazy loading outside the leading card.
 
 ## Final verification evidence
 
-The final backend verification remained valid after the frontend-only corrective pass:
+The backend changed during this corrective pass, so both required backend matrices were rerun after the fix:
 
-- focused governed-media/security regression: 34/34 tests passed;
-- `npm run verify`: syntax check passed for 171 files, tracked-secret check passed for 357 files, OpenAPI lint passed, and 290/290 tests passed;
-- backend coverage: 92.84% lines, 83.32% branches, and 90.15% functions;
-- separate `npm test`: 290/290 tests passed; and
+- focused governed-media regression: 37/37 tests passed;
+- `npm run verify`: syntax check passed for 171 files, tracked-secret check passed, OpenAPI lint passed, and 293/293 coverage tests passed;
+- the post-staging tracked-secret check passed for 359 files;
+- backend coverage: 92.83% lines, 83.35% branches, and 90.17% functions;
+- separate `npm test`: 293/293 tests passed; and
 - both runtime and complete backend `npm audit --audit-level=moderate` checks reported zero vulnerabilities.
 
-The final frontend verification was:
+The fresh final frontend verification was:
 
-- generated OpenAPI type check passed before the rendering-only corrective pass;
-- full Vitest coverage: 23 files and 145/145 tests passed;
-- coverage: 80.50% statements (892/1108), 80.26% branches (838/1044), 87.44% functions (216/247), and 84.60% lines (786/929);
-- final focused rendering regressions: 12/12 tests passed;
-- the post-review media-less-leading-row regression passed 3/3 focused tests;
-- `npm run typecheck` and `npm run lint` passed with zero warnings after the final follow-up;
-- a final production build completed successfully with HTTPS API/site origins and the documented Turnstile test public key;
-- the frozen full Playwright matrix passed 38/38 before the final rendering-only correction, and the affected public/protected routes were then reverified directly in fresh browser tabs; and
+- `npm run api:types` regenerated the client declarations from the changed OpenAPI contract;
+- `npm run typecheck` and `npm run lint` passed with zero warnings;
+- full Vitest coverage: 24 files and 156/156 tests passed;
+- coverage: 80.50% statements (892/1108), 80.34% branches (842/1048), 87.44% functions (216/247), and 84.60% lines (786/929);
+- a production build completed successfully with HTTPS API/site origins, Cloudinary cloud name, and the documented Turnstile test public key;
+- the full frozen Playwright matrix passed 38/38 after the corrective implementation; and
 - both runtime and complete frontend `npm audit --audit-level=moderate` checks reported zero vulnerabilities.
 
 The final local browser smoke used the supervised provider-free preview. It confirmed the Armenian gallery/media workspace, English before/after governance, Russian public before/after projection, gallery/entity replacement controls, cleanup status/retry presentation, paired images, publication/consent states, and administrator-only actions. Public markup contained no consent method, policy version, withdrawal control, actor, cleanup, or patient data. A receptionist direct visit to media administration rendered access denied, issued no admin read, and preserved the valid session for the appointment workspace.
@@ -120,13 +126,14 @@ At a true 375 CSS-pixel phone width the representative staff and public routes h
 
 ## Security and privacy review
 
-The final review covers no-store ordering, public gallery non-regression, withdrawal-safe public reads, multipart boundary ownership, explicit-401 versus indeterminate retry policy, replacement rollback presentation, pair atomicity, server-owned consent evidence, publication fail-closed behavior, explicit purge, positive projections, URL allowlisting, absence of patient/consent/provider secrets in logs/storage/URLs, object URL revocation, bounded cleanup pagination, backend-authoritative RBAC, and `403` session preservation.
+The final review covers no-store ordering, public gallery non-regression, withdrawal-safe public reads, multipart boundary ownership, upload-time WebP normalization, returned-asset validation, provider-result rollback, explicit-401 versus indeterminate retry policy, replacement rollback presentation, pair atomicity, historical inactive relation preservation without loosening backend assignment validation, server-owned consent evidence, publication fail-closed behavior, explicit purge, positive projections, URL allowlisting, renderable-media priority, absence of patient/consent/provider secrets in logs/storage/URLs, object URL revocation, bounded cleanup pagination, backend-authoritative RBAC, and `403` session preservation.
 
 ## Known limitations and Phase 3C2 boundary
 
 - Production Cloudinary credentials, real clinic assets, consent policy/legal approval, CDN/edge validation, and deployment are operational responsibilities, not frontend fixtures.
 - Gallery removal is reversible archive because that is the backend contract; it does not delete the provider object.
 - Browser file validation is convenience only; backend signature validation remains mandatory.
+- HEIC/HEIF is an accepted input contract, not a direct-delivery contract. Production success requires the provider to return the validated WebP representation.
 - Media replacement exposes no client CAS version. The backend compare-and-set/reference guards are authoritative, and conflicts trigger refetch rather than automatic resend.
 - Consent evidence remains governed outside this UI. The interface records only the backend-supported method/attestation and opaque reference; it is not a document repository.
 - Cleanup execution belongs to the backend worker/process contract; this UI lists and schedules retryable debt.
