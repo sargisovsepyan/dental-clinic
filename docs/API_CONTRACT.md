@@ -159,7 +159,7 @@ Booking and reschedule transactions conditionally write category, service, clini
 
 ## Media and consent
 
-Uploads are admin-only, memory-buffered, limited to 5 MiB per image, and require the submitted MIME and filename extension to match detected JPEG/PNG/WebP/HEIC/HEIF magic bytes. Tests cannot use the live Cloudinary adapter.
+Uploads are admin-only, memory-buffered, limited to 5 MiB per image, and require the submitted MIME and filename extension to match detected JPEG/PNG/WebP/HEIC/HEIF magic bytes. Every accepted input is converted by the provider to a WebP asset before persistence. The backend verifies the returned public ID, HTTPS Cloudinary cloud/path, WebP suffix/format, dimensions, and byte count; a mismatched or unrenderable provider result fails and activates the existing rollback cleanup instead of returning success. Tests cannot use the live Cloudinary adapter.
 
 Replacement/removal uses an expected-current-image compare-and-set. The losing side of a race receives `409`; its upload is durable cleanup debt and is processed only when unreferenced. Old-image deletion starts only after the DB reference changes. Cleanup jobs are bounded, retryable, single-claim, reference-checked, and operator-visible.
 

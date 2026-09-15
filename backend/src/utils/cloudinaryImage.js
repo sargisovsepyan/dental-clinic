@@ -9,6 +9,9 @@ import crypto from 'node:crypto';
 let testAdapter = null;
 
 
+const NORMALIZED_IMAGE_FORMAT = 'webp';
+
+
 const setCloudinaryAdapterForTests = (adapter) => {
   if (env.NODE_ENV !== 'test') {
     throw new Error('Cloudinary adapter injection is only allowed in tests');
@@ -33,7 +36,10 @@ const resetCloudinaryAdapterForTests = () => {
 
 const liveAdapter = {
   allocatePublicId: (folder) => `${folder}/${crypto.randomUUID()}`,
-  upload: (buffer, { folder, publicId, tags = [] }) => {
+  upload: (
+    buffer,
+    { folder, publicId, tags = [], format = NORMALIZED_IMAGE_FORMAT }
+  ) => {
     assertCloudinaryConfigured();
     return new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
@@ -41,6 +47,7 @@ const liveAdapter = {
           resource_type: 'image',
           ...(publicId ? { public_id: publicId } : { folder }),
           tags,
+          format,
           use_filename: false,
           unique_filename: true,
           overwrite: false,
@@ -108,4 +115,5 @@ export {
   deleteCloudinaryImage,
   setCloudinaryAdapterForTests,
   resetCloudinaryAdapterForTests,
+  NORMALIZED_IMAGE_FORMAT,
 };

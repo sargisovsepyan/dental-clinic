@@ -27,7 +27,7 @@ import {
   ManagedMediaPreview,
   MediaStatusBadge,
   StaffFileField,
-  firstAvailableMediaIndex,
+  firstRenderableMediaIndex,
   mediaFeedback,
   useMediaCopy,
 } from "@/components/staff/staff-media-shared";
@@ -99,8 +99,8 @@ function CaseEditor({
     beforeImage?: File;
     afterImage?: File;
     translations: BeforeAfterTranslations;
-    serviceId: string;
-    dentistId: string;
+    serviceId?: string;
+    dentistId?: string;
     consentMethod: "written" | "digital" | "verbal" | "external";
     externalConsentReference?: string;
     active: boolean;
@@ -123,6 +123,14 @@ function CaseEditor({
   const [featured, setFeatured] = useState(value?.featured ?? false);
   const [sortOrder, setSortOrder] = useState(value?.sortOrder ?? 0);
   const [error, setError] = useState("");
+  const activeServices = services.filter((item) => item.isActive);
+  const activeDentists = dentists.filter((item) => item.isActive);
+  const retainedInactiveService = value?.service && !activeServices.some((item) => item._id === value.service?.id)
+    ? value.service
+    : null;
+  const retainedInactiveDentist = value?.dentist && !activeDentists.some((item) => item._id === value.dentist?.id)
+    ? value.dentist
+    : null;
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -148,8 +156,8 @@ function CaseEditor({
       beforeImage: beforeFile ?? undefined,
       afterImage: afterFile ?? undefined,
       translations: compact,
-      serviceId,
-      dentistId,
+      ...(!value || serviceId !== (value.service?.id ?? "") ? { serviceId } : {}),
+      ...(!value || dentistId !== (value.dentist?.id ?? "") ? { dentistId } : {}),
       consentMethod,
       externalConsentReference: externalReference.trim() || undefined,
       active,
@@ -169,8 +177,8 @@ function CaseEditor({
           { name: "description", label: copy.caseDescription, maxLength: 2_000, multiline: true },
         ]} />
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className={labelClass}>{copy.service}<select className={fieldClass} value={serviceId} onChange={(event) => setServiceId(event.target.value)} disabled={pending}><option value="">{copy.noRelation}</option>{services.filter((item) => item.isActive).map((item) => <option key={item._id} value={item._id}>{serviceName(item, locale)}</option>)}</select></label>
-          <label className={labelClass}>{copy.dentist}<select className={fieldClass} value={dentistId} onChange={(event) => setDentistId(event.target.value)} disabled={pending}><option value="">{copy.noRelation}</option>{dentists.filter((item) => item.isActive).map((item) => <option key={item._id} value={item._id}>{dentistName(item)}</option>)}</select></label>
+          <label className={labelClass}>{copy.service}<select className={fieldClass} value={serviceId} onChange={(event) => setServiceId(event.target.value)} disabled={pending}><option value="">{copy.noRelation}</option>{retainedInactiveService && <option value={retainedInactiveService.id}>{retainedInactiveService.label} — {copy.archived}</option>}{activeServices.map((item) => <option key={item._id} value={item._id}>{serviceName(item, locale)}</option>)}</select></label>
+          <label className={labelClass}>{copy.dentist}<select className={fieldClass} value={dentistId} onChange={(event) => setDentistId(event.target.value)} disabled={pending}><option value="">{copy.noRelation}</option>{retainedInactiveDentist && <option value={retainedInactiveDentist.id}>{retainedInactiveDentist.label} — {copy.archived}</option>}{activeDentists.map((item) => <option key={item._id} value={item._id}>{dentistName(item)}</option>)}</select></label>
           <label className={labelClass}>{copy.displayOrder}<input className={fieldClass} type="number" min={0} max={10_000} value={sortOrder} onChange={(event) => setSortOrder(Number(event.target.value))} disabled={pending} required /></label>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -307,12 +315,14 @@ function BeforeAfterContent() {
     } finally { setPending(false); }
   }
 
-  const priorityIndex = firstAvailableMediaIndex(cases.map((item) => item.beforeImage ?? item.afterImage));
+  const priorityIndex = cases.findIndex((item) =>
+    firstRenderableMediaIndex([item.beforeImage, item.afterImage]) !== -1
+  );
 
   return <section className="max-w-7xl"><ManagementHeader eyebrow={copy.casesNav} title={copy.beforeAfterTitle} intro={copy.beforeAfterIntro} action={<Button onClick={() => setEditor({ open: true, value: null })} disabled={loading}><Plus aria-hidden="true" />{copy.addCase}</Button>} /><ManagementFeedback value={feedback} onRetry={() => void load().catch(() => undefined)} />
     {loading ? <p role="status" className="mt-8 text-sm text-muted-foreground">{copy.loading}</p> : cases.length === 0 ? <p className="mt-7 rounded-xl border bg-card p-6 text-muted-foreground">{copy.noCases}</p> : <div className="mt-7 grid gap-5 xl:grid-cols-2">{cases.map((item, index) => <CaseCard key={item.id} item={item} locale={locale} pending={pending} priority={index === priorityIndex} onEdit={() => setEditor({ open: true, value: item })} onReplace={(side) => setReplacement({ item, side })} onArchive={() => setArchiveTarget(item)} onRestore={() => void mutate(() => api.restoreBeforeAfterCase(item.id), { close: () => undefined, success: copy.caseSaved })} onWithdraw={() => setReasonTarget({ item, kind: "withdraw" })} onPurge={() => setReasonTarget({ item, kind: "purge" })} />)}</div>}
     {pages > 1 && <nav aria-label={copy.page} className="mt-7 flex items-center justify-center gap-3"><Button variant="outline" disabled={loading || page <= 1} onClick={() => setPage((value) => value - 1)}>{copy.previous}</Button><span className="text-sm">{copy.page} {page} / {pages}</span><Button variant="outline" disabled={loading || page >= pages} onClick={() => setPage((value) => value + 1)}>{copy.next}</Button></nav>}
-    {editor.open && <CaseEditor value={editor.value} services={services} dentists={dentists} locale={locale} pending={pending} onClose={() => setEditor({ open: false, value: null })} onSubmit={(payload) => void mutate(() => editor.value ? api.updateBeforeAfterCase(editor.value.id, { translations: payload.translations, serviceId: payload.serviceId, dentistId: payload.dentistId, featured: payload.featured, sortOrder: payload.sortOrder }) : api.createBeforeAfterCase({ beforeImage: payload.beforeImage!, afterImage: payload.afterImage!, translations: payload.translations, serviceId: payload.serviceId || undefined, dentistId: payload.dentistId || undefined, consentMethod: payload.consentMethod, externalConsentReference: payload.externalConsentReference, active: payload.active, featured: payload.featured, sortOrder: payload.sortOrder }), { close: () => setEditor({ open: false, value: null }), upload: !editor.value, success: editor.value ? copy.caseSaved : copy.caseCreated })} />}
+    {editor.open && <CaseEditor value={editor.value} services={services} dentists={dentists} locale={locale} pending={pending} onClose={() => setEditor({ open: false, value: null })} onSubmit={(payload) => void mutate(() => editor.value ? api.updateBeforeAfterCase(editor.value.id, { translations: payload.translations, ...(payload.serviceId !== undefined ? { serviceId: payload.serviceId } : {}), ...(payload.dentistId !== undefined ? { dentistId: payload.dentistId } : {}), featured: payload.featured, sortOrder: payload.sortOrder }) : api.createBeforeAfterCase({ beforeImage: payload.beforeImage!, afterImage: payload.afterImage!, translations: payload.translations, serviceId: payload.serviceId || undefined, dentistId: payload.dentistId || undefined, consentMethod: payload.consentMethod, externalConsentReference: payload.externalConsentReference, active: payload.active, featured: payload.featured, sortOrder: payload.sortOrder }), { close: () => setEditor({ open: false, value: null }), upload: !editor.value, success: editor.value ? copy.caseSaved : copy.caseCreated })} />}
     {replacement && <ReplaceImageDialog item={replacement.item} side={replacement.side} locale={locale} pending={pending} onClose={() => setReplacement(null)} onSubmit={(file) => void mutate(() => api.replaceBeforeAfterImage(replacement.item.id, replacement.side, file), { close: () => setReplacement(null), upload: true, success: copy.caseSaved })} />}
     {archiveTarget && <ArchiveDialog pending={pending} onClose={() => setArchiveTarget(null)} onConfirm={() => void mutate(() => api.disableBeforeAfterCase(archiveTarget.id), { close: () => setArchiveTarget(null), success: copy.caseSaved })} />}
     {reasonTarget && <ReasonDialog kind={reasonTarget.kind} pending={pending} onClose={() => setReasonTarget(null)} onConfirm={(reason) => void mutate(() => reasonTarget.kind === "withdraw" ? api.withdrawBeforeAfterConsent(reasonTarget.item.id, reason) : api.purgeBeforeAfterCase(reasonTarget.item.id, reason), { close: () => setReasonTarget(null), success: reasonTarget.kind === "withdraw" ? copy.withdrawalComplete : copy.purgeComplete })} />}

@@ -101,8 +101,8 @@ export type BeforeAfterUploadPayload = {
 
 export type BeforeAfterUpdatePayload = {
   translations: BeforeAfterTranslations;
-  serviceId: string;
-  dentistId: string;
+  serviceId?: string;
+  dentistId?: string;
   featured: boolean;
   sortOrder: number;
 };

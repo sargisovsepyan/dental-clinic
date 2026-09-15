@@ -259,6 +259,27 @@ describe("staff governed media client", () => {
     });
   });
 
+  it("omits unchanged optional before/after relations from the PATCH body", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(auth())
+      .mockResolvedValueOnce(json({ success: true, data: { case: governedCase } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new StaffApiClient();
+    await client.login(user.email, "Preview1!");
+
+    await client.updateBeforeAfterCase(governedCase._id, {
+      translations: { hy: { title: "Փոփոխված արդյունք" } },
+      featured: false,
+      sortOrder: 0,
+    });
+
+    expect(JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))).toEqual({
+      translations: { hy: { title: "Փոփոխված արդյունք" } },
+      isFeatured: false,
+      sortOrder: 0,
+    });
+  });
+
   it("exercises the governed lifecycle endpoints with their exact methods and bounded response shapes", async () => {
     const dentistId = governedCase.dentist._id;
     const serviceId = governedCase.service._id;
@@ -349,11 +370,17 @@ describe("staff governed media client", () => {
   });
 
   it("mirrors the backend file envelope as UX validation only", () => {
-    expect(validateMediaFile(pngFile())).toBeNull();
+    for (const [extension, type] of [
+      ["jpg", "image/jpeg"], ["jpeg", "image/jpeg"], ["png", "image/png"],
+      ["webp", "image/webp"], ["heic", "image/heic"], ["heif", "image/heif"],
+    ]) {
+      expect(validateMediaFile(new File(["image"], `image.${extension}`, { type }))).toBeNull();
+    }
     expect(validateMediaFile(new File([], "empty.png", { type: "image/png" }))).toBe("empty");
     expect(validateMediaFile(new File([new Uint8Array(MAX_MEDIA_FILE_BYTES + 1)], "large.png", { type: "image/png" })))
       .toBe("too-large");
     expect(validateMediaFile(new File(["text"], "note.txt", { type: "text/plain" }))).toBe("unsupported");
+    expect(validateMediaFile(new File(["image"], "image.avif", { type: "image/avif" }))).toBe("unsupported");
     expect(validateMediaFile(new File(["fake"], "fake.jpg", { type: "image/png" }))).toBe("unsupported");
   });
 });

@@ -16,7 +16,7 @@
 - Compromised receptionist: appointment operations only; no staff, catalog, audit, cleanup, or consent-governance access.
 - Compromised dentist account: authenticated profile only; no patient appointment or administrative access.
 - Malicious/accidental admin: explicit validation and audit, last-admin protection, soft lifecycle, consent confirmation phrase, reference-guarded cleanup, and non-destructive index tooling.
-- Upload attacker: small in-memory limits, allowed magic bytes, MIME/extension agreement, Cloudinary image-only mode, admin authorization, and upload throttling.
+- Upload attacker: small in-memory limits, allowed magic bytes, MIME/extension agreement, Cloudinary image-only mode with mandatory WebP normalization, strict returned-asset metadata/URL validation before persistence, rollback cleanup, admin authorization, and upload throttling.
 - Concurrency attacker: unique indexes, monotonic category/service/clinic/dentist admission guards, request-bound appointment mutation versions, compare-and-set writes, serialized last-admin transactions, and repeatable parallel tests.
 - Notification abuse/race attacker: no arbitrary-send endpoint; database-unique logical events; token-fenced worker leases; send-time appointment revision/status checks; bounded polling, concurrency, attempts, backoff, and retention; unsupported SMS fails closed.
 

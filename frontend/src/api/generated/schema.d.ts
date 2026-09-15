@@ -1154,6 +1154,7 @@ export interface components {
             secureUrl: string;
             width: number;
             height: number;
+            /** @description Actual browser-safe stored/delivered format. New uploads are normalized to webp; compatible legacy assets may use another supported format. */
             format: string;
             bytes: number;
         };
@@ -2199,7 +2200,10 @@ export interface components {
         ImageUpload: {
             content: {
                 "multipart/form-data": {
-                    /** Format: binary */
+                    /**
+                     * Format: binary
+                     * @description JPEG, PNG, WebP, HEIC, or HEIF, at most 5 MiB. Successful uploads are normalized to WebP before persistence and delivery.
+                     */
                     image: string;
                 };
             };
@@ -2207,7 +2211,10 @@ export interface components {
         GalleryUpload: {
             content: {
                 "multipart/form-data": {
-                    /** Format: binary */
+                    /**
+                     * Format: binary
+                     * @description JPEG, PNG, WebP, HEIC, or HEIF, at most 5 MiB. Successful uploads are normalized to WebP before persistence and delivery.
+                     */
                     image: string;
                     altText?: string;
                     caption?: string;
@@ -2221,9 +2228,15 @@ export interface components {
         BeforeAfterUpload: {
             content: {
                 "multipart/form-data": {
-                    /** Format: binary */
+                    /**
+                     * Format: binary
+                     * @description JPEG, PNG, WebP, HEIC, or HEIF, at most 5 MiB. Successful uploads are normalized to WebP before persistence and delivery.
+                     */
                     beforeImage: string;
-                    /** Format: binary */
+                    /**
+                     * Format: binary
+                     * @description JPEG, PNG, WebP, HEIC, or HEIF, at most 5 MiB. Successful uploads are normalized to WebP before persistence and delivery.
+                     */
                     afterImage: string;
                     title?: string;
                     /** @description JSON object keyed by hy, ru, and en; Armenian title required when published. */

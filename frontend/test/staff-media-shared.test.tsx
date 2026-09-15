@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ManagedMediaPreview, StaffFileField, firstAvailableMediaIndex } from "@/components/staff/staff-media-shared";
+import { ManagedMediaPreview, StaffFileField, firstRenderableMediaIndex } from "@/components/staff/staff-media-shared";
 
 const authState = { locale: "en" as const };
 
@@ -47,7 +47,10 @@ describe("staff media file preview", () => {
     expect(screen.getByRole("img", { name: "Clinic gallery" })).not.toHaveAttribute("loading", "lazy");
   });
 
-  it("selects the first available asset when earlier staff rows have no media", () => {
+  it("selects the first renderable asset rather than prioritizing an unsafe placeholder", () => {
+    vi.stubEnv("NEXT_PUBLIC_API_URL", "http://127.0.0.1:5000/api/v1");
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "http://127.0.0.1:3000");
+    vi.stubEnv("NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME", "clinic");
     const asset = {
       publicId: "staff/gallery",
       secureUrl: "https://res.cloudinary.com/clinic/image/upload/staff/gallery.webp",
@@ -56,8 +59,14 @@ describe("staff media file preview", () => {
       format: "webp",
       bytes: 1024,
     };
+    const unsupported = {
+      ...asset,
+      publicId: "staff/legacy",
+      secureUrl: "https://res.cloudinary.com/clinic/image/upload/staff/legacy.heic",
+      format: "heic",
+    };
 
-    expect(firstAvailableMediaIndex([null, asset])).toBe(1);
-    expect(firstAvailableMediaIndex([null, null])).toBe(-1);
+    expect(firstRenderableMediaIndex([unsupported, asset])).toBe(1);
+    expect(firstRenderableMediaIndex([unsupported, null])).toBe(-1);
   });
 });

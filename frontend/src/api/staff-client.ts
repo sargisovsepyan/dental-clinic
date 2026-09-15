@@ -749,8 +749,8 @@ export class StaffApiClient {
       method: "PATCH",
       body: {
         translations: payload.translations,
-        serviceId: payload.serviceId,
-        dentistId: payload.dentistId,
+        ...(payload.serviceId !== undefined ? { serviceId: payload.serviceId } : {}),
+        ...(payload.dentistId !== undefined ? { dentistId: payload.dentistId } : {}),
         isFeatured: payload.featured,
         sortOrder: payload.sortOrder,
       },

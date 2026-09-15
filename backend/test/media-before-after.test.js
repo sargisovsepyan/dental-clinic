@@ -55,15 +55,32 @@ const png = Buffer.from(
   'base64',
 );
 
-const image = (publicId, overrides = {}) => ({
-  publicId,
-  secureUrl: `https://images.example.test/${publicId}`,
-  width: 640,
-  height: 480,
-  format: 'png',
-  bytes: 1024,
-  ...overrides,
-});
+const acceptedImageFixtures = [
+  { filename: 'image.jpg', contentType: 'image/jpeg', buffer: Buffer.from('ffd8ffe000104a46494600010100000100010000ffdb004300', 'hex') },
+  { filename: 'image.jpeg', contentType: 'image/jpeg', buffer: Buffer.from('ffd8ffe000104a46494600010100000100010000ffdb004300', 'hex') },
+  { filename: 'image.png', contentType: 'image/png', buffer: png },
+  { filename: 'image.webp', contentType: 'image/webp', buffer: Buffer.from('524946461a00000057454250565038200e000000', 'hex') },
+  { filename: 'image.heic', contentType: 'image/heic', buffer: Buffer.from('00000018667479706865696300000000686569636d696631', 'hex') },
+  { filename: 'image.heif', contentType: 'image/heif', buffer: Buffer.from('00000018667479706d696631000000006d69663168656963', 'hex') },
+];
+
+const avif = Buffer.from(
+  '00000020667479706176696600000000617669666d6966314d494631',
+  'hex',
+);
+
+const image = (publicId, overrides = {}) => {
+  const format = String(overrides.format || 'webp').toLowerCase();
+  return {
+    publicId,
+    secureUrl: `https://res.cloudinary.com/test-cloud/image/upload/${publicId}.${format}`,
+    width: 640,
+    height: 480,
+    format,
+    bytes: 1024,
+    ...overrides,
+  };
+};
 
 const deferred = () => {
   let resolve;
@@ -200,6 +217,61 @@ test('media upload rejects MIME and extension values that disagree with magic by
   assert.equal(uploadCalls.length, 0);
 });
 
+test('every accepted upload format is normalized to a browser-safe WebP asset', async () => {
+  for (const [index, fixture] of acceptedImageFixtures.entries()) {
+    const publicId = `accepted-format-${index}`;
+    uploadQueue.push(image(publicId));
+    const response = await request(app)
+      .post('/api/v1/media/gallery')
+      .set(admin())
+      .field('translations', JSON.stringify({
+        hy: { altText: fixture.filename },
+      }))
+      .attach('image', fixture.buffer, {
+        filename: fixture.filename,
+        contentType: fixture.contentType,
+      });
+
+    assert.equal(response.status, 201, fixture.filename);
+    assert.equal(response.body.data.image.image.format, 'webp');
+    assert.equal(
+      response.body.data.image.image.secureUrl,
+      `https://res.cloudinary.com/test-cloud/image/upload/${publicId}.webp`,
+    );
+    assert.equal(uploadCalls[index].options.format, 'webp');
+  }
+});
+
+test('recognizable unsupported input fails before provider upload', async () => {
+  const response = await request(app)
+    .post('/api/v1/media/gallery')
+    .set(admin())
+    .attach('image', avif, {
+      filename: 'image.avif',
+      contentType: 'image/avif',
+    });
+
+  assert.equal(response.status, 415);
+  assert.equal(uploadCalls.length, 0);
+});
+
+test('unsafe provider output is rolled back instead of becoming a successful placeholder', async () => {
+  uploadQueue.push(image('unsafe-provider-result', { format: 'heic' }));
+
+  const response = await request(app)
+    .post('/api/v1/media/gallery')
+    .set(admin())
+    .field('altText', 'Unsafe provider result')
+    .attach('image', png, 'image.png');
+
+  assert.equal(response.status, 500);
+  assert.deepEqual(destroyCalls, [{ publicId: 'unsafe-provider-result' }]);
+  assert.equal(
+    await MediaAsset.exists({ 'image.publicId': 'unsafe-provider-result' }),
+    null,
+  );
+});
+
 test('multipart localized media rejects unsupported locale keys before Cloudinary', async () => {
   const response = await request(app)
     .post('/api/v1/media/gallery')
@@ -288,7 +360,7 @@ test('dentist image replacement deletes old only after success and rolls back in
   uploadQueue.push(image('dentist-invalid', { width: 0 }));
   await assert.rejects(
     mediaService.replaceDentistPhoto(core.dentist._id, { buffer: png }),
-    (error) => error.name === 'ValidationError',
+    (error) => error.message === 'Media adapter returned an unsafe image asset',
   );
   assert.equal((await Dentist.findById(core.dentist._id).lean()).photo.publicId, 'dentist-new');
   assert.equal(destroyCalls.at(-1).publicId, 'dentist-invalid');
@@ -747,7 +819,7 @@ test('before/after replacement preserves old image on failure and deletes old af
   uploadQueue.push(image('before-invalid', { height: 0 }));
   await assert.rejects(
     beforeAfterService.replaceCaseImage(item._id, 'before', { buffer: png }),
-    (error) => error.name === 'ValidationError',
+    (error) => error.message === 'Media adapter returned an unsafe image asset',
   );
   assert.equal((await BeforeAfterCase.findById(item._id).lean()).beforeImage.publicId, 'before-old');
   assert.equal(destroyCalls.at(-1).publicId, 'before-invalid');

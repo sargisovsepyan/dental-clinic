@@ -6,6 +6,7 @@ import {
   safePhoneHref,
   safeSocialUrl,
 } from "@/lib/safe-urls";
+import { validateMediaFile } from "@/api/staff-media";
 
 const image = {
   publicId: "clinic/service",
@@ -27,8 +28,25 @@ describe("safe public URL handling", () => {
     expect(safeManagedImage({ ...image, publicId: "clinic/other" }, "clinic-cloud")).toBeNull();
     expect(safeManagedImage({ ...image, publicId: "../service" }, "clinic-cloud")).toBeNull();
     expect(safeManagedImage({ ...image, format: "svg" }, "clinic-cloud")).toBeNull();
+    expect(safeManagedImage({
+      ...image,
+      secureUrl: "https://res.cloudinary.com/clinic-cloud/image/upload/v1/clinic/service.heic",
+      format: "heic",
+    }, "clinic-cloud")).toBeNull();
     expect(safeManagedImage({ ...image, format: undefined as unknown as string }, "clinic-cloud")).toBeNull();
     expect(safeManagedImage(image, undefined)).toBeNull();
+  });
+
+  it.each([
+    ["jpg", "image/jpeg"], ["jpeg", "image/jpeg"], ["png", "image/png"],
+    ["webp", "image/webp"], ["heic", "image/heic"], ["heif", "image/heif"],
+  ])("accepts %s input only when its authoritative output is renderable WebP", (extension, type) => {
+    expect(validateMediaFile(new File(["image"], `image.${extension}`, { type }))).toBeNull();
+    expect(safeManagedImage({
+      ...image,
+      publicId: `clinic/${extension}`,
+      secureUrl: `https://res.cloudinary.com/clinic-cloud/image/upload/v1/clinic/${extension}.webp`,
+    }, "clinic-cloud")).not.toBeNull();
   });
 
   it("allows only the repository-owned deterministic preview asset in non-production", () => {

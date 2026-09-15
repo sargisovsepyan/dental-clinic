@@ -1046,7 +1046,10 @@ components:
             additionalProperties: false
             required: [image]
             properties:
-              image: { type: string, format: binary }
+              image:
+                type: string
+                format: binary
+                description: JPEG, PNG, WebP, HEIC, or HEIF, at most 5 MiB. Successful uploads are normalized to WebP before persistence and delivery.
     GalleryUpload:
       required: true
       content:
@@ -1056,7 +1059,10 @@ components:
             additionalProperties: false
             required: [image]
             properties:
-              image: { type: string, format: binary }
+              image:
+                type: string
+                format: binary
+                description: JPEG, PNG, WebP, HEIC, or HEIF, at most 5 MiB. Successful uploads are normalized to WebP before persistence and delivery.
               altText: { type: string, maxLength: 200 }
               caption: { type: string, maxLength: 500 }
               sortOrder: { type: integer, minimum: 0, maximum: 10000 }
@@ -1073,8 +1079,14 @@ components:
             additionalProperties: false
             required: [beforeImage, afterImage, consentConfirmed, consentMethod, translations]
             properties:
-              beforeImage: { type: string, format: binary }
-              afterImage: { type: string, format: binary }
+              beforeImage:
+                type: string
+                format: binary
+                description: JPEG, PNG, WebP, HEIC, or HEIF, at most 5 MiB. Successful uploads are normalized to WebP before persistence and delivery.
+              afterImage:
+                type: string
+                format: binary
+                description: JPEG, PNG, WebP, HEIC, or HEIF, at most 5 MiB. Successful uploads are normalized to WebP before persistence and delivery.
               title: { type: string, minLength: 2, maxLength: 200 }
               translations:
                 type: string
@@ -1400,7 +1412,9 @@ components:
         secureUrl: { type: string, format: uri }
         width: { type: integer, minimum: 1 }
         height: { type: integer, minimum: 1 }
-        format: { type: string }
+        format:
+          type: string
+          description: Actual browser-safe stored/delivered format. New uploads are normalized to webp; compatible legacy assets may use another supported format.
         bytes: { type: integer, minimum: 1 }
     ServiceCategoryPublic:
       type: object

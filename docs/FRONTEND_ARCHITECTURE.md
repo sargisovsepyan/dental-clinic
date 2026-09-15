@@ -113,6 +113,8 @@ The browser never uses raw legacy image URL fields. Managed image objects are ac
 
 Otherwise the UI renders a deliberate accessible placeholder. Contact and social URLs use scheme and hostname allowlists; telephone and mail links are conservatively constructed.
 
+The upload envelope accepts only matching JPEG, PNG, WebP, HEIC, or HEIF files up to 5 MiB. The backend converts every accepted input to an authoritative WebP asset and verifies the provider result before persistence, so HEIC/HEIF acceptance never requires portable direct browser decoding. The frontend continues to reject direct HEIC/HEIF managed assets at the rendering boundary. A provider result that does not match the expected Cloudinary account, public ID, WebP format, dimensions, or byte bounds fails into rollback rather than appearing as a successful placeholder.
+
 The provider-free development/E2E fixture has one non-production exception: `preview-local` accepts only `/og.png`, a `tests/` public ID, PNG format, and positive dimensions. Arbitrary local paths remain rejected. Selected upload previews use ephemeral `blob:` URLs only in `img-src`; components revoke every object URL when a selection changes or unmounts. No base64 file is persisted.
 
 ## Rendering, caching, and failure behavior

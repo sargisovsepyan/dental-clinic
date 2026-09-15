@@ -30,7 +30,7 @@ import {
   ManagedMediaPreview,
   MediaStatusBadge,
   StaffFileField,
-  firstAvailableMediaIndex,
+  firstRenderableMediaIndex,
   mediaFeedback,
   useMediaCopy,
 } from "@/components/staff/staff-media-shared";
@@ -193,7 +193,7 @@ function GalleryGrid({ items, locale, pending, onEdit, onArchive, onRestore }: {
 }) {
   const copy = useMediaCopy();
   if (items.length === 0) return <p className="mt-7 rounded-xl border bg-card p-6 text-muted-foreground">{copy.noGallery}</p>;
-  const priorityIndex = firstAvailableMediaIndex(items.map((item) => item.image));
+  const priorityIndex = firstRenderableMediaIndex(items.map((item) => item.image));
   return <div className="mt-7 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">{items.map((item, index) => {
     const alt = item.translations[locale]?.altText || item.translations.hy?.altText || item.altText;
     const caption = item.translations[locale]?.caption || item.translations.hy?.caption || item.caption;
@@ -219,7 +219,7 @@ function EntityMediaGrid({ kind, items, locale, pending, onEdit, onRemove }: {
 }) {
   const copy = useMediaCopy();
   if (items.length === 0) return <p className="mt-7 rounded-xl border bg-card p-6 text-muted-foreground">{kind === "dentist" ? copy.noDentists : copy.noServices}</p>;
-  const priorityIndex = firstAvailableMediaIndex(items.map((item) => kind === "dentist" ? (item as StaffDentist).photo : (item as StaffService).image));
+  const priorityIndex = firstRenderableMediaIndex(items.map((item) => kind === "dentist" ? (item as StaffDentist).photo : (item as StaffService).image));
   return <div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{items.map((item, index) => {
     const isDentist = kind === "dentist";
     const label = isDentist ? dentistName(item as StaffDentist) : serviceName(item as StaffService, locale);
