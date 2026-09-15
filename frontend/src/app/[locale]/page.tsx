@@ -156,7 +156,7 @@ export default async function HomePage({ params }: Props) {
           <div className="site-container">
             <SectionHeading title={copy.resultsPreview} />
             <div className="mt-12 grid gap-10 lg:grid-cols-2">
-              {cases.slice(0, 2).map((item) => <BeforeAfterCard key={item.id} item={item} locale={locale} />)}
+              {cases.slice(0, 2).map((item, index) => <BeforeAfterCard key={item.id} item={item} locale={locale} priority={index === 0} />)}
             </div>
           </div>
         </section>

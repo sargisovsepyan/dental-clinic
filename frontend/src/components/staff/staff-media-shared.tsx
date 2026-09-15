@@ -113,13 +113,15 @@ export function ManagedMediaPreview({
   asset,
   alt,
   className = "aspect-[4/3] rounded-lg",
+  priority = false,
 }: {
   asset: PublicImageAsset | null;
   alt: string;
   className?: string;
+  priority?: boolean;
 }) {
   const safeImage = safeManagedImage(asset, getFrontendEnvironment().cloudinaryCloudName);
-  return <PublicImage image={safeImage} alt={alt} className={className} imageClassName="h-full w-full object-cover" />;
+  return <PublicImage image={safeImage} alt={alt} priority={priority} className={className} imageClassName="h-full w-full object-cover" />;
 }
 
 export function MediaStatusBadge({ label, tone }: { label: string; tone: "safe" | "warning" | "danger" | "muted" }) {

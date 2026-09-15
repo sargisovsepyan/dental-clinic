@@ -47,7 +47,7 @@ export default async function BeforeAfterDetailPage({ params }: Props) {
     <div className="site-container py-12 sm:py-20">
       <Link href={localizedPath(locale, "before-after")} className="inline-flex min-h-11 items-center gap-2 text-sm font-bold text-primary"><ArrowLeft aria-hidden="true" className="size-4" />{copy.back}</Link>
       <div className="mt-9 max-w-6xl">
-        <BeforeAfterCard item={item} locale={locale} linked={false} headingLevel={1} />
+        <BeforeAfterCard item={item} locale={locale} linked={false} headingLevel={1} priority />
         <div className="mt-8 flex flex-wrap gap-x-8 gap-y-3 border-t pt-6 text-sm text-muted-foreground">
           {item.service && <Link href={localizedPath(locale, `services/${item.service.slug}`)} lang={item.service.name.lang} className="font-semibold text-primary">{item.service.name.text}</Link>}
           {item.dentist && <Link href={localizedPath(locale, `dentists/${item.dentist.slug}`)} lang={item.dentist.fullNameLang} className="font-semibold text-primary">{item.dentist.fullName}</Link>}

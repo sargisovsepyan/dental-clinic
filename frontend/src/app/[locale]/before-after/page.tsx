@@ -57,7 +57,7 @@ export default async function BeforeAfterPage({ params, searchParams }: Props) {
       <div className="site-container pb-24">
         {failed ? <ErrorState locale={locale} requestId={requestId} /> : cases.length === 0 ? <EmptyState>{copy.noResults}</EmptyState> : (
           <div className="grid gap-14 lg:grid-cols-2">
-            {cases.map((item) => <BeforeAfterCard key={item.id} item={item} locale={locale} headingLevel={2} />)}
+            {cases.map((item, index) => <BeforeAfterCard key={item.id} item={item} locale={locale} headingLevel={2} priority={index === 0} />)}
           </div>
         )}
         {!failed && pageCount > 1 && (

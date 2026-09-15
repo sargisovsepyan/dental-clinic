@@ -43,6 +43,7 @@ function ManagedImage({ image, alt, lang, className, imageClassName, priority, s
         height={image.height}
         alt={alt}
         priority={priority}
+        loading={image.src.startsWith("/") ? "eager" : undefined}
         sizes={sizes}
         unoptimized={image.src.startsWith("/")}
         className={cn("h-auto w-full", imageClassName)}

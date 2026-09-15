@@ -7,6 +7,7 @@ import { LocaleSwitcher } from "@/components/locale-switcher";
 import { EmptyState, ErrorState, PageIntro } from "@/components/page-shell";
 import { PublicImage } from "@/components/public-media";
 import Loading from "@/app/[locale]/loading";
+import { BeforeAfterCard } from "@/components/before-after-card";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/ru/services/test-cleaning",
@@ -55,10 +56,31 @@ describe("public UI safety and accessibility", () => {
   });
 
   it("serves deterministic local preview images without the Next.js optimizer", () => {
-    render(<PublicImage image={{ src: "/og.png", width: 640, height: 480 }} alt="Preview image" priority />);
-    const src = screen.getByRole("img", { name: "Preview image" }).getAttribute("src");
+    render(<PublicImage image={{ src: "/og.png", width: 640, height: 480 }} alt="Preview image" />);
+    const image = screen.getByRole("img", { name: "Preview image" });
+    const src = image.getAttribute("src");
     expect(src).toMatch(/\/og\.png$/);
     expect(src).not.toContain("/_next/image");
+    expect(image).toHaveAttribute("loading", "eager");
+  });
+
+  it("marks the leading before-and-after pair as high priority when requested", () => {
+    render(<BeforeAfterCard
+      item={{
+        id: "64b000000000000000000051",
+        title: { text: "Test case", lang: "en" },
+        description: { text: "Published with consent", lang: "en" },
+        beforeImage: { src: "https://res.cloudinary.com/clinic/image/upload/before.webp", width: 640, height: 480 },
+        afterImage: { src: "https://res.cloudinary.com/clinic/image/upload/after.webp", width: 640, height: 480 },
+      }}
+      locale="en"
+      priority
+    />);
+
+    expect(screen.getAllByRole("img")).toHaveLength(2);
+    for (const image of screen.getAllByRole("img")) {
+      expect(image).not.toHaveAttribute("loading", "lazy");
+    }
   });
 
   it("marks fallback page-introduction content with its authored language", () => {
