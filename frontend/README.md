@@ -1,6 +1,6 @@
 # Dental clinic frontend
 
-Next.js 16 App Router frontend for the clinic’s public website, no-account booking flow, authenticated staff appointment workspace, and Phase 3B admin clinic management. Armenian (`hy`) is the primary publication locale; Russian (`ru`) and English (`en`) are explicit routes with field-level Armenian fallback when authored public content is absent.
+Next.js 16 App Router frontend for the clinic’s public website, no-account booking flow, authenticated staff appointment workspace, clinic management, and Phase 3C1 governed media/consent administration. Armenian (`hy`) is the primary publication locale; Russian (`ru`) and English (`en`) are explicit routes with field-level Armenian fallback when authored public content is absent.
 
 ## Scope
 
@@ -20,9 +20,11 @@ Implemented public routes:
 - `/{locale}/staff/dentists` — admin-only public dentist profiles and service assignments
 - `/{locale}/staff/schedules` — admin-only clinic/dentist weekly hours, dentist exceptions, and clinic date overrides
 - `/{locale}/staff/clinic` — admin-only safe public clinic settings and booking-policy controls
+- `/{locale}/staff/media` — admin-only gallery, dentist/service image, and cleanup-debt management
+- `/{locale}/staff/before-after` — admin-only paired media, publication, consent withdrawal, and purge governance
 - `/robots.txt`, `/sitemap.xml`, generated app icon, canonical links, and locale alternates
 
-Patient accounts and clinical records remain intentionally out of scope. Phase 3C owns generalized media/gallery and before/after consent administration, staff invitation/role/lifecycle UI, and audit-log UI. Public booking and staff operations never store patient details or bearer tokens in browser storage or URLs.
+Patient accounts and clinical records remain intentionally out of scope. Staff invitation/role/lifecycle UI and audit-log UI remain Phase 3C2. Public booking and staff operations never store patient details or bearer tokens in browser storage or URLs.
 
 ## LOCAL FRONTEND PREVIEW
 
@@ -56,7 +58,7 @@ npm run dev:preview -- --scenario=error
 
 While preview is running, the printed local scenario endpoint can switch between `success`, `pending`, `confirmed`, `conflict`, `empty-availability`, `validation`, `rate-limit`, `error`, `empty`, and `catalog-error` without source edits. All fixtures are development-only and are imported only by test/preview launchers.
 
-Staff scenarios use the same local endpoint and add `staff-conflict`, `staff-stale-availability`, `staff-expired`, `management-schedule-conflict`, and `management-schedule-stale`. The stateful preview supports category/service/dentist lifecycle operations, safe clinic settings, weekly schedules, exceptions, closures, role denial, and public-site reflection. The launcher also prints deterministic local-only setup/reset links.
+Staff scenarios use the same local endpoint and add `staff-conflict`, `staff-stale-availability`, `staff-expired`, `management-schedule-conflict`, and `management-schedule-stale`. Phase 3C1 adds `media-conflict`, `media-replacement-failure`, `media-pair-failure`, `media-unsupported`, and `media-rate-limit`. The stateful preview supports category/service/dentist lifecycle operations, safe clinic settings, schedules/overrides, gallery archive/restore, entity image lifecycle, cleanup retry, paired media, withdrawal/purge, role denial, and public-site reflection. Media resolves only to local `/og.png`; no preview upload contacts a provider. The launcher also prints deterministic local-only setup/reset links.
 
 ## Requirements and setup
 
@@ -106,7 +108,7 @@ npm audit --audit-level=moderate
 - Unsafe, credentialed, non-HTTPS, or unapproved external URLs are rejected.
 - Missing or unapproved Cloudinary images render accessible placeholders.
 - Ordinary editorial catalog fetches use a five-minute revalidation policy. Governed before/after reads, booking eligibility/settings, and availability use dedicated `no-store` boundaries. Booking mutations use browser requests with omitted credentials and normalized errors.
-- The frontend never handles consent evidence or other governance metadata for before/after publications.
+- Public pages never handle consent evidence or governance metadata. The admin before/after workspace receives only the allowlisted state needed for publication, withdrawal, and purge; consent history/actors and cleanup/provider identifiers are discarded.
 - One UUIDv4 idempotency key belongs to one canonical booking attempt. Uncertain retries retain it; changed appointment data generates another key. The challenge token is deliberately excluded from request identity.
 - The consent control is explicit and initially unchecked. Approved clinic privacy-policy text and a public policy URL have not been supplied and remain a deployment content requirement; the frontend does not invent either.
 - Staff access tokens are memory-only. The refresh token remains in a backend-owned HttpOnly cookie; refresh/login/logout are single-flight/serialized around rotation, and `403` never masquerades as logout.
@@ -115,5 +117,8 @@ npm audit --audit-level=moderate
 - Clinic-management navigation and direct routes are admin-only. Protected responses are runtime-allowlisted and no-store; `403` preserves the current session.
 - Schedule and date-override mutations send the reviewed `scheduleRevision`. Appointment-impact responses freeze the exact proposal and bounded conflict metadata; only an explicit acknowledgement replays that proposal and token. Stale or indeterminate acknowledgement results discard the old token, refetch authority, and never auto-retry.
 - Clinic-local dates and weekly clock times are sent as contract strings under the displayed backend timezone. The frontend neither converts them through the browser timezone nor offers live timezone mutation.
+- Multipart media uses browser-owned boundaries, bounded upload timeouts, and no automatic retry after network/timeout uncertainty. Only a definitive pre-upload-parser `401` may use the existing single-flight refresh and one replay. Every result is reconciled with an authoritative read.
+- Client file checks mirror the backend's 5 MiB and JPEG/PNG/WebP/HEIC/HEIF envelope for UX only; backend signature validation is authoritative. Ephemeral local previews revoke object URLs on replacement/unmount.
+- Gallery archive is distinct from provider cleanup. Before/after ordinary unpublish is distinct from irreversible consent withdrawal, and purge is separately guarded after withdrawal.
 
-See `../docs/FRONTEND_ARCHITECTURE.md`, `../docs/FRONTEND_FOUNDATION_FINAL_REPORT.md`, `../docs/FRONTEND_BOOKING_FINAL_REPORT.md`, `../docs/FRONTEND_STAFF_ADMIN_FOUNDATION_FINAL_REPORT.md`, and `../docs/FRONTEND_CLINIC_MANAGEMENT_FINAL_REPORT.md` for the complete design and verification record.
+See `../docs/FRONTEND_ARCHITECTURE.md`, `../docs/FRONTEND_FOUNDATION_FINAL_REPORT.md`, `../docs/FRONTEND_BOOKING_FINAL_REPORT.md`, `../docs/FRONTEND_STAFF_ADMIN_FOUNDATION_FINAL_REPORT.md`, `../docs/FRONTEND_CLINIC_MANAGEMENT_FINAL_REPORT.md`, and `../docs/FRONTEND_MEDIA_CONSENT_FINAL_REPORT.md` for the complete design and verification record.
