@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ManagedMediaPreview, StaffFileField } from "@/components/staff/staff-media-shared";
+import { ManagedMediaPreview, StaffFileField, firstAvailableMediaIndex } from "@/components/staff/staff-media-shared";
 
 const authState = { locale: "en" as const };
 
@@ -45,5 +45,19 @@ describe("staff media file preview", () => {
     />);
 
     expect(screen.getByRole("img", { name: "Clinic gallery" })).not.toHaveAttribute("loading", "lazy");
+  });
+
+  it("selects the first available asset when earlier staff rows have no media", () => {
+    const asset = {
+      publicId: "staff/gallery",
+      secureUrl: "https://res.cloudinary.com/clinic/image/upload/staff/gallery.webp",
+      width: 640,
+      height: 480,
+      format: "webp",
+      bytes: 1024,
+    };
+
+    expect(firstAvailableMediaIndex([null, asset])).toBe(1);
+    expect(firstAvailableMediaIndex([null, null])).toBe(-1);
   });
 });

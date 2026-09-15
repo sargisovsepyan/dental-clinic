@@ -124,6 +124,10 @@ export function ManagedMediaPreview({
   return <PublicImage image={safeImage} alt={alt} priority={priority} className={className} imageClassName="h-full w-full object-cover" />;
 }
 
+export function firstAvailableMediaIndex(assets: Array<PublicImageAsset | null>) {
+  return assets.findIndex((asset) => asset !== null);
+}
+
 export function MediaStatusBadge({ label, tone }: { label: string; tone: "safe" | "warning" | "danger" | "muted" }) {
   const classes = {
     safe: "bg-secondary text-secondary-foreground",

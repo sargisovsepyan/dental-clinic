@@ -30,6 +30,7 @@ import {
   ManagedMediaPreview,
   MediaStatusBadge,
   StaffFileField,
+  firstAvailableMediaIndex,
   mediaFeedback,
   useMediaCopy,
 } from "@/components/staff/staff-media-shared";
@@ -192,11 +193,12 @@ function GalleryGrid({ items, locale, pending, onEdit, onArchive, onRestore }: {
 }) {
   const copy = useMediaCopy();
   if (items.length === 0) return <p className="mt-7 rounded-xl border bg-card p-6 text-muted-foreground">{copy.noGallery}</p>;
+  const priorityIndex = firstAvailableMediaIndex(items.map((item) => item.image));
   return <div className="mt-7 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">{items.map((item, index) => {
     const alt = item.translations[locale]?.altText || item.translations.hy?.altText || item.altText;
     const caption = item.translations[locale]?.caption || item.translations.hy?.caption || item.caption;
     return <article key={item.id} className="min-w-0 overflow-hidden rounded-xl border bg-card shadow-sm">
-      <ManagedMediaPreview asset={item.image} alt={alt} className="aspect-[4/3]" priority={index === 0} />
+      <ManagedMediaPreview asset={item.image} alt={alt} className="aspect-[4/3]" priority={index === priorityIndex} />
       <div className="p-4">
         <div className="flex flex-wrap items-start justify-between gap-2"><h3 className="min-w-0 break-words font-semibold">{alt || "—"}</h3><MediaStatusBadge label={item.active ? copy.published : copy.archived} tone={item.active ? "safe" : "muted"} /></div>
         {caption && <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{caption}</p>}
@@ -217,13 +219,14 @@ function EntityMediaGrid({ kind, items, locale, pending, onEdit, onRemove }: {
 }) {
   const copy = useMediaCopy();
   if (items.length === 0) return <p className="mt-7 rounded-xl border bg-card p-6 text-muted-foreground">{kind === "dentist" ? copy.noDentists : copy.noServices}</p>;
+  const priorityIndex = firstAvailableMediaIndex(items.map((item) => kind === "dentist" ? (item as StaffDentist).photo : (item as StaffService).image));
   return <div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{items.map((item, index) => {
     const isDentist = kind === "dentist";
     const label = isDentist ? dentistName(item as StaffDentist) : serviceName(item as StaffService, locale);
     const asset = isDentist ? (item as StaffDentist).photo : (item as StaffService).image;
     const target: ImageTarget = { kind, id: item._id, label, asset };
     return <article key={item._id} className="min-w-0 rounded-xl border bg-card p-4 shadow-sm">
-      <ManagedMediaPreview asset={asset} alt={label} className="aspect-[4/3] rounded-lg" priority={index === 0} />
+      <ManagedMediaPreview asset={asset} alt={label} className="aspect-[4/3] rounded-lg" priority={index === priorityIndex} />
       <div className="mt-4 flex items-start gap-3">{isDentist ? <UserRound aria-hidden="true" className="mt-1 size-4 shrink-0" /> : <Wrench aria-hidden="true" className="mt-1 size-4 shrink-0" />}<div className="min-w-0"><h3 className="break-words font-semibold">{label}</h3><p className="mt-1 text-xs text-muted-foreground">{asset ? copy.published : copy.noManagedImage}</p></div></div>
       <div className="mt-4 flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => onEdit(target)} disabled={pending}><ImagePlus aria-hidden="true" />{asset ? copy.replaceImage : copy.uploadPhoto}</Button>{asset && <Button variant="destructive" size="sm" onClick={() => onRemove(target)} disabled={pending}><Trash2 aria-hidden="true" />{copy.removeImage}</Button>}</div>
     </article>;
