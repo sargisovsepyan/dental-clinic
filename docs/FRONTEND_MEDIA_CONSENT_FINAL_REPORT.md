@@ -12,7 +12,9 @@ The phase commits are:
 - `2422adc` — `test: harden governed media verification`
 - `87d312e` — `fix: serve local preview media directly`
 - `84e4eff` — `fix: eager-load leading governed media`
-- the documentation commit containing this report
+- `ee11954` — `docs: finalize media consent readiness`
+- `624af09` — `fix: prioritize available staff media`
+- the documentation addendum commit containing the final edge-case evidence
 
 No dependency was added or upgraded during Phase 3C1.
 
@@ -84,10 +86,11 @@ The adversarial review found and corrected these defects in logical commits with
 - cleanup enums and legacy consent methods were not localized;
 - before/after edit used frontend `featured` instead of backend `isFeatured`; and
 - upload-preview object URL lifecycle lacked a dedicated regression;
-- deterministic local media was incorrectly routed through the Next.js optimizer, which could hang page-load completion in provider-free E2E; and
-- leading public and protected media was left lazy, producing an LCP warning in the final real-browser smoke.
+- deterministic local media was incorrectly routed through the Next.js optimizer, which could hang page-load completion in provider-free E2E;
+- leading public and protected media was left lazy, producing an LCP warning in the final real-browser smoke; and
+- the first priority pass assumed the first staff row had media, which fails for legitimate tombstones or entities without an image.
 
-The final LCP correction gives only the leading real managed images priority. The one allowlisted local preview image is also eager because many independent deterministic fixtures deliberately share that same source; production provider images retain normal lazy loading outside the leading card.
+The final corrected selection gives only the first available real managed image priority. The one allowlisted local preview image is also eager because many independent deterministic fixtures deliberately share that same source; production provider images retain normal lazy loading outside the leading card.
 
 ## Final verification evidence
 
@@ -105,7 +108,8 @@ The final frontend verification was:
 - full Vitest coverage: 23 files and 145/145 tests passed;
 - coverage: 80.50% statements (892/1108), 80.26% branches (838/1044), 87.44% functions (216/247), and 84.60% lines (786/929);
 - final focused rendering regressions: 12/12 tests passed;
-- `npm run typecheck` and `npm run lint` passed with zero warnings;
+- the post-review media-less-leading-row regression passed 3/3 focused tests;
+- `npm run typecheck` and `npm run lint` passed with zero warnings after the final follow-up;
 - a final production build completed successfully with HTTPS API/site origins and the documented Turnstile test public key;
 - the frozen full Playwright matrix passed 38/38 before the final rendering-only correction, and the affected public/protected routes were then reverified directly in fresh browser tabs; and
 - both runtime and complete frontend `npm audit --audit-level=moderate` checks reported zero vulnerabilities.
