@@ -10,6 +10,19 @@ Prefer managed MongoDB continuous backup/snapshots. For self-hosted MongoDB, use
 
 ## Backup checklist
 
+Recommended initial real-production policy, subject to clinic approval: named backup owner and second restore approver; continuous/PITR recovery aiming for RPO<=15minutes and RTO<=4hours; daily encrypted restore points30days, weekly points12weeks, quarterly restore drills plus one before first traffic. These are targets, NOT achieved guarantees or legal retention decisions. A daily-only demonstration may lose24h of writes; functional deployment never certifies a15minute RPO. Use independently controlled encryption keys, least-privilege roles, protected off-service copies and immutable/versioned retention; test key recovery. Cloudinary asset retention and surviving consent/withdrawal authority must be reviewed separately: a MongoDB restore does not restore assets or permit resurrecting withdrawn patient images.
+
+Official version-compatible full replica-set tooling can be appropriate for a dedicated replica set. Use operator-only injected credential YAML outside Git, not a command-line URI/password:
+
+```text
+mongodump --config /secure/backup.yml --archive=/protected/clinic-restore-point.archive --gzip --oplog
+mongorestore --config /secure/ISOLATED-restore.yml --archive=/protected/clinic-restore-point.archive --gzip --oplogReplay
+```
+
+Review source/target identities, privileges and consistency before execution. Full oplog workflow requires a cluster-level URI without a selected database; do not filter/rename namespaces or assume a partial dump supports oplogReplay. Restore into a fresh isolated target, never add `--drop` against an existing target or run restore in CI/startup. Avoid DDL/index changes during dump. Sharded clusters need a coordinated approved backup/snapshot procedure, not a generic single-node oplog recipe. Pausing application writers alone does not freeze TTL/system writes or certify a plain partial live export atomic. Prefer provider-consistent snapshots/PITR. See official [mongodump](https://www.mongodb.com/docs/database-tools/mongodump/) and [mongorestore](https://www.mongodb.com/docs/database-tools/mongorestore/) constraints.
+
+Initial operator job budget60minutes (revise from measured size), with alerts before expiry; interrupted artifacts are never recovery evidence until validated. Store encrypted artifacts outside repository/images, verify integrity, preserve damaged source, and record safe commit/migration/index metadata. Drill networks/providers must stay isolated: use DB-only equivalent preflight checks rather than injecting live providers simply to satisfy production schema. Destroy/sanitize the approved drill after evidence review, not during an automatic deployment.
+
 - Confirm the target cluster/database and timestamp without displaying the credentialed URI.
 - Confirm encryption in transit and at rest.
 - Capture application commit, migration versions, MongoDB/tool version, and index catalog metadata.

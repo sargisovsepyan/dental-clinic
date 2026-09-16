@@ -20,7 +20,9 @@ Production-oriented dental-clinic public website and backend for catalog publish
 
 ## Backend development
 
-Use Node.js 22. Copy `backend/.env.example` to an untracked `backend/.env`, replace the development values, and never commit that file.
+Deployment preparation: [architecture](docs/DEPLOYMENT_ARCHITECTURE.md), [complete environment contract](docs/PRODUCTION_ENVIRONMENT.md), [release/rollback](docs/PRODUCTION_RUNBOOK.md), [operations/provider smoke](docs/OPERATIONS.md), and [backup/restore](docs/BACKUP_RESTORE_RUNBOOK.md). Production browser API shares the frontend HTTPS origin via a fixed edge route; never relax Strict cookies for unrelated hosting domains. Run `npm run production:preflight -- --config-only` for provider-free configuration, full preflight explicitly during the drained release window. No infrastructure is provisioned by these commands/docs.
+
+Use current patched Node.js22 (>=22.12) or24 consistently across install/build/runtime; CI uses22. Copy `backend/.env.example` to an untracked `backend/.env`, replace development values, and never commit that file.
 
 ```text
 cd backend
@@ -68,7 +70,7 @@ npm run api:types
 npm run dev
 ```
 
-The public site is available under explicit `/hy`, `/ru`, and `/en` routes, with Armenian as the primary editorial fallback. It includes services, dentists, clinic/contact information, gallery, consent-approved before/after publications, and no-account booking. The staff surface provides localized authentication/account pages, an admin/receptionist appointment workspace, and admin-only clinic plus governed gallery, entity-image, cleanup, and before/after consent management. Dentists receive the authenticated shell but no patient appointment or administrative access. Staff lifecycle and audit-log administration remain Phase 3C2.
+The public site is available under explicit `/hy`, `/ru`, and `/en` routes, with Armenian as the primary editorial fallback. It includes services, dentists, clinic/contact information, gallery, consent-approved before/after publications, and no-account booking. The staff surface provides localized authentication/account pages, an admin/receptionist appointment workspace, admin-only clinic/media/consent management, and completed staff lifecycle/session/audit administration. Dentists receive the authenticated shell but no patient appointment or administrative access.
 
 ### LOCAL FRONTEND PREVIEW
 

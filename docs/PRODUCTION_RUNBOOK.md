@@ -1,5 +1,7 @@
 # Production deployment runbook
 
+Phase 4A prepares code/config/runbooks and provisions/deploys nothing. Read [DEPLOYMENT_ARCHITECTURE.md](DEPLOYMENT_ARCHITECTURE.md), [PRODUCTION_ENVIRONMENT.md](PRODUCTION_ENVIRONMENT.md) and [OPERATIONS.md](OPERATIONS.md). Browser frontend/API MUST share one public HTTPS origin with fixed edge API routing and Strict host-only cookies. Independent service addresses are private upstreams, not browser API origins.
+
 ## Required topology
 
 Use an HTTPS edge/reverse proxy, one or more Node 22+ API instances, one or more standalone Node 22+ notification workers, a transaction-capable MongoDB replica set or managed cluster with TLS, and a TLS Redis service for shared limits. SMTP and Cloudinary are required for the implemented notification/staff/media features. An HTTPS monitoring webhook is required by production configuration. API and worker share MongoDB; only API instances need HTTP traffic and Redis rate-limit access.
@@ -9,22 +11,23 @@ The source tree deliberately does not contain provider credentials, certificates
 ## One-time provisioning gate
 
 - Create DNS and TLS certificate; force HTTPS at the edge.
-- Configure the exact proxy-hop count and preserve the original HTTPS scheme/client IP.
+- Configure narrow actual edge IP/CIDRs, restrict direct API access, and preserve original HTTPS/client IP; hop count alone is not production trust authority.
 - Provision MongoDB with TLS, authentication, replica-set/managed transaction support, network restrictions, and provider monitoring.
 - Provision Redis with TLS/authentication, persistence/availability appropriate to rate-limit state, and network restrictions.
 - Create restricted SMTP credentials and verified sender/domain.
 - Provision one operational reception mailbox or mailing-list alias as `CLINIC_NOTIFICATION_EMAIL`; do not use mutable public clinic contact content for routing.
 - Create restricted Cloudinary credentials and an account retention/backup policy.
 - Create the monitoring endpoint with a reviewed data-processing/privacy agreement.
-- Inject independent high-entropy JWT, phone-quota HMAC, and rate-limit HMAC secrets.
-- Set exact HTTPS `CLIENT_URL`, `FRONTEND_URL`, and comma-separated `CORS_ORIGINS`; choose cookie domain/SameSite deliberately.
+- Inject four independent high-entropy JWT, phone-quota HMAC, rate-limit HMAC and audit-pseudonym secrets.
+- Set exact HTTPS `CLIENT_URL`, `FRONTEND_URL`, `CORS_ORIGINS` to the approved public origin; require Secure/Strict/host-only cookies and matching same-origin frontend public build values.
+- Provision paired Turnstile keys restricted to the exact public hostname; no wildcard/test key in a release.
 - Set and approve `BEFORE_AFTER_CONSENT_VERSION`.
 - Explicitly set `NOTIFICATIONS_ENABLED=true`, the clinic recipient, and bounded worker lease/poll/concurrency/retry/retention values. The lease must exceed the SMTP connection plus socket timeout window.
 - Enable real MongoDB backups and complete the restore drill in `BACKUP_RESTORE_RUNBOOK.md`.
 
 ## Deployment sequence
 
-1. Confirm `npm ci`, `npm run verify`, both dependency audits, and CI pass on the release commit.
+1. Confirm both lockfile installs, backend verify/test, frontend generated-type drift/typecheck/lint/coverage/build/E2E, four dependency audits, secret checks and CI on the immutable release. Use the same supported Node major/public build values in release/runtime. Inject/validate production configuration with `npm run production:preflight -- --config-only` (no service contact). For an existing deployment, drain writers and run read-only preflight before planning changes; pending ledger/index failures are explicit change-plan blockers, never waived. An empty new DB is expected to fail until explicit initialization is reviewed/applied.
 2. Take/verify a recoverable MongoDB backup or provider snapshot.
 3. Set `LEGACY_CONTENT_LOCALE` explicitly to `hy`, `ru`, or `en`, then run the default dry-run: `npm run migrate`. Review all eleven ordered migrations and any `ledger_attestation_required` result. Migration 011 reports legacy notification locale/revision/hash-version state and eligible future reminders without writing or creating a collection/index.
 4. Before apply, remove all API instances from traffic, stop every API and notification/cleanup worker process that can write MongoDB, and verify zero application writers remain. Keep them stopped through migration, index verification, and preflight. Set `PRODUCTION_WRITES_DRAINED=true` only after that verification; the CLI declaration is not a substitute for draining infrastructure.
@@ -42,6 +45,8 @@ The source tree deliberately does not contain provider credentials, certificates
 Production scripts require `NODE_ENV=production` and validated environment variables. They print safe status only; never paste URIs or secrets into command lines retained by shell history if the platform can inject them as environment variables.
 
 ## Scheduled operations
+
+Deploy frontend using the production build + `npm start`, then the reviewed fixed edge/TLS configuration; never dev/preview. BEFORE public traffic, verify robots/sitemap/canonicals, HY/RU/EN, production security/no-store headers and client bundles contain no private values. Run OPERATIONS' explicit SMTP receipt, Cloudinary upload/authoritative-verify/delete, real-domain Turnstile, and Mongo/Redis smoke procedures with synthetic data and cleanup. Check actual gateway multiple Set-Cookie/status/request-ID preservation, HTTPS/origin/IP forwarding, fixed routing/no mutation retries, body bounds and timeout/cancellation failure. Verify staff login/refresh/logout, direct-origin denial, approved booking, durable worker notifications and governed media. Inspect safe logs, then monitor. Local fixtures do not certify an unprovisioned edge or provider. Retain compatible rollback artifact/backup evidence; failed protected smoke keeps traffic closed.
 
 - Run `npm run reconcile:media` on a bounded recurring schedule (for example every few minutes); alert on `failed` cleanup jobs and sustained pending growth.
 - Keep `npm run worker:notifications` continuously supervised. Alert when due jobs accumulate, retry/failure rates rise, or no claim/sent activity occurs while due work exists. Do not wrap it in an unbounded cron loop.

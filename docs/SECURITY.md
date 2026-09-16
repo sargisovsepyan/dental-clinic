@@ -1,8 +1,10 @@
 # Security model and operations
 
+Deployment trust/cookie/configuration contracts are in [DEPLOYMENT_ARCHITECTURE.md](DEPLOYMENT_ARCHITECTURE.md) and [PRODUCTION_ENVIRONMENT.md](PRODUCTION_ENVIRONMENT.md). Production frontend and browser API share one HTTPS origin; no third-party refresh dependency or SameSite weakening. Proxy CIDRs must match restricted real edges, not the whole Internet. Production starts no traffic/jobs until read-only transaction/index/migration prerequisites pass, and creates no collections/indexes automatically. Technical logs/reporting use route templates rather than arbitrary URL segments; edge/web logs require the same privacy discipline. Provider smoke and backup certification are separate protected operator gates, never CI/health actions.
+
 ## Trust boundaries
 
-- The internet-facing proxy terminates TLS and is the only trusted forwarded-header hop unless `TRUST_PROXY_HOPS` explicitly says otherwise.
+- The HTTPS edge terminates TLS; explicit narrow `TRUST_PROXY_CIDRS` defines the approved forwarding chain. Hop count alone is not production trust authority.
 - MongoDB, Redis, SMTP, Cloudinary, and monitoring credentials are injected by the deployment secret manager; none belong in Git or an image.
 - Browser credential origins are an exact HTTPS allowlist. Production cookie-authenticated login/refresh/logout rejects missing or untrusted `Origin`.
 - Administrative authorization is decided from the current MongoDB user, not a stale JWT role claim.
