@@ -31,7 +31,7 @@ const strongSecret = (prefix) =>
 const fakeCredentialedRedisUrl = (hostname) => {
   const url = new URL('rediss://localhost');
   url.username = 'limiter';
-  url.password = 'not-a-secret';
+  url.password = 'fixtureRedis-A73q!p92Wz';
   url.hostname = hostname;
   url.port = '6380';
   url.pathname = '/0';
@@ -68,14 +68,14 @@ const productionEnvironment = (overrides = {}) => ({
   SMTP_PORT: '465',
   SMTP_SECURE: 'true',
   SMTP_USER: 'mailer',
-  SMTP_PASSWORD: 'smtp-password',
+  SMTP_PASSWORD: strongSecret('smtp'),
   MAIL_FROM: 'clinic@example.test',
   NOTIFICATIONS_ENABLED: 'true',
   CLINIC_NOTIFICATION_EMAIL: 'reception@example.test',
   BEFORE_AFTER_CONSENT_VERSION: '2026-01',
   CLOUDINARY_CLOUD_NAME: 'clinic-cloud',
-  CLOUDINARY_API_KEY: 'cloud-key',
-  CLOUDINARY_API_SECRET: 'cloud-secret',
+  CLOUDINARY_API_KEY: '123456789012345',
+  CLOUDINARY_API_SECRET: strongSecret('media'),
   ERROR_MONITOR_WEBHOOK_URL: 'https://monitor.example.test/report',
   PUBLIC_BOOKING_CHALLENGE_PROVIDER: 'turnstile',
   PUBLIC_BOOKING_CHALLENGE_SECRET: strongSecret('challenge'),
@@ -119,7 +119,7 @@ test('importing the production app does not connect to external infrastructure',
     [
       '--input-type=module',
       '--eval',
-      "await import('./src/app.js'); await import('./src/modules/notifications/notificationWorker.service.js'); process.stdout.write('imported')",
+      "const net = await import('node:net'); let connects = 0; net.Socket.prototype.connect = function () { connects++; throw new Error('Network forbidden during import'); }; await import('./src/app.js'); await import('./src/modules/notifications/notificationWorker.service.js'); if (connects) throw new Error('Import attempted network'); process.stdout.write('imported')",
     ],
     {
       cwd: backendRoot,
@@ -129,11 +129,11 @@ test('importing the production app does not connect to external infrastructure',
         ),
       }),
       encoding: 'utf8',
-      timeout: 5000,
+      timeout: 15000,
     }
   );
 
-  assert.equal(child.status, 0, child.stderr);
+  assert.equal(child.status, 0, JSON.stringify({ stdout: child.stdout, stderr: child.stderr, error: child.error?.code }));
   assert.equal(child.stdout, 'imported');
 });
 

@@ -640,6 +640,7 @@ const createNotificationWorker = ({
   leaseMs = env.NOTIFICATION_WORKER_LEASE_MS,
   concurrency = env.NOTIFICATION_WORKER_CONCURRENCY,
   beforeSendFence,
+  terminalSweep = terminalizeExpiredFinalAttempts,
 } = {}) => {
   const runOnce = async ({ sweepExpiredFinalAttempts = true } = {}) => {
     const claimed = await claimNextNotification({
@@ -674,7 +675,8 @@ const createNotificationWorker = ({
   const run = async ({ signal } = {}) => {
     logger.info('notification_worker_started', { ownerId, concurrency });
     while (!signal?.aborted) {
-      await terminalizeExpiredFinalAttempts(clock());
+      await terminalSweep(clock());
+      if (signal?.aborted) break;
       const results = await Promise.all(
         Array.from(
           { length: concurrency },

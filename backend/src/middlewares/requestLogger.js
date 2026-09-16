@@ -1,4 +1,4 @@
-import logger from '../observability/logger.js';
+import logger, { safeRequestPath } from '../observability/logger.js';
 
 
 const requestLogger = (req, res, next) => {
@@ -9,7 +9,7 @@ const requestLogger = (req, res, next) => {
     const metadata = {
       requestId: req.id,
       method: req.method,
-      path: req.path,
+      path: safeRequestPath(req),
       statusCode: res.statusCode,
       durationMs: Math.round(durationMs * 100) / 100,
     };

@@ -5,7 +5,11 @@ info:
   description: >-
     Implemented backend contract. Dates and clock times are interpreted in the
     configured clinic timezone. Production cookie-authenticated operations also
-    require an exact allowed Origin header.
+    require an exact allowed Origin header. Production browsers use the site's
+    exact HTTPS origin for /api/v1 through fixed infrastructure routing. During
+    graceful shutdown, new application requests may receive HTTP 503 with the
+    standard error envelope; liveness remains available and readiness returns
+    503. An uncertain mutation must not be automatically replayed.
 servers:
   - url: /api/v1
 security: []

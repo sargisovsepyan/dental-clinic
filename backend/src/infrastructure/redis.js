@@ -2,6 +2,7 @@ import { createClient } from 'redis';
 
 import env from '../config/env.js';
 import logger from '../observability/logger.js';
+import { withDeadline } from './deadline.js';
 
 
 let client = null;
@@ -114,12 +115,12 @@ const connectRedis = async ({
 };
 
 
-const sendRedisCommand = async (args) => {
+const sendRedisCommand = async (args, { timeoutMs = env.REDIS_COMMAND_TIMEOUT_MS } = {}) => {
   const redisClient = getRedisClient();
   if (!redisClient?.isReady) {
     throw new Error('Redis is not ready');
   }
-  return redisClient.sendCommand(args);
+  return withDeadline(redisClient.sendCommand(args), timeoutMs, 'Redis command timed out');
 };
 
 
@@ -132,15 +133,7 @@ const isRedisReady = async () => {
     return false;
   }
   try {
-    await Promise.race([
-      redisClient.ping(),
-      new Promise((_, reject) => {
-        setTimeout(
-          () => reject(new Error('Redis health check timed out')),
-          env.HEALTH_CHECK_TIMEOUT_MS
-        ).unref();
-      }),
-    ]);
+    await withDeadline(redisClient.ping(), env.HEALTH_CHECK_TIMEOUT_MS);
     return true;
   }
   catch {
@@ -149,13 +142,18 @@ const isRedisReady = async () => {
 };
 
 
-const closeRedis = async () => {
+const closeRedis = async ({ timeoutMs = env.REDIS_COMMAND_TIMEOUT_MS } = {}) => {
   const redisClient = client;
   client = null;
   if (!redisClient?.isOpen) {
     return;
   }
-  await redisClient.quit();
+  try {
+    await withDeadline(redisClient.quit(), timeoutMs, 'Redis shutdown timed out');
+  }
+  finally {
+    destroyFailedClient(redisClient);
+  }
 };
 
 

@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import { isIP } from 'node:net';
 
 import Joi from 'joi';
+import mongoose from 'mongoose';
 
 
 if (process.env.NODE_ENV !== 'test') {
@@ -82,6 +83,8 @@ const envSchema = Joi.object({
   REDIS_URL: Joi.string().allow('').default(''),
   REDIS_CONNECT_TIMEOUT_MS: Joi.number()
     .integer().min(100).max(30000).default(5000),
+  REDIS_COMMAND_TIMEOUT_MS: Joi.number()
+    .integer().min(100).max(10000).default(2000),
 
   MEDIA_CLEANUP_MAX_ATTEMPTS: Joi.number()
     .integer().min(1).max(50).default(8),
@@ -188,34 +191,42 @@ const parseOrigin = (rawOrigin, fieldName) => {
 };
 
 
-const validateMongoTransport = (uri) => {
-  let parsed;
+const mongoOptions = (uri) => {
   try {
-    parsed = new URL(uri);
+    // Parsing through the installed driver supports standard multi-host URIs.
+    // Construction does not connect, perform DNS lookup, or create collections.
+    return new mongoose.mongo.MongoClient(uri).options;
   }
   catch {
     throw new Error('MONGO_URI must be a valid MongoDB URI');
   }
+};
 
-  if (!parsed.hostname || parsed.pathname.length <= 1) {
+const isLocalHost = (host) => /^(localhost|.*\.localhost|127\..*|0\.0\.0\.0|\[?::1?\]?|\[?::ffff:(?:127\..*|7f[0-9a-f]{2}:[0-9a-f]{1,4})\]?)$/i.test(host);
+
+const isPlaceholder = (value) => /(replace|change-me|changeme|example|placeholder|test-only|not-a-secret)/i.test(value) ||
+  /^(smtp-password|cloud-key|cloud-secret)$/i.test(value);
+
+const validateMongoTransport = (uri) => {
+  const options = mongoOptions(uri);
+  if (!options.dbName || /(^|[_-])test([_-]|$)/i.test(options.dbName)) {
     throw new Error('Production MONGO_URI must include a host and database name');
   }
-
-  if (parsed.protocol === 'mongodb+srv:') {
-    return;
+  if (isLocalHost(options.srvHost || '') || options.hosts?.some(({ host }) => isLocalHost(host))) {
+    throw new Error('Production MONGO_URI cannot target localhost');
   }
-
   if (
-    parsed.protocol !== 'mongodb:' ||
-    !['true', '1'].includes(
-      parsed.searchParams.get('tls') ||
-      parsed.searchParams.get('ssl') ||
-      ''
-    )
+    options.tls !== true || options.tlsInsecure ||
+    options.tlsAllowInvalidCertificates || options.tlsAllowInvalidHostnames ||
+    options.rejectUnauthorized === false || typeof options.checkServerIdentity === 'function'
   ) {
     throw new Error(
-      'Production MONGO_URI must use mongodb+srv or explicitly enable TLS'
+      'Production MONGO_URI must enable verified TLS (mongodb+srv or explicit TLS)'
     );
+  }
+  const authority = uri.slice(uri.indexOf('://') + 3).split('/')[0];
+  if (authority.includes('@') && isPlaceholder(authority.slice(0, authority.lastIndexOf('@')))) {
+    throw new Error('Production MONGO_URI contains placeholder credentials');
   }
 };
 
@@ -236,12 +247,18 @@ const validateRedisUrl = (url, production) => {
   if (!parsed.hostname) {
     throw new Error('REDIS_URL must include a host');
   }
+  if (parsed.search || parsed.hash || !/^\/\d*$/.test(parsed.pathname || '/')) {
+    throw new Error('REDIS_URL cannot contain query/fragment or a non-numeric database');
+  }
 
   if (production && parsed.protocol !== 'rediss:') {
     throw new Error('Production REDIS_URL must use TLS (rediss://)');
   }
   if (production && !parsed.password) {
     throw new Error('Production REDIS_URL must include authentication');
+  }
+  if (production && (isLocalHost(parsed.hostname) || isPlaceholder(decodeURIComponent(parsed.password)))) {
+    throw new Error('Production REDIS_URL cannot use localhost or placeholder credentials');
   }
 };
 
@@ -340,7 +357,8 @@ const validateEnvironment = (rawEnvironment) => {
     abortEarly: false,
   });
   if (error) {
-    throw new Error(`Environment validation error: ${error.message}`);
+    // Joi messages may include attacker/config-controlled values. Expose labels only.
+    throw new Error(`Environment validation error: ${[...new Set(error.details.map(({ path }) => path.join('.')))].join(', ')}`);
   }
 
   const origins = [...new Set(
@@ -457,6 +475,10 @@ const validateEnvironment = (rawEnvironment) => {
   const auditSecret = value.AUDIT_PSEUDONYM_SECRET || rateLimitSecret;
 
   if (isProduction) {
+    if (rawEnvironment.DEBUG || rawEnvironment.NODE_DEBUG ||
+        /--inspect(?:-brk)?(?:=|\s|$)/.test(rawEnvironment.NODE_OPTIONS || '')) {
+      throw new Error('Production debug output/inspector must be disabled');
+    }
     validateMongoTransport(value.MONGO_URI);
 
     if (!value.REQUIRE_HTTPS || trustedProxyCidrs.length === 0) {
@@ -464,8 +486,14 @@ const validateEnvironment = (rawEnvironment) => {
         'Production requires HTTPS enforcement and explicit trusted proxy CIDRs'
       );
     }
+    if (trustedProxyCidrs.some((entry) => entry.endsWith('/0'))) {
+      throw new Error('Production TRUST_PROXY_CIDRS cannot trust the whole internet');
+    }
     if (!value.REFRESH_COOKIE_SECURE) {
       throw new Error('Production refresh cookies must be Secure');
+    }
+    if (value.REFRESH_COOKIE_SAME_SITE !== 'strict') {
+      throw new Error('Production first-party refresh cookies must use SameSite=Strict');
     }
     if (value.REFRESH_COOKIE_DOMAIN) {
       throw new Error('Production refresh cookies must be host-only');
@@ -478,6 +506,9 @@ const validateEnvironment = (rawEnvironment) => {
       frontend.protocol !== 'https:'
     ) {
       throw new Error('Production browser origins must use HTTPS');
+    }
+    if (parsedOrigins.some(({ hostname }) => isLocalHost(hostname))) {
+      throw new Error('Production browser origins cannot use localhost');
     }
     if (
       !value.APPOINTMENT_QUOTA_SECRET ||
@@ -512,6 +543,15 @@ const validateEnvironment = (rawEnvironment) => {
     if (!value.SMTP_SECURE && !value.SMTP_REQUIRE_TLS) {
       throw new Error('Production SMTP must use implicit TLS or require STARTTLS');
     }
+    if ((!isIP(value.SMTP_HOST) && !/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(value.SMTP_HOST)) || isLocalHost(value.SMTP_HOST)) {
+      throw new Error('Production SMTP_HOST must be a non-local hostname, not a URL');
+    }
+    if (!/^[a-z0-9_-]+$/i.test(value.CLOUDINARY_CLOUD_NAME)) {
+      throw new Error('CLOUDINARY_CLOUD_NAME contains unsupported characters');
+    }
+    if ([value.SMTP_PASSWORD, value.CLOUDINARY_API_KEY, value.CLOUDINARY_API_SECRET].some(isPlaceholder)) {
+      throw new Error('Production provider credentials cannot be placeholders');
+    }
     if (
       rawEnvironment.NOTIFICATIONS_ENABLED === undefined ||
       value.NOTIFICATIONS_ENABLED !== true ||
@@ -531,6 +571,10 @@ const validateEnvironment = (rawEnvironment) => {
     if (!value.ERROR_MONITOR_WEBHOOK_URL) {
       throw new Error('Production error-monitoring webhook is required');
     }
+    const monitoringUrl = new URL(value.ERROR_MONITOR_WEBHOOK_URL);
+    if (monitoringUrl.username || monitoringUrl.password || monitoringUrl.search || monitoringUrl.hash || isLocalHost(monitoringUrl.hostname)) {
+      throw new Error('ERROR_MONITOR_WEBHOOK_URL must be credential-free without query/fragment');
+    }
     if (!rawEnvironment.BEFORE_AFTER_CONSENT_VERSION) {
       throw new Error(
         'Production BEFORE_AFTER_CONSENT_VERSION must be explicitly configured'
@@ -549,9 +593,7 @@ const validateEnvironment = (rawEnvironment) => {
     if (
       value.PUBLIC_BOOKING_CHALLENGE_PROVIDER !== 'turnstile' ||
       !value.PUBLIC_BOOKING_CHALLENGE_SECRET ||
-      /(replace|example|placeholder)/i.test(
-        value.PUBLIC_BOOKING_CHALLENGE_SECRET
-      )
+      isPlaceholder(value.PUBLIC_BOOKING_CHALLENGE_SECRET)
     ) {
       throw new Error(
         'Production public booking requires a configured bot challenge provider'
@@ -588,6 +630,7 @@ const validateEnvironment = (rawEnvironment) => {
     RATE_LIMIT_STORE: value.RATE_LIMIT_STORE,
     REDIS_URL: value.REDIS_URL,
     REDIS_CONNECT_TIMEOUT_MS: value.REDIS_CONNECT_TIMEOUT_MS,
+    REDIS_COMMAND_TIMEOUT_MS: value.REDIS_COMMAND_TIMEOUT_MS,
     MEDIA_CLEANUP_MAX_ATTEMPTS: value.MEDIA_CLEANUP_MAX_ATTEMPTS,
     MEDIA_CLEANUP_BACKOFF_BASE_SECONDS:
       value.MEDIA_CLEANUP_BACKOFF_BASE_SECONDS,
@@ -645,5 +688,5 @@ const validateEnvironment = (rawEnvironment) => {
 const env = validateEnvironment(process.env);
 
 
-export { validateEnvironment };
+export { validateEnvironment, mongoOptions };
 export default env;

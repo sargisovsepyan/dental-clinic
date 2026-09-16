@@ -8,6 +8,12 @@ const LEVELS = Object.freeze({
   error: 40,
 });
 
+const processRole = process.argv[1]?.endsWith('notificationWorker.js') ? 'notification-worker'
+  : process.argv[1]?.endsWith('productionPreflight.js') ? 'preflight' : 'api';
+
+// Route templates only; arbitrary URL segments can contain identifiers or tokens.
+const safeRequestPath = (req) => typeof req.route?.path === 'string' ? req.route.path : '/unmatched';
+
 const SENSITIVE_KEY_PARTS = [
   'password',
   'secret',
@@ -92,6 +98,7 @@ const write = (level, event, metadata = {}) => {
     level,
     event: redactText(event),
     ...sanitizeLogValue(metadata),
+    processRole,
   };
 
   if (env.NODE_ENV === 'production') {
@@ -115,5 +122,5 @@ const logger = Object.freeze({
 });
 
 
-export { redactText, sanitizeLogValue };
+export { redactText, sanitizeLogValue, safeRequestPath, processRole };
 export default logger;

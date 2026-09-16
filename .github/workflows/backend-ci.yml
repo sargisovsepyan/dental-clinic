@@ -30,6 +30,8 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - run: npm run verify
+      - name: Provider-free production configuration preflight
+        run: node test-support/productionConfigCheck.js
       - name: Audit runtime dependencies
         run: npm audit --omit=dev --audit-level=moderate
       - name: Audit all dependencies

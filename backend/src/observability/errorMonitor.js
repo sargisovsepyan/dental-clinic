@@ -1,5 +1,5 @@
 import env from '../config/env.js';
-import logger, { redactText } from './logger.js';
+import logger, { redactText, processRole } from './logger.js';
 
 
 const pendingReports = new Set();
@@ -55,7 +55,7 @@ const reportError = (error, context = {}) => {
 
   const payload = {
     timestamp: new Date().toISOString(),
-    service: 'dental-clinic-api',
+    service: `dental-clinic-${processRole}`,
     environment: env.NODE_ENV,
     error: {
       name: redactText(error?.name || 'Error'),

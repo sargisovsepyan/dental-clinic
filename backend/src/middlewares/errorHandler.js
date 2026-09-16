@@ -1,5 +1,5 @@
 import env from '../config/env.js';
-import logger from '../observability/logger.js';
+import logger, { safeRequestPath } from '../observability/logger.js';
 import { reportError } from '../observability/errorMonitor.js';
 import ApiError from '../utils/ApiError.js';
 
@@ -72,7 +72,7 @@ const errorHandler = (err, req, res, _next) => {
     const context = {
       requestId: req.id,
       method: req.method,
-      path: req.path,
+      path: safeRequestPath(req),
       statusCode,
     };
     logger.error('request_error', { ...context, error: err });

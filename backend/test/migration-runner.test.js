@@ -512,7 +512,7 @@ test('production preflight rejects incomplete, unknown, and altered ledger rows'
     lastFailure: 'Error: execution failed',
   });
   const withUnknown = await verifyMigrationLedger();
-  assert.deepEqual(withUnknown.unexpected, ['unknown_001']);
+  assert.deepEqual(withUnknown.unexpected, ['[unexpected_version]']);
   assert.equal(withUnknown.ok, false);
 
   await Migration.deleteMany({});

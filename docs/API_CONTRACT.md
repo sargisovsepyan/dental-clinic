@@ -4,6 +4,8 @@ This is the human-readable frontend contract for the implemented API. The valida
 
 ## Common conventions
 
+Production browsers use the frontend's exact public HTTPS origin for `/api/v1` through a fixed infrastructure edge; independent API infrastructure addresses are not browser API bases. Refresh stays Secure/HttpOnly/Strict/host-only, path `/api/v1/auth`, with original exact allowlisted Origin. Liveness is dependency-free; readiness is minimal200/503 with bounded Mongo/Redis probes. New application work during graceful drain receives503 with the standard error envelope, never automatic mutation replay. Phase 4A adds no endpoints or response schemas; OpenAPI documents the shared deployment/drain behavior.
+
 - Success responses use `{ "success": true, "data": ... }` and may include `message`.
 - Errors use `{ "success": false, "message": string }` and may include a stable `code` and bounded `details` for an actionable 4xx conflict. Production never returns a stack or an unexpected internal 5xx message.
 - Dates are `YYYY-MM-DD` in the configured clinic IANA timezone; local clock values are `HH:mm`; absolute timestamps are ISO UTC.

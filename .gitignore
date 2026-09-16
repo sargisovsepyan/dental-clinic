@@ -4,3 +4,13 @@
 
 coverage/
 *.log
+# Backup/private deployment artifacts never belong in application Git history.
+*.bson
+*.bson.gz
+*.archive
+*.pem
+*.key
+*.p12
+*.pfx
+dump/
+dumps/

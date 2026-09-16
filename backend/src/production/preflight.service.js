@@ -84,10 +84,13 @@ const verifyMigrationLedger = async () => {
     .map(({ version }) => version);
   const unexpected = records
     .filter(({ version }) => !expected.has(version))
-    .map(({ version }) => version);
+    .map(() => '[unexpected_version]');
   const incomplete = records
     .filter((record) => expected.has(record.version) && record.state !== 'applied')
-    .map(({ version, state }) => ({ version, state: state || 'legacy' }));
+    .map(({ version, state }) => ({
+      version,
+      state: state === undefined ? 'legacy' : ['running', 'failed'].includes(state) ? state : 'invalid',
+    }));
   const checksumFailures = records
     .filter((record) => {
       const manifestEntry = expected.get(record.version);

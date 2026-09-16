@@ -54,10 +54,41 @@ const bookingKey = (req) => {
 };
 
 
+class LazyRedisStore extends RedisStore {
+  options;
+  initialization = null;
+
+  // Express initializes stores during module import, before Redis startup.
+  // Record configuration only; do not cache rejected script-load promises.
+  init(options) {
+    this.options = options;
+  }
+
+  async ensureInitialized() {
+    if (!this.initialization) {
+      this.initialization = super.init(this.options).catch((error) => {
+        this.initialization = null;
+        throw error;
+      });
+    }
+    await this.initialization;
+  }
+
+  async increment(key) {
+    await this.ensureInitialized();
+    return super.increment(key);
+  }
+
+  async get(key) {
+    await this.ensureInitialized();
+    return super.get(key);
+  }
+}
+
 const createRedisRateLimitStore = (
   name,
   commandSender = sendRedisCommand
-) => new RedisStore({
+) => new LazyRedisStore({
     prefix: `dental-clinic:rate-limit:${name}:`,
     sendCommand: (...args) => commandSender(args),
   });

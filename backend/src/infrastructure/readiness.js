@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 
 import env from '../config/env.js';
 import { isRedisReady } from './redis.js';
+import { withDeadline } from './deadline.js';
+import { isProcessDraining } from './processLifecycle.js';
 
 
 const createReadinessChecker = ({
@@ -10,6 +12,8 @@ const createReadinessChecker = ({
   now = () => Date.now(),
   successCacheMs = env.READINESS_CACHE_MS,
   failureCacheMs = env.READINESS_FAILURE_CACHE_MS,
+  timeoutMs = env.HEALTH_CHECK_TIMEOUT_MS,
+  isDraining = () => false,
 } = {}) => {
   let cached = null;
   let inFlight = null;
@@ -46,6 +50,7 @@ const createReadinessChecker = ({
   };
 
   return async () => {
+    if (isDraining()) return { ready: false };
     const timestamp = now();
     if (cached && timestamp < cached.expiresAt) {
       return cached.result;
@@ -54,7 +59,7 @@ const createReadinessChecker = ({
       return inFlight;
     }
 
-    inFlight = run()
+    inFlight = withDeadline(run(), timeoutMs)
       .catch(() => ({ ready: false }))
       .then((result) => {
         cached = {
@@ -73,7 +78,7 @@ const createReadinessChecker = ({
 };
 
 
-const checkReadiness = createReadinessChecker();
+const checkReadiness = createReadinessChecker({ isDraining: isProcessDraining });
 
 
 export {

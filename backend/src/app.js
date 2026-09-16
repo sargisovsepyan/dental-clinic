@@ -17,6 +17,7 @@ import requestId from './middlewares/requestId.js';
 import requestLogger from './middlewares/requestLogger.js';
 import { enforceHttps } from './middlewares/transportSecurity.js';
 import { checkReadiness } from './infrastructure/readiness.js';
+import { isProcessDraining } from './infrastructure/processLifecycle.js';
 
 
 const app = express();
@@ -82,6 +83,10 @@ app.get('/api/v1/health/ready', readinessLimiter, async (_req, res) => {
   });
 });
 
+app.use((_req, res, next) => {
+  if (!isProcessDraining()) return next();
+  return res.status(503).json({ success: false, message: 'Service unavailable' });
+});
 app.use('/api', apiLimiter);
 app.use('/api/v1', apiRoutes);
 app.use(notFound);
