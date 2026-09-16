@@ -50,7 +50,7 @@
     "slugify": "^1.6.9"
   },
   "devDependencies": {
-    "@redocly/cli": "2.46.1",
+    "@redocly/cli": "2.52.1",
     "mongodb-memory-server": "^11.2.0",
     "nodemon": "^3.1.14",
     "supertest": "^7.2.2"
