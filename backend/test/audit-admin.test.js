@@ -29,6 +29,12 @@ const { default: app } = await import(
 const { default: AuditLog } = await import(
   '../src/modules/audit/audit.model.js'
 );
+const { default: User } = await import(
+  '../src/modules/users/user.model.js'
+);
+const { sanitizeValue, logAuditEvent } = await import(
+  '../src/modules/audit/audit.service.js'
+);
 
 let staff;
 
@@ -47,6 +53,137 @@ const bearer = (token) => ({
 
 const endpoint =
   '/api/v1/audit-logs';
+
+const metadataNodes = (value) => 1 + (
+  value !== null && typeof value === 'object'
+    ? Object.values(value).reduce(
+      (total, child) => total + metadataNodes(child),
+      0
+    )
+    : 0
+);
+
+const broadMetadata = () => ({
+  a: Array.from({ length: 20 }, () => ({
+    b: Array(20).fill(true),
+    c: Array(20).fill(true),
+    d: Array(20).fill(true),
+    patientName: 'private-patient',
+    access_token: 'private-token',
+    ['bad\u0001key']: 'private-control-key',
+    'bad$key': 'private-operator-key',
+  })),
+  tail: 'outside-budget',
+});
+
+const budgetedMetadata = () => ({
+  a: [
+    ...Array.from({ length: 15 }, () => ({
+      b: Array(20).fill(true),
+      c: Array(20).fill(true),
+      d: Array(20).fill(true),
+    })),
+    { b: Array(20).fill(true), c: Array(15).fill(true) },
+  ],
+});
+
+const historicalLog = (fields = {}) => ({
+  requestId: 'request-historical',
+  actor: staff.admin._id,
+  action: 'staff.role_changed',
+  entityType: 'user',
+  entityId: String(staff.receptionist._id),
+  method: 'PATCH',
+  path: '/staff/safe',
+  metadata: {},
+  createdAt: new Date('2026-09-15T08:00:00.000Z'),
+  ...fields,
+});
+
+test('historical control and operator metadata keys are dropped without invalidating the audit page', async () => {
+  const unsafeKeys = [
+    'bad\u0001key', 'bad\nkey', 'bad\u007fkey',
+    '$operator', 'bad$key', 'bad.path',
+    '__proto__', 'constructor', 'prototype',
+  ];
+  const metadata = {
+    reason: 'approved',
+    nested: Object.fromEntries([
+      ['safe', true],
+      ...unsafeKeys.map((key) => [key, 'private-unsafe-branch']),
+    ]),
+  };
+  // BSON cannot contain NUL in a key; exercise that boundary directly.
+  assert.deepEqual(sanitizeValue({ ['bad\u0000key']: true, safe: null }), { safe: null });
+  await AuditLog.collection.insertOne(historicalLog({ metadata }));
+
+  const response = await request(app).get(endpoint).set(bearer(staff.adminToken));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers['cache-control'], 'no-store');
+  assert.deepEqual(response.body.data.logs[0].metadata, { reason: 'approved', nested: { safe: true } });
+  assert.equal(JSON.stringify(response.body).includes('private-unsafe-branch'), false);
+});
+
+test('historical broad metadata is deterministically retained within the shared 1000-node budget', async () => {
+  const metadata = broadMetadata();
+  assert.ok(metadataNodes(metadata) > 1000);
+  // All source containers fit the individual bounds, with leaves at depth 4.
+  assert.equal(metadata.a.length, 20);
+  assert.equal(Object.keys(metadata.a[0]).length, 7);
+  assert.equal(metadata.a[0].b.length, 20);
+  await AuditLog.collection.insertOne(historicalLog({ metadata }));
+
+  const response = await request(app).get(endpoint).set(bearer(staff.adminToken));
+  assert.equal(response.status, 200);
+  const retained = response.body.data.logs[0].metadata;
+  assert.equal(metadataNodes(retained), 1000);
+  assert.deepEqual(retained, budgetedMetadata());
+  assert.deepEqual(sanitizeValue(retained), retained);
+  const repeated = await request(app).get(endpoint).set(bearer(staff.adminToken));
+  assert.equal(repeated.status, 200);
+  assert.deepEqual(repeated.body.data.logs[0].metadata, retained);
+  for (const forbidden of ['private-', 'patientName', 'access_token', 'bad', 'outside-budget']) {
+    assert.equal(JSON.stringify(response.body).includes(forbidden), false);
+  }
+});
+
+test('audit writes apply the same key and retained-node budget as historical reads', async () => {
+  await logAuditEvent({
+    req: { id: 'request-write', method: 'PATCH', path: '/staff/safe', ip: '127.0.0.1', get: () => 'test-only-agent' },
+    actorId: staff.admin._id,
+    action: 'staff.role_changed',
+    entityType: 'user',
+    metadata: broadMetadata(),
+  });
+  const stored = await AuditLog.findOne({ requestId: 'request-write' }).lean();
+  assert.ok(stored);
+  assert.equal(metadataNodes(stored.metadata), 1000);
+  assert.deepEqual(stored.metadata, budgetedMetadata());
+  const response = await request(app).get(endpoint).set(bearer(staff.adminToken));
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.data.logs[0].metadata, stored.metadata);
+  // Unsupported/dropped values must not consume retained nodes, and every
+  // sanitizer invocation receives a fresh budget.
+  assert.deepEqual(sanitizeValue({ ignored: undefined, unsupported: () => {}, safe: null }), { safe: null });
+  assert.deepEqual(sanitizeValue({ safe: true }), { safe: true });
+});
+
+test('malformed historical populated actor emails fail closed to null without losing audit rows', async () => {
+  await AuditLog.collection.insertOne(historicalLog({ actor: staff.dentistUser._id, metadata: { reason: 'approved' } }));
+  for (const email of [
+    'not-an-email', 'missing@domain', 'multiple@@example.test',
+    'space name@example.test', 'bad\u0001@example.test',
+    `${'x'.repeat(243)}@example.test`, '',
+  ]) {
+    await User.collection.updateOne({ _id: staff.dentistUser._id }, { $set: { email } });
+    const response = await request(app).get(endpoint).set(bearer(staff.adminToken));
+    assert.equal(response.status, 200);
+    assert.equal(response.body.data.logs.length, 1);
+    assert.equal(response.body.data.logs[0].actor, null);
+    assert.deepEqual(response.body.data.logs[0].metadata, { reason: 'approved' });
+    assert.equal(JSON.stringify(response.body).includes('password'), false);
+  }
+});
 
 test('audit administration is admin-only and no-store on every protected outcome', async () => {
   const responses = await Promise.all([
@@ -156,10 +293,12 @@ test('audit administration returns only the explicit privacy-safe projection', a
     Object.keys(populatedActor.actor).sort(),
     ['_id', 'email', 'name', 'role']
   );
-  assert.equal(
-    populatedActor.actor.email,
-    'admin@example.com'
-  );
+  assert.deepEqual(populatedActor.actor, {
+    _id: String(staff.admin._id),
+    name: 'Admin User',
+    email: 'admin@example.com',
+    role: 'admin',
+  });
   assert.deepEqual(
     populatedActor.metadata,
     {

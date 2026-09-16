@@ -24,7 +24,7 @@ describe("positive governance projections", () => {
   });
   it("rejects malformed identities, lifecycle, dates, actors, and pagination", () => {
     for (const field of [{ _id: "bad" }, { role: "owner" }, { name: "x".repeat(101) }, { email: 8 }, { isActive: "true" }, { isSetupComplete: null }, { deactivatedAt: "bad" }, { createdAt: "2026-02-31T00:00:00.000Z" }]) expect(() => parseGovernedStaff({ ...member, ...field })).toThrow();
-    for (const actor of ["bad", {}, { ...log.actor, role: "owner" }]) expect(() => parseGovernedAudit({ ...log, actor })).toThrow();
+    for (const actor of ["bad", {}, { ...log.actor, role: "owner" }, ...["not-an-email", "missing@domain", "multiple@@example.test", "space name@example.test", "bad\u0001@example.test", `${"x".repeat(243)}@example.test`].map((email) => ({ ...log.actor, email }))]) expect(() => parseGovernedAudit({ ...log, actor })).toThrow();
     for (const value of [{ ...pagination, page: 2 }, { ...pagination, limit: 101 }, { ...pagination, total: -1 }, { ...pagination, pages: 9 }, { ...pagination, total: Infinity }]) expect(() => parseGovernancePagination(value, pagination)).toThrow();
     expect(() => parseStaffPage({ staff: [member, member], pagination: { ...pagination, total: 2 } }, pagination)).toThrow();
     expect(() => parseStaffPage({ staff: Array(11).fill(member), pagination }, pagination)).toThrow();
@@ -34,7 +34,7 @@ describe("positive governance projections", () => {
   });
   it("bounds nested metadata and rejects suspicious keys/types without rendering them", () => {
     expect(parseAuditMetadata(log.metadata)).toEqual(log.metadata);
-    for (const key of ["patientName", "Authorization", "internalNotes", "rawRequestBody", "access_token", "cookie", "$operator", "bad.path", "constructor"]) expect(() => parseAuditMetadata({ nested: { [key]: "private" } })).toThrow();
+    for (const key of ["patientName", "Authorization", "internalNotes", "rawRequestBody", "access_token", "cookie", "$operator", "bad$key", "bad.path", "bad\u0000key", "bad\u0001key", "bad\nkey", "bad\u007fkey", "__proto__", "constructor", "prototype"]) expect(() => parseAuditMetadata({ nested: { [key]: "private" } })).toThrow();
     for (const value of [undefined, Infinity, "x".repeat(501), Array(21).fill(1), { a: { b: { c: { d: { e: 1 } } } } }, Object.fromEntries(Array.from({ length: 51 }, (_, index) => [`k${index}`, true]))]) expect(() => parseAuditMetadata(value)).toThrow();
     // Every individual depth/array/object bound is valid, but the total render
     // budget must still reject this broad metadata tree.
@@ -43,6 +43,18 @@ describe("positive governance projections", () => {
     expect(utcFilterInstant("")).toBeUndefined();
     expect(() => utcFilterInstant("2026-02-31T10:30")).toThrow();
     expect(() => utcFilterInstant("bad")).toThrow();
+  });
+  it("accepts the server-truncated exact 1000-node envelope and safe null actor without relaxing rejection", () => {
+    const metadata = { a: [
+      ...Array.from({ length: 15 }, () => ({ b: Array(20).fill(true), c: Array(20).fill(true), d: Array(20).fill(true) })),
+      { b: Array(20).fill(true), c: Array(15).fill(true) },
+    ] };
+    // Root + array + 15 * (object + 3 * (array + 20 values))
+    // + final (object + full array + partial array) = 1000.
+    expect(parseAuditMetadata(metadata)).toEqual(metadata);
+    expect(parseGovernedAudit({ ...log, actor: null, metadata })).toMatchObject({ actor: null, metadata });
+    expect(() => parseAuditMetadata({ ...metadata, extra: true })).toThrow();
+    expect(parseGovernedAudit(log)).toMatchObject({ actor: { id: user.id, name: user.name, email: user.email, role: user.role }, metadata: log.metadata });
   });
 });
 

@@ -78,17 +78,31 @@ const isSensitiveKey = (
 
 const sanitizeValue = (
   value,
-  depth = 0
+  depth = 0,
+  budget = { retainedNodes: 0 }
 ) => {
-  if (depth > 4) {
+  if (
+    depth > 4 ||
+    value === undefined ||
+    budget.retainedNodes >= 1000
+  ) {
     return undefined;
   }
 
   if (
-    value === null ||
-    value === undefined
+    value !== null &&
+    !['string', 'number', 'boolean', 'object']
+      .includes(typeof value)
   ) {
-    return value;
+    return undefined;
+  }
+
+  // Count only retained values, including containers and null, across the
+  // entire tree. Depth-first input order makes truncation deterministic.
+  budget.retainedNodes += 1;
+
+  if (value === null) {
+    return null;
   }
 
   if (
@@ -111,7 +125,8 @@ const sanitizeValue = (
         (item) =>
           sanitizeValue(
             item,
-            depth + 1
+            depth + 1,
+            budget
           )
       )
       .filter(
@@ -156,8 +171,7 @@ const sanitizeValue = (
 
 
       if (
-        key.startsWith('$') ||
-        key.includes('.') ||
+        /[.$\u0000-\u001f\u007f]/u.test(key) ||
         key === '__proto__' ||
         key === 'constructor' ||
         key === 'prototype'
@@ -169,7 +183,8 @@ const sanitizeValue = (
       const sanitized =
         sanitizeValue(
           child,
-          depth + 1
+          depth + 1,
+          budget
         );
 
 
@@ -248,6 +263,8 @@ const safeActor = (
     ) ||
     !name ||
     !email ||
+    actor.email.length > 254 ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email) ||
     !allowedRoles.has(
       actor.role
     )

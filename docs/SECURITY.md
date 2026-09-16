@@ -34,6 +34,8 @@ Reschedule/cancellation transactions cancel even processing stale jobs and clear
 
 Business audit records are admin-readable and store action, actor, entity reference, request correlation, and pseudonymized IP/user agent. Passwords, tokens, cookies, authorization, patient/contact fields, and internal notes are removed. The administration API applies a second recursive sanitization pass and a positive response projection; pseudonymized IP/user-agent values and all unlisted stored fields remain server-side. Its route is `no-store` before authentication and authorization, including error outcomes. Audit-write failure never fails the completed business action, but emits a safe technical error.
 
+The shared audit read/write projection discards control-character, dollar/dot, and prototype metadata keys and retains at most 1000 nodes per tree, including containers/null, in deterministic depth-first input order. Existing depth/array/object/key/string bounds and sensitive-key filtering still apply. Oversized historical Mixed metadata is truncated without failing the page, and a populated actor with an unsafe email is projected as null rather than leaking a malformed User object to the strict client parser.
+
 ## Reporting a vulnerability
 
 Do not put secrets, patient data, exploit tokens, or production URLs in a public issue. Privately provide the affected route/version, minimal reproduction, impact, and request ID. Rotate any exposed credential immediately and review audit/security logs. Preserve evidence according to clinic policy.

@@ -1115,6 +1115,7 @@ export interface components {
             email: string;
             role: components["schemas"]["Role"];
         };
+        /** @description Minimized safe actor identity. Malformed historical actors are returned as null instead. */
         AuditActor: {
             _id: components["schemas"]["ObjectId"];
             name: string;
@@ -1138,7 +1139,7 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
-        /** @description Recursively sanitized, bounded audit metadata value. */
+        /** @description Metadata is sanitized on write and again on read, in deterministic depth-first input order. Maximum depth is 4 (root at 0) and the entire retained tree has at most 1000 nodes, including containers and null. Excess branches are dropped, not rejected as page errors. Keys containing control characters (U+0000-U+001F, U+007F), dollar signs, dots, prototype names, or sensitive patient/auth/contact/secret names are discarded. */
         AuditMetadataValue: null | string | number | boolean | components["schemas"]["AuditMetadataValue"][] | {
             [key: string]: components["schemas"]["AuditMetadataValue"];
         };

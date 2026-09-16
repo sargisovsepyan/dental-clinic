@@ -61,6 +61,8 @@ Staff listing applies validated `role`, `isActive`, and `setupComplete` server f
 
 `GET /audit-logs` returns only an explicit administration projection: record/request identifiers, a minimized actor identity (`name`, `email`, and `role`) or `null`, action and entity references, HTTP method/path, recursively sanitized metadata, and creation time. Stored pseudonymized IP and user-agent hashes are deliberately omitted. Filters are applied by the server; `from` and `to` are inclusive ISO instants with explicit timezone (`Z` or numeric offset). Date-only, timezone-less, and reversed ranges are rejected before database access. Pages are ordered by `createdAt DESC, _id DESC` for deterministic ties.
 
+Audit metadata is sanitized on both write and historical read: maximum depth 4 (root 0), arrays 20 items, objects 50 properties, keys 80 characters, strings 500 characters, and 1000 retained nodes per entire tree (including containers/null). Unsafe control-character (`U+0000–U+001F`, `U+007F`), dollar/dot, prototype, and sensitive keys are dropped. Excess branches are deterministically dropped in depth-first input order rather than failing the audit page. Malformed historical actor emails produce `actor: null`; non-null actors contain only `_id`, `name`, a safe email of at most 254 characters, and an allowed role.
+
 ## Route groups
 
 The full request/response/status definitions are in OpenAPI. Implemented route groups are:
