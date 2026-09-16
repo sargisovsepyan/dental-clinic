@@ -14,6 +14,7 @@ const RESPONSE_ENTITY_KEYS = [
   'closure',
   'exception',
   'user',
+  'staff',
 ];
 
 

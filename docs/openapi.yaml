@@ -162,7 +162,7 @@ paths:
     get:
       tags: [Staff]
       operationId: listStaff
-      description: Admin only.
+      description: Admin only; no-store. Stable name/identifier ordering; default limit 50.
       security: [{ bearerAuth: [] }]
       parameters:
         - { $ref: '#/components/parameters/Page' }
@@ -177,14 +177,15 @@ paths:
           in: query
           schema: { type: boolean }
       responses:
-        '200': { $ref: '#/components/responses/Success' }
-        '401': { $ref: '#/components/responses/Error' }
-        '403': { $ref: '#/components/responses/Error' }
+        '200': { $ref: '#/components/responses/StaffListSuccess' }
+        '400': { $ref: '#/components/responses/NoStoreError' }
+        '401': { $ref: '#/components/responses/NoStoreError' }
+        '403': { $ref: '#/components/responses/NoStoreError' }
   /staff/invite:
     post:
       tags: [Staff]
       operationId: inviteStaff
-      description: Admin only. Sends a one-time setup link through the configured mail adapter.
+      description: Admin only; no-store. Sends a one-time setup link through mail, never in the response. Re-inviting a pending account does not update its name or role.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -192,7 +193,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/StaffInviteRequest' }
       responses:
-        '201': { $ref: '#/components/responses/Success' }
+        '201': { $ref: '#/components/responses/StaffDetailSuccess' }
         '400': { $ref: '#/components/responses/Error' }
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
@@ -205,7 +206,7 @@ paths:
       description: Admin only.
       security: [{ bearerAuth: [] }]
       responses:
-        '200': { $ref: '#/components/responses/Success' }
+        '200': { $ref: '#/components/responses/StaffDetailSuccess' }
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
@@ -225,7 +226,7 @@ paths:
               additionalProperties: false
               required: [role]
               properties: { role: { $ref: '#/components/schemas/Role' } }
-      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+      responses: { '200': { $ref: '#/components/responses/StaffDetailSuccess' }, '409': { $ref: '#/components/responses/NoStoreError' } }
   /staff/{id}/deactivate:
     parameters: [{ $ref: '#/components/parameters/Id' }]
     post:
@@ -233,23 +234,23 @@ paths:
       operationId: deactivateStaff
       description: Admin only; invalidates all authorization immediately.
       security: [{ bearerAuth: [] }]
-      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+      responses: { '200': { $ref: '#/components/responses/StaffDetailSuccess' }, '409': { $ref: '#/components/responses/NoStoreError' } }
   /staff/{id}/reactivate:
     parameters: [{ $ref: '#/components/parameters/Id' }]
     post:
       tags: [Staff]
       operationId: reactivateStaff
-      description: Admin only.
+      description: Admin only; completed setup required. Invalidates existing sessions.
       security: [{ bearerAuth: [] }]
-      responses: { '200': { $ref: '#/components/responses/Success' }, '409': { $ref: '#/components/responses/Error' } }
+      responses: { '200': { $ref: '#/components/responses/StaffDetailSuccess' }, '409': { $ref: '#/components/responses/NoStoreError' } }
   /staff/{id}/revoke-sessions:
     parameters: [{ $ref: '#/components/parameters/Id' }]
     post:
       tags: [Staff]
       operationId: revokeStaffSessions
-      description: Admin only; increments authorization version.
+      description: Admin only; revokes all sessions and increments authorization version, including for self.
       security: [{ bearerAuth: [] }]
-      responses: { '200': { $ref: '#/components/responses/Success' }, '404': { $ref: '#/components/responses/Error' } }
+      responses: { '200': { $ref: '#/components/responses/StaffDetailSuccess' }, '404': { $ref: '#/components/responses/NoStoreError' } }
   /service-categories:
     get:
       tags: [Catalog]
@@ -858,7 +859,10 @@ paths:
     get:
       tags: [Audit]
       operationId: listAuditLogs
-      description: Admin only.
+      description: >-
+        Admin only. Returns a minimized administration projection; stored
+        pseudonymized network/client hashes are not returned. Equal timestamps
+        are ordered by descending identifier. Every outcome is no-store.
       security: [{ bearerAuth: [] }]
       parameters:
         - { $ref: '#/components/parameters/Page' }
@@ -867,7 +871,19 @@ paths:
         - { name: entityType, in: query, schema: { type: string, maxLength: 80 } }
         - { name: entityId, in: query, schema: { type: string, maxLength: 150 } }
         - { name: actorId, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
-      responses: { '200': { $ref: '#/components/responses/Success' } }
+        - name: from
+          in: query
+          description: Inclusive ISO instant. Must not be later than `to`.
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          description: Inclusive ISO instant. Must not be earlier than `from`.
+          schema: { type: string, format: date-time }
+      responses:
+        '200': { $ref: '#/components/responses/AuditListSuccess' }
+        '400': { $ref: '#/components/responses/NoStoreError' }
+        '401': { $ref: '#/components/responses/NoStoreError' }
+        '403': { $ref: '#/components/responses/NoStoreError' }
 components:
   securitySchemes:
     bearerAuth:
@@ -1164,6 +1180,54 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/BeforeAfterDetailEnvelope' }
+    AuditListSuccess:
+      description: Privacy-minimized, deterministically ordered audit administration page.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AuditListEnvelope' }
+    StaffListSuccess:
+      description: Admin-only validated staff page.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [success, data]
+            properties:
+              success: { type: boolean, const: true }
+              data:
+                type: object
+                additionalProperties: false
+                required: [staff, pagination]
+                properties:
+                  staff:
+                    type: array
+                    maxItems: 100
+                    items: { $ref: '#/components/schemas/StaffAdminRecord' }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+    StaffDetailSuccess:
+      description: Safe staff administration record; no tokens or authorization internals.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [success, data]
+            properties:
+              success: { type: boolean, const: true }
+              message: { type: string }
+              data:
+                type: object
+                additionalProperties: false
+                required: [staff]
+                properties:
+                  staff: { $ref: '#/components/schemas/StaffAdminRecord' }
     AuthSuccess:
       description: Authenticated; refresh cookie may be set
       headers:
@@ -1280,6 +1344,13 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NoStoreError:
+      description: Protected error response that must not be stored.
+      headers:
+        Cache-Control: { $ref: '#/components/headers/NoStore' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
   schemas:
     ObjectId:
       type: string
@@ -1349,6 +1420,82 @@ components:
         name: { type: string }
         email: { type: string, format: email }
         role: { $ref: '#/components/schemas/Role' }
+    AuditActor:
+      type: object
+      additionalProperties: false
+      required: [_id, name, email, role]
+      properties:
+        _id: { $ref: '#/components/schemas/ObjectId' }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        email: { type: string, format: email, maxLength: 254 }
+        role: { $ref: '#/components/schemas/Role' }
+    StaffAdminRecord:
+      type: object
+      additionalProperties: false
+      required: [_id, name, email, role, isActive, isSetupComplete, invitedBy, deactivatedAt, deactivatedBy, createdAt, updatedAt]
+      properties:
+        _id: { $ref: '#/components/schemas/ObjectId' }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        email: { type: string, format: email, maxLength: 254 }
+        role: { $ref: '#/components/schemas/Role' }
+        isActive: { type: boolean }
+        isSetupComplete: { type: boolean }
+        invitedBy:
+          anyOf: [{ $ref: '#/components/schemas/ObjectId' }, { type: 'null' }]
+        deactivatedBy:
+          anyOf: [{ $ref: '#/components/schemas/ObjectId' }, { type: 'null' }]
+        deactivatedAt:
+          anyOf: [{ type: string, format: date-time }, { type: 'null' }]
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    AuditMetadataValue:
+      description: Recursively sanitized, bounded audit metadata value.
+      oneOf:
+        - { type: 'null' }
+        - { type: string, maxLength: 500 }
+        - { type: number }
+        - { type: boolean }
+        - type: array
+          maxItems: 20
+          items: { $ref: '#/components/schemas/AuditMetadataValue' }
+        - type: object
+          maxProperties: 50
+          propertyNames: { minLength: 1, maxLength: 80 }
+          additionalProperties: { $ref: '#/components/schemas/AuditMetadataValue' }
+    AuditLogAdmin:
+      type: object
+      additionalProperties: false
+      required: [_id, requestId, actor, action, entityType, entityId, method, path, metadata, createdAt]
+      properties:
+        _id: { $ref: '#/components/schemas/ObjectId' }
+        requestId: { type: string, maxLength: 100 }
+        actor:
+          anyOf:
+            - { $ref: '#/components/schemas/AuditActor' }
+            - { type: 'null' }
+        action: { type: string, maxLength: 120 }
+        entityType: { type: string, maxLength: 80 }
+        entityId: { type: string, maxLength: 150 }
+        method: { type: string, maxLength: 12 }
+        path: { type: string, maxLength: 500 }
+        metadata: { $ref: '#/components/schemas/AuditMetadataValue' }
+        createdAt: { type: string, format: date-time }
+    AuditListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [success, data]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: false
+          required: [logs, pagination]
+          properties:
+            logs:
+              type: array
+              maxItems: 100
+              items: { $ref: '#/components/schemas/AuditLogAdmin' }
+            pagination: { $ref: '#/components/schemas/Pagination' }
     LoginRequest:
       type: object
       additionalProperties: false

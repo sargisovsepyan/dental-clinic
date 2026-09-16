@@ -61,7 +61,17 @@ const isSensitiveKey = (
     ) ||
     normalizedKey.includes(
       'patient'
-    )
+    ) ||
+    normalizedKey.includes(
+      'internalnote'
+    ) ||
+    normalizedKey.includes(
+      'jwt'
+    ) ||
+    normalizedKey.includes(
+      'requestbody'
+    ) ||
+    normalizedKey === 'body'
   );
 };
 
@@ -118,7 +128,15 @@ const sanitizeValue = (
     for (
       const [key, child]
       of Object.entries(value)
+        .slice(0, 50)
     ) {
+      if (
+        !key ||
+        key.length > 80
+      ) {
+        continue;
+      }
+
       const normalizedKey =
         key
           .replace(
@@ -139,7 +157,10 @@ const sanitizeValue = (
 
       if (
         key.startsWith('$') ||
-        key.includes('.')
+        key.includes('.') ||
+        key === '__proto__' ||
+        key === 'constructor' ||
+        key === 'prototype'
       ) {
         continue;
       }
@@ -164,6 +185,134 @@ const sanitizeValue = (
   }
 
   return undefined;
+};
+
+
+const hasControlCharacters =
+  (value) =>
+    /[\u0000-\u001f\u007f]/u
+      .test(value);
+
+
+const safeText = (
+  value,
+  maxLength
+) => {
+  if (
+    typeof value !== 'string' ||
+    hasControlCharacters(value)
+  ) {
+    return '';
+  }
+
+  return value.slice(
+    0,
+    maxLength
+  );
+};
+
+
+const safeActor = (
+  actor
+) => {
+  if (
+    !actor ||
+    typeof actor !== 'object'
+  ) {
+    return null;
+  }
+
+  const id =
+    actor._id?.toString?.();
+
+  const name = safeText(
+    actor.name,
+    100
+  );
+
+  const email = safeText(
+    actor.email,
+    254
+  );
+
+  const allowedRoles =
+    new Set([
+      'admin',
+      'receptionist',
+      'dentist',
+    ]);
+
+  if (
+    !/^[a-f\d]{24}$/iu.test(
+      id || ''
+    ) ||
+    !name ||
+    !email ||
+    !allowedRoles.has(
+      actor.role
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    _id: id,
+    name,
+    email,
+    role: actor.role,
+  };
+};
+
+
+const safeAuditLog = (
+  log
+) => {
+  const id =
+    log._id?.toString?.() || '';
+
+  return {
+    _id: id,
+
+    requestId: safeText(
+      log.requestId,
+      100
+    ),
+
+    actor: safeActor(
+      log.actor
+    ),
+
+    action: safeText(
+      log.action,
+      120
+    ),
+
+    entityType: safeText(
+      log.entityType,
+      80
+    ),
+
+    entityId: safeText(
+      log.entityId,
+      150
+    ),
+
+    method: /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)$/u.test(log.method || '')
+      ? log.method
+      : '',
+
+    path: typeof log.path === 'string' && log.path.startsWith('/')
+      ? safeText(log.path.split(/[?#]/u)[0], 500)
+      : '',
+
+    metadata:
+      sanitizeValue(
+        log.metadata
+      ) || {},
+
+    createdAt:
+      log.createdAt,
+  };
 };
 
 
@@ -303,6 +452,7 @@ const getAuditLogs = async (
       )
       .sort({
         createdAt: -1,
+        _id: -1,
       })
       .skip(skip)
       .limit(limit)
@@ -315,7 +465,9 @@ const getAuditLogs = async (
 
 
   return {
-    logs,
+    logs: logs.map(
+      safeAuditLog
+    ),
 
     pagination: {
       page,
@@ -333,6 +485,7 @@ const getAuditLogs = async (
 
 export {
   sanitizeValue,
+  safeAuditLog,
   logAuditEvent,
   getAuditLogs,
 };

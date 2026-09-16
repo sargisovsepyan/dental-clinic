@@ -46,6 +46,23 @@ const listAuditLogsSchema = {
         .min(1)
         .max(100)
         .default(50),
+  }).custom(
+    (value, helpers) => {
+      if (
+        value.from &&
+        value.to &&
+        value.from > value.to
+      ) {
+        return helpers.error(
+          'date.range'
+        );
+      }
+
+      return value;
+    }
+  ).messages({
+    'date.range':
+      '"from" must be earlier than or equal to "to"',
   }),
 };
 

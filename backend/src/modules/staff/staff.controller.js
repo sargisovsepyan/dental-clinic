@@ -1,7 +1,9 @@
 import * as staffService from './staff.service.js';
 
 const listStaff = async (req, res) => {
-  const result = await staffService.listStaff(req.query);
+  const result = await staffService.listStaff(
+    req.validatedQuery || req.query
+  );
   res.status(200).json({ success: true, data: result });
 };
 

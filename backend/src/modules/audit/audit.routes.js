@@ -12,6 +12,8 @@ import auth from '../../middlewares/auth.js';
 
 import authorize from '../../middlewares/authorize.js';
 
+import noStore from '../../middlewares/noStore.js';
+
 import validate from '../../middlewares/validate.js';
 
 import asyncHandler from '../../utils/asyncHandler.js';
@@ -21,10 +23,15 @@ const router =
   express.Router();
 
 
+router.use(
+  noStore,
+  auth,
+  authorize('admin')
+);
+
+
 router.get(
   '/',
-  auth,
-  authorize('admin'),
   validate(
     listAuditLogsSchema
   ),

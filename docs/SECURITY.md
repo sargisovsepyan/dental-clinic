@@ -6,7 +6,7 @@
 - MongoDB, Redis, SMTP, Cloudinary, and monitoring credentials are injected by the deployment secret manager; none belong in Git or an image.
 - Browser credential origins are an exact HTTPS allowlist. Production cookie-authenticated login/refresh/logout rejects missing or untrusted `Origin`.
 - Administrative authorization is decided from the current MongoDB user, not a stale JWT role claim.
-- Authentication, staff, authenticated catalog/scheduling/media/consent management, appointment, availability, and public before/after responses are marked `Cache-Control: no-store`; authenticated frontend requests also bypass shared caches. Public catalog, gallery, and clinic reads are not forced private. The governed before/after exception prevents a withdrawn publication from surviving in a shared response cache.
+- Authentication, staff, audit, authenticated catalog/scheduling/media/consent management, appointment, availability, and public before/after responses are marked `Cache-Control: no-store`; authenticated frontend requests also bypass shared caches. Public catalog, gallery, and clinic reads are not forced private. The governed before/after exception prevents a withdrawn publication from surviving in a shared response cache.
 
 ## Attacker-oriented controls
 
@@ -32,7 +32,7 @@ Notification logs contain only job/appointment identifiers, fixed event/channel 
 
 Reschedule/cancellation transactions cancel even processing stale jobs and clear their lease token; workers recheck authoritative state before calling SMTP. This prevents intentional stale delivery while acknowledging the irreducible narrow race after the final database check. A provider may accept a deterministic-Message-ID email before a worker crash prevents `sent` persistence, so retry can duplicate delivery; this is not described as exactly once.
 
-Business audit records are admin-readable and store action, actor, entity reference, request correlation, and pseudonymized IP/user agent. Passwords, tokens, cookies, authorization, patient/contact fields, and internal notes are removed. Audit-write failure never fails the completed business action, but emits a safe technical error.
+Business audit records are admin-readable and store action, actor, entity reference, request correlation, and pseudonymized IP/user agent. Passwords, tokens, cookies, authorization, patient/contact fields, and internal notes are removed. The administration API applies a second recursive sanitization pass and a positive response projection; pseudonymized IP/user-agent values and all unlisted stored fields remain server-side. Its route is `no-store` before authentication and authorization, including error outcomes. Audit-write failure never fails the completed business action, but emits a safe technical error.
 
 ## Reporting a vulnerability
 

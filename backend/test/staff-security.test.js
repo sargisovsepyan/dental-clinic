@@ -88,6 +88,20 @@ const tokenFromMail = (mail) => {
   return new URLSearchParams(parsed.hash.slice(1)).get('token');
 };
 
+test('admin staff listing uses validated defaults, booleans, and deterministic pages', async () => {
+  await User.create({ name: 'Pending Staff', email: 'pending@example.test', role: 'dentist', isActive: false, isSetupComplete: false });
+  const defaults = await request(app).get('/api/v1/staff').set(bearer(staff.adminToken));
+  assert.equal(defaults.status, 200);
+  assert.deepEqual(defaults.body.data.pagination, { page: 1, limit: 50, total: 4, pages: 1 });
+  const pending = await request(app).get('/api/v1/staff?isActive=false&setupComplete=false&role=dentist').set(bearer(staff.adminToken));
+  assert.equal(pending.status, 200);
+  assert.equal(pending.body.data.staff.length, 1);
+  assert.equal(pending.body.data.staff[0].name, 'Pending Staff');
+  const secondPage = await request(app).get('/api/v1/staff?page=2&limit=2').set(bearer(staff.adminToken));
+  assert.equal(secondPage.status, 200);
+  assert.deepEqual(secondPage.body.data.staff.map(({ name }) => name), ['Pending Staff', 'Reception User']);
+});
+
 test('password policy accepts six, rejects five and bcrypt-truncating UTF-8 inputs, and never trims', async () => {
   const six = await User.create({
     name: 'Six Password',
