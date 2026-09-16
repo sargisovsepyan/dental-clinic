@@ -54,7 +54,7 @@ A transient internal Next router-initialization diagnostic appeared in an existi
 
 Race/uncertainty tests cover frozen staff IDs, rapid staff/audit filters, overlapping detail loads, exact invitation bodies, uncertain invitation recovery, duplicate invitations, pending lifecycle, actionable 409/403, self revocation across tabs, and concurrent last-admin removal. Metadata tests cover suspicious nested keys, malformed actors/pagination/targets, depth/array/node limits, null actors, and literal HTML-like text.
 
-## Verification evidence
+## Original Phase 3C2 verification evidence (before the corrective pass)
 
 Backend (working directory `backend/`):
 
@@ -90,7 +90,7 @@ Invitation email delivery is simulated locally; production SMTP delivery is not 
 
 Phase 4 must supply deployment configuration, approved privacy-policy/content requirements, production provider credentials, release/preflight/index/migration evidence, and operational monitoring/backup/deployment checks. This report is application-phase readiness, not certification of a live production deployment.
 
-## Final Git state and verdicts
+## Original Phase 3C2 Git state and verdicts
 
 Logical implementation commits:
 
@@ -123,3 +123,45 @@ READY FOR PHASE 4 PRODUCTION / DEPLOYMENT HARDENING: YES
 ```
 
 These are application-phase verdicts with the deployment boundary above; safe to merge is a review/readiness conclusion, not authorization or evidence of a merge. Live audits means the four npm dependency audits actually run in this phase, not a deployed-system security audit.
+
+## Independent-review corrective pass — 2026-09-16
+
+Starting state was verified against the actual repository: clean `feature/staff-admin-governance-audit` at `7cea5effabe4497b9c642901e505b4bb05dfac9b`; main/origin/main both remained `b5a668e17e126c97b2c0ccc7db190af890014b66`. The audit model/service, HTTP regressions, frontend positive parser/workspace/tests, OpenAPI, and this report were inspected together before editing. Existing Phase 3C2 commits and completed work were preserved.
+
+The independent-review mismatch was reproduced read-only using the actual backend projection and actual frontend parser (transpiled locally without application startup or provider contact). Before correction, control-character keys, a 1282-node individually bounded metadata tree, and a malformed populated actor email survived the server projection but were rejected by the client. An embedded dollar sign in a metadata key reproduced an additional instance of the same key-predicate mismatch. Normal actor/metadata passed unchanged.
+
+Corrective commit: `83308fb fix: align audit projection safety boundaries`.
+
+- The authoritative shared backend read/write sanitizer now discards keys containing `U+0000–U+001F`, `U+007F`, or any dollar sign/dot. Sensitive-key filtering and exact prototype-name protections remain intact.
+- A fresh shared budget per metadata tree retains at most 1000 nodes, counting containers and null as nodes. Unsupported/undefined values and unsafe-key branches are not retained. Depth-first input order deterministically drops excess branches without throwing or failing historical audit pages. Existing depth 4, array 20, object 50, key 80, and string 500 limits are preserved.
+- A non-null actor must have the same bounded, control-free email shape accepted by the frontend positive parser. Overlength source emails are rejected rather than truncated into plausible identities. Malformed historical/populated actors become `null`; the only non-null actor fields remain `_id`, `name`, `email`, and `role`.
+- Normal populated actor identity and safe metadata are explicitly asserted unchanged. No frontend parser rule was loosened. Staff lifecycle, invitations, last-admin/self protections, session revocation, RBAC, cache ordering, audit filters/dates/ties, locales, and preview behavior were not changed.
+- API/security/OpenAPI descriptions now document the actual projection envelope. Frontend product/runtime code changed: **NO**. The regenerated schema differs only in documentation comments; TypeScript shapes are unchanged. The only frontend test change strengthens unsafe-key/email rejection and exact-budget acceptance coverage.
+
+Fresh verification on the corrected code (not assumed from the earlier phase matrix):
+
+- First focused backend `node --test --test-concurrency=1 test/audit-admin.test.js`: **9 passed**, 0 failed/canceled/skipped. Four added HTTP/write regressions cover historical control/operator/prototype keys, deterministic oversized-tree truncation to exactly 1000 nodes, matching stored-write/read output with fresh budgets, and seven malformed populated-email values projected as null. BSON forbids NUL keys, so that key boundary is additionally tested directly in the sanitizer. Existing patient/auth/token/cookie/secret, valid actor/projection, RBAC, no-store, filter/date, and deterministic pagination regressions remained green.
+- Backend `npm run verify`: **303 passed**, 0 failed/canceled/skipped; syntax, tracked-secret and OpenAPI checks passed. Coverage: **93.09% lines, 83.71% branches, 90.49% functions**. The shared audit service reached 99.61% lines / 87.21% branches / 100% functions.
+- Separate backend `npm test`: **303 passed**, 0 failed/canceled/skipped. Appointment lock/quota/CAS, refresh/auth/RBAC, media replacement/two-upload rollback, provider-isolation/test-database guards, and production-error regressions also passed in both complete runs.
+- Live backend `npm audit --omit=dev --audit-level=moderate` and `npm audit --audit-level=moderate`: **0 vulnerabilities each**. No packages were changed. These are dependency advisory audits, not a live deployed-clinic security certification.
+- Frontend `npm run api:types`, `npm run typecheck`, and `npm run lint`: passed; zero lint warnings.
+- Frontend `npm run test -- test/staff-governance-client.test.ts test/staff-governance-workspaces.test.tsx`: **2 files / 23 passed** (9 client, 14 workspace), 0 failures. The exact server-compatible 1000-node shape is accepted with a null actor; a 1001st node, unsafe keys, and malformed actor emails are still rejected. Existing null-actor/plain-text rendering and zero-fetch RBAC tests passed.
+- The post-fix read-only server/client compatibility check accepted all five original reproducer cases and **200/200 deterministic generated wire projections**, with every returned tree within the 1000-node limit. This is additional targeted evidence, not a substitute for the committed regressions or a broader frontend suite.
+
+The earlier full frontend coverage (179 tests), production build, 46-case E2E, browser/responsive/preview shutdown checks, and frontend dependency audits above are preserved as their original completed evidence. They were **not rerun in this targeted pass**, because frontend product behavior, launchers, and dependencies did not change. No migration, production index/data operation, preview restart, or real Cloudinary/SMTP/Redis/monitoring/challenge-provider use was needed.
+
+The correction and this report are separate logical commits; no existing history was amended or rewritten. Final branch/clean-tree/whitespace/log/ref checks are performed after the documentation commit and reported in the handoff. Main/origin/main remain `b5a668e`; nothing is pushed or merged. Phase 4 is not started.
+
+```text
+AUDIT METADATA KEY SAFETY ALIGNED: YES
+AUDIT TOTAL NODE BUDGET ALIGNED: YES
+MALFORMED HISTORICAL ACTOR FAILS SAFE: YES
+AUDIT SERVER / CLIENT SAFE CONTRACT CONSISTENT: YES
+BACKEND VERIFICATION PASSED: YES
+LIVE BACKEND AUDITS CLEAN: YES
+PHASE 3C2 COMPLETE AFTER INDEPENDENT REVIEW: YES
+SAFE TO MERGE INTO MAIN: YES
+READY FOR PHASE 4: YES
+```
+
+These final corrective-pass conclusions include the reproduced mismatch and fresh corrected-code evidence above. Merge/Phase 4 readiness retains the application-versus-production-deployment boundary already stated in this report; it is not authorization to merge, deploy, or contact production providers.
