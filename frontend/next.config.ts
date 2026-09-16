@@ -16,8 +16,14 @@ if (!siteValue) {
   throw new Error("NEXT_PUBLIC_SITE_URL is required; copy .env.example to .env.local for development");
 }
 
-const apiUrl = new URL(apiValue);
-const siteUrl = new URL(siteValue);
+let apiUrl: URL;
+let siteUrl: URL;
+try {
+  apiUrl = new URL(apiValue);
+  siteUrl = new URL(siteValue);
+} catch {
+  throw new Error("Public site/API configuration must use absolute URLs");
+}
 const isLocalHost = (url: URL) => url.hostname === "localhost" || url.hostname === "127.0.0.1";
 if (apiUrl.username || apiUrl.password || apiUrl.search || apiUrl.hash || apiUrl.pathname.replace(/\/+$/, "") !== "/api/v1") {
   throw new Error("NEXT_PUBLIC_API_URL must be a credential-free absolute URL ending in /api/v1");
@@ -42,6 +48,10 @@ if (apiUrl.protocol !== "https:" && !(apiUrl.protocol === "http:" && isLocalHost
 }
 if (siteUrl.protocol !== "https:" && !(siteUrl.protocol === "http:" && isLocalHost(siteUrl) && !production)) {
   throw new Error("NEXT_PUBLIC_SITE_URL must use HTTPS outside local development");
+}
+if (production && (apiUrl.origin !== siteUrl.origin ||
+  /^(localhost|.*\.localhost|127\..*|0\.0\.0\.0|\[::1?\]|\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\])$/i.test(siteUrl.hostname))) {
+  throw new Error("Production API must share the non-local HTTPS site origin; configure the fixed edge route");
 }
 
 const nextConfig: NextConfig = {

@@ -1,5 +1,9 @@
 # Dental clinic frontend
 
+Production uses current patched Node22 (>=22.12) or24, `npm ci`, explicit public build values, `npm run build`, then `npm start`. `NEXT_PUBLIC_API_URL` MUST be `<NEXT_PUBLIC_SITE_URL>/api/v1` on the same non-local HTTPS origin; a fixed infrastructure edge routes to the independent private API. `src/proxy.ts` is locale middleware, not a gateway. Never put provider secrets in public inputs or switch Strict cookies to third-party mode. See [deployment architecture](../docs/DEPLOYMENT_ARCHITECTURE.md), [environment contract](../docs/PRODUCTION_ENVIRONMENT.md), [operations](../docs/OPERATIONS.md) and [release runbook](../docs/PRODUCTION_RUNBOOK.md). Public values are inlined at build time; release changes require rebuilding.
+
+`node test/production/run-production-smoke.mjs` verifies the actual compiled production web runtime against a real provider-isolated test API/disposable replica set; requires both installs and the documented same-origin fixture build. It is distinct from dev-mode E2E/preview and does not certify real gateways/TLS/providers. Its test-only preload is never imported by application code. CI includes frontend contract drift/types/lint/coverage/public-placeholder build/E2E/audits without real credentials.
+
 ## Phase 3C2 administration preview
 
 Run `npm run dev:preview` for the provider-free supervised local workspace. Admin routes include `/hy/staff/team` and `/hy/staff/audit` (also RU/EN). Accounts include `admin@preview.local`, `second-admin@preview.local`, `reception@preview.local`, and `dentist@preview.local`; the local-only password is `Preview123!`. Team fixtures include an established deactivated account and a pending setup account. Thirty-six bounded audit events exercise filtering and equal-timestamp pagination. Invitations simulate the mail outcome without SMTP, tokens in output, or external dependencies.

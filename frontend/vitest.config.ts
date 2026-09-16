@@ -11,6 +11,7 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "json-summary"],
       include: [
+        "src/api/abortable-json.ts",
         "src/api/public-client.ts",
         "src/api/booking-client.ts",
         "src/api/staff-client.ts",

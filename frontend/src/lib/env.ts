@@ -42,6 +42,9 @@ export function parseApiBaseUrl(raw: string | undefined, production = false) {
   }
 
   const localHost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+  if (production && /^(localhost|.*\.localhost|127\..*|0\.0\.0\.0|\[::1?\]|\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\])$/i.test(parsed.hostname)) {
+    throw new FrontendConfigurationError("Production API cannot use localhost");
+  }
   if (parsed.username || parsed.password || parsed.search || parsed.hash) {
     throw new FrontendConfigurationError(
       "NEXT_PUBLIC_API_URL cannot contain credentials, a query, or a fragment",
@@ -71,6 +74,9 @@ export function parseSiteBaseUrl(raw: string | undefined, production = false) {
     throw new FrontendConfigurationError("NEXT_PUBLIC_SITE_URL must be an absolute URL");
   }
   const localHost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+  if (production && /^(localhost|.*\.localhost|127\..*|0\.0\.0\.0|\[::1?\]|\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\])$/i.test(parsed.hostname)) {
+    throw new FrontendConfigurationError("Production site cannot use localhost");
+  }
   if (
     parsed.username || parsed.password || parsed.search || parsed.hash ||
     parsed.pathname.replace(/\/+$/, "") !== "" ||
@@ -117,9 +123,14 @@ export function parseFrontendEnvironment(
     );
   }
 
+  const apiBaseUrl = parseApiBaseUrl(values.NEXT_PUBLIC_API_URL, production);
+  const siteBaseUrl = parseSiteBaseUrl(values.NEXT_PUBLIC_SITE_URL, production);
+  if (production && new URL(apiBaseUrl).origin !== siteBaseUrl) {
+    throw new FrontendConfigurationError("Production browser API must share the site origin; configure the fixed edge route");
+  }
   return {
-    apiBaseUrl: parseApiBaseUrl(values.NEXT_PUBLIC_API_URL, production),
-    siteBaseUrl: parseSiteBaseUrl(values.NEXT_PUBLIC_SITE_URL, production),
+    apiBaseUrl,
+    siteBaseUrl,
     cloudinaryCloudName: cloudResult.data,
     bookingChallenge: { provider, siteKey },
   };

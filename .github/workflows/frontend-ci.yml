@@ -1,0 +1,47 @@
+name: Frontend CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      # Public build-only placeholders; never provider credentials.
+      NEXT_PUBLIC_SITE_URL: https://clinic.example.test
+      NEXT_PUBLIC_API_URL: https://clinic.example.test/api/v1
+      NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: turnstile
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: public-config-only-key
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run api:types
+      - name: Reject generated contract drift
+        run: git diff --exit-code -- src/api/generated/schema.d.ts
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:coverage
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - run: npm audit --omit=dev --audit-level=moderate
+      - run: npm audit --audit-level=moderate

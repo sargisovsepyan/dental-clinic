@@ -28,14 +28,14 @@ describe("frontend environment validation", () => {
 
   it("validates public Cloudinary configuration without treating it as a secret", () => {
     expect(parseFrontendEnvironment({
-      NEXT_PUBLIC_API_URL: "https://api.example.com/api/v1",
+      NEXT_PUBLIC_API_URL: "https://clinic.example.com/api/v1",
       NEXT_PUBLIC_SITE_URL: "https://clinic.example.com",
       NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: "clinic_assets-1",
       NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: "turnstile",
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: "public-site-key",
     }, true).cloudinaryCloudName).toBe("clinic_assets-1");
     expect(() => parseFrontendEnvironment({
-      NEXT_PUBLIC_API_URL: "https://api.example.com/api/v1",
+      NEXT_PUBLIC_API_URL: "https://clinic.example.com/api/v1",
       NEXT_PUBLIC_SITE_URL: "https://clinic.example.com",
       NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: "bad/name",
       NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: "turnstile",

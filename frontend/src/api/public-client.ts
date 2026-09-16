@@ -1,6 +1,7 @@
 import type { components } from "@/api/generated/schema";
 import { getFrontendEnvironment } from "@/lib/env";
 import { isCanonicalSlug, isObjectId } from "@/i18n/locales";
+import { readJsonWithSignal } from "./abortable-json";
 
 export type ServiceCategoryRecord = components["schemas"]["ServiceCategoryPublic"];
 export type ServiceRecord = components["schemas"]["ServicePublic"];
@@ -110,18 +111,21 @@ async function publicGet<T>(path: string, options: GetOptions = {}): Promise<T> 
         : { next: { revalidate: options.revalidate ?? 300 } }),
     });
   } catch (cause) {
+    clearTimeout(timeout);
     const timedOut = controller.signal.aborted && !options.signal?.aborted;
     throw new PublicApiError({ kind: timedOut ? "timeout" : "network", cause });
-  } finally {
-    clearTimeout(timeout);
   }
 
   const requestId = safeRequestId(response.headers.get("x-request-id"));
   let body: unknown;
   try {
-    body = await response.json();
+    body = await readJsonWithSignal(response, signal);
   } catch (cause) {
-    throw new PublicApiError({ kind: "protocol", status: response.status, requestId, cause });
+    const kind = controller.signal.aborted && !options.signal?.aborted ? "timeout"
+      : options.signal?.aborted ? "network" : "protocol";
+    throw new PublicApiError({ kind, status: response.status, requestId, cause });
+  } finally {
+    clearTimeout(timeout);
   }
 
   if (!response.ok) {

@@ -1,6 +1,7 @@
 import type { components } from "@/api/generated/schema";
 import type { Locale } from "@/i18n/locales";
 import { getFrontendEnvironment } from "@/lib/env";
+import { readJsonWithSignal } from "./abortable-json";
 
 type AvailabilityContract = components["schemas"]["Availability"];
 type PatientFields = components["schemas"]["PatientBookingFields"];
@@ -135,17 +136,20 @@ async function requestJson(options: {
       ...(options.body ? { body: JSON.stringify(options.body) } : {}),
     });
   } catch (cause) {
+    clearTimeout(timeout);
     if (options.signal?.aborted) throw new BookingApiError({ kind: "cancelled", cause });
     if (timeoutController.signal.aborted) throw new BookingApiError({ kind: "timeout", cause });
     throw new BookingApiError({ kind: "network", cause });
-  } finally {
-    clearTimeout(timeout);
   }
   let body: unknown;
   try {
-    body = await response.json();
+    body = await readJsonWithSignal(response, signal);
   } catch (cause) {
+    if (options.signal?.aborted) throw new BookingApiError({ kind: "cancelled", cause });
+    if (timeoutController.signal.aborted) throw new BookingApiError({ kind: "timeout", cause });
     throw new BookingApiError({ kind: "protocol", status: response.status, cause });
+  } finally {
+    clearTimeout(timeout);
   }
   if (!response.ok) {
     throw new BookingApiError({
