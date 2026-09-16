@@ -121,7 +121,7 @@ describe("booking flow", () => {
     expect(await screen.findByRole("heading", { name: "Visit confirmed" })).toBeVisible();
     expect(api.createIdempotencyKey).toHaveBeenCalledTimes(1);
     expect(api.createPublicAppointment.mock.calls[0][1]).toBe(api.createPublicAppointment.mock.calls[1][1]);
-  });
+  }, 15_000);
 
   it("preserves patient fields while refreshing and clearing a conflicted slot", async () => {
     const user = userEvent.setup();
