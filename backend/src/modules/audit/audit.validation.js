@@ -5,6 +5,14 @@ const mongoId = Joi.string()
   .hex()
   .length(24);
 
+const auditInstant = Joi.date().iso().custom((value, helpers) => {
+  const original = helpers.original;
+  if (typeof original !== 'string' || !/T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/iu.test(original)) {
+    return helpers.error('date.instant');
+  }
+  return value;
+}).messages({ 'date.instant': 'Audit date filters require an ISO instant with an explicit timezone' });
+
 
 const listAuditLogsSchema = {
   query: Joi.object({
@@ -27,12 +35,10 @@ const listAuditLogsSchema = {
       mongoId,
 
     from:
-      Joi.date()
-        .iso(),
+      auditInstant,
 
     to:
-      Joi.date()
-        .iso(),
+      auditInstant,
 
     page:
       Joi.number()

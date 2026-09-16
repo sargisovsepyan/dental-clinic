@@ -873,17 +873,18 @@ paths:
         - { name: actorId, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
         - name: from
           in: query
-          description: Inclusive ISO instant. Must not be later than `to`.
+          description: Inclusive ISO instant with explicit Z or numeric timezone offset. Must not be later than `to`.
           schema: { type: string, format: date-time }
         - name: to
           in: query
-          description: Inclusive ISO instant. Must not be earlier than `from`.
+          description: Inclusive ISO instant with explicit Z or numeric timezone offset. Must not be earlier than `from`.
           schema: { type: string, format: date-time }
       responses:
         '200': { $ref: '#/components/responses/AuditListSuccess' }
         '400': { $ref: '#/components/responses/NoStoreError' }
         '401': { $ref: '#/components/responses/NoStoreError' }
         '403': { $ref: '#/components/responses/NoStoreError' }
+        '500': { $ref: '#/components/responses/NoStoreError' }
 components:
   securitySchemes:
     bearerAuth:

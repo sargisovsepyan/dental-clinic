@@ -220,10 +220,26 @@ test('reversed audit date ranges fail validation before database access', async 
 
     assert.equal(response.status, 400);
     assert.equal(findCalls, 0);
+    for (const from of ['2026-09-15', '2026-09-15T08:00:00']) {
+      const ambiguous = await request(app).get(endpoint).query({ from }).set(bearer(staff.adminToken));
+      assert.equal(ambiguous.status, 400);
+      assert.equal(findCalls, 0);
+      assert.equal(ambiguous.headers['cache-control'], 'no-store');
+    }
   }
   finally {
     AuditLog.find = originalFind;
   }
+});
+
+test('audit unexpected database errors remain no-store', async () => {
+  const originalFind = AuditLog.find;
+  AuditLog.find = () => { throw new Error('private database failure'); };
+  try {
+    const response = await request(app).get(endpoint).set(bearer(staff.adminToken));
+    assert.equal(response.status, 500);
+    assert.equal(response.headers['cache-control'], 'no-store');
+  } finally { AuditLog.find = originalFind; }
 });
 
 test('audit filtering and equal-timestamp pagination are deterministic', async () => {
@@ -300,4 +316,7 @@ test('audit filtering and equal-timestamp pagination are deterministic', async (
     filtered.body.data.logs[0]._id,
     String(ids[0])
   );
+  const offsetBoundary = await request(app).get(endpoint).query({ from: '2026-09-15T12:00:00+02:00', to: '2026-09-15T10:00:00Z' }).set(bearer(staff.adminToken));
+  assert.equal(offsetBoundary.status, 200);
+  assert.equal(offsetBoundary.body.data.pagination.total, 3);
 });
