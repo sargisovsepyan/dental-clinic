@@ -1,6 +1,12 @@
 # Dental clinic frontend
 
-Next.js 16 App Router frontend for the clinic’s public website, no-account booking flow, authenticated staff appointment workspace, clinic management, and Phase 3C1 governed media/consent administration. Armenian (`hy`) is the primary publication locale; Russian (`ru`) and English (`en`) are explicit routes with field-level Armenian fallback when authored public content is absent.
+## Phase 3C2 administration preview
+
+Run `npm run dev:preview` for the provider-free supervised local workspace. Admin routes include `/hy/staff/team` and `/hy/staff/audit` (also RU/EN). Accounts include `admin@preview.local`, `second-admin@preview.local`, `reception@preview.local`, and `dentist@preview.local`; the local-only password is `Preview123!`. Team fixtures include an established deactivated account and a pending setup account. Thirty-six bounded audit events exercise filtering and equal-timestamp pagination. Invitations simulate the mail outcome without SMTP, tokens in output, or external dependencies.
+
+Use the printed local scenario URLs for `staff-invite-uncertain`, `staff-last-admin-conflict`, and `governance-forbidden`. Scenario switches reset fixture state; `success` also clears sessions, so sign in again afterward. The backend regression suite, not this simulator, proves real MongoDB/authVersion/token invariants. Stop with Ctrl+C; the existing supervisor releases ports 3000/5000 and removes only `.next-preview`.
+
+Next.js 16 App Router frontend for the clinic’s public website, no-account booking flow, authenticated staff appointment workspace, clinic management, governed media/consent administration, and Phase 3C2 staff governance/audit administration. Armenian (`hy`) is the primary publication locale; Russian (`ru`) and English (`en`) are explicit routes with field-level Armenian fallback when authored public content is absent.
 
 ## Scope
 
@@ -22,9 +28,11 @@ Implemented public routes:
 - `/{locale}/staff/clinic` — admin-only safe public clinic settings and booking-policy controls
 - `/{locale}/staff/media` — admin-only gallery, dentist/service image, and cleanup-debt management
 - `/{locale}/staff/before-after` — admin-only paired media, publication, consent withdrawal, and purge governance
+- `/{locale}/staff/team` — admin-only invitations, staff roles/lifecycle, and session revocation
+- `/{locale}/staff/audit` — admin-only read-only safe audit history with server filters/pagination
 - `/robots.txt`, `/sitemap.xml`, generated app icon, canonical links, and locale alternates
 
-Patient accounts and clinical records remain intentionally out of scope. Staff invitation/role/lifecycle UI and audit-log UI remain Phase 3C2. Public booking and staff operations never store patient details or bearer tokens in browser storage or URLs.
+Patient accounts and clinical records remain intentionally out of scope. Public booking and staff operations never store patient details or bearer tokens in browser storage or URLs.
 
 ## LOCAL FRONTEND PREVIEW
 
@@ -40,6 +48,7 @@ Open `http://127.0.0.1:3000/hy` for the public site or `http://127.0.0.1:3000/hy
 Local-only staff accounts all use password `Preview123!`:
 
 - `admin@preview.local`
+- `second-admin@preview.local`
 - `reception@preview.local`
 - `dentist@preview.local`
 
@@ -58,7 +67,7 @@ npm run dev:preview -- --scenario=error
 
 While preview is running, the printed local scenario endpoint can switch between `success`, `pending`, `confirmed`, `conflict`, `empty-availability`, `validation`, `rate-limit`, `error`, `empty`, and `catalog-error` without source edits. All fixtures are development-only and are imported only by test/preview launchers.
 
-Staff scenarios use the same local endpoint and add `staff-conflict`, `staff-stale-availability`, `staff-expired`, `management-schedule-conflict`, and `management-schedule-stale`. Phase 3C1 adds `media-conflict`, `media-replacement-failure`, `media-pair-failure`, `media-unsupported`, and `media-rate-limit`. The stateful preview supports category/service/dentist lifecycle operations, safe clinic settings, schedules/overrides, gallery archive/restore, entity image lifecycle, cleanup retry, paired media, withdrawal/purge, role denial, and public-site reflection. Media resolves only to local `/og.png`; no preview upload contacts a provider. The launcher also prints deterministic local-only setup/reset links.
+Staff scenarios use the same local endpoint and add `staff-conflict`, `staff-stale-availability`, `staff-expired`, `management-schedule-conflict`, and `management-schedule-stale`. Phase 3C1 adds `media-conflict`, `media-replacement-failure`, `media-pair-failure`, `media-unsupported`, and `media-rate-limit`. The stateful preview supports category/service/dentist lifecycle operations, safe clinic settings, schedules/overrides, gallery archive/restore, entity image lifecycle, cleanup retry, paired media, withdrawal/purge, role denial, and public-site reflection. Media resolves only to local `/og.png`; no preview upload contacts a provider. The launcher never prints one-time setup/reset tokens or links.
 
 ## Requirements and setup
 
@@ -100,6 +109,8 @@ npm audit --audit-level=moderate
 ```
 
 `test:e2e` starts a localhost-only Next.js server and mock API, uses a fresh `.next-e2e` cache for every run, blocks non-local browser requests, and removes its generated cache when complete. On Windows it terminates only the exact Next.js process tree it started.
+
+Windows preview/E2E launches use the documented `next dev --webpack` option after a Turbopack cache-restore panic interrupted the broad route matrix. The production `npm run build` continues to use the default Turbopack path and is verified separately. Long localized staff navigation scrolls independently, keeping sign-out reachable on short desktop screens and mobile sheets.
 
 ## Important boundaries
 

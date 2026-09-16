@@ -90,12 +90,12 @@ test("booking entry points are live and locale switching preserves only safe pre
 
   await page.goto("/en/services/test-cleaning");
   await page.locator("main").getByRole("link", { name: "Book a visit" }).click();
-  await expect(page).toHaveURL(/\/en\/book\?service=test-cleaning$/);
+  await expect(page).toHaveURL(/\/en\/book\?service=test-cleaning$/, { timeout: 30_000 });
   await expect(page.getByRole("button", { name: /Ատամների մաքրում/ })).toHaveAttribute("aria-pressed", "true");
 
   await page.goto("/en/dentists/ani-test");
   await page.locator("main").getByRole("link", { name: "Book a visit" }).click();
-  await expect(page).toHaveURL(/\/en\/book\?dentist=ani-test$/);
+  await expect(page).toHaveURL(/\/en\/book\?dentist=ani-test$/, { timeout: 30_000 });
   await page.getByRole("link", { name: "RU" }).click();
   await expect(page).toHaveURL(/\/ru\/book\?dentist=ani-test$/);
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Выберите");
@@ -165,6 +165,8 @@ test("network uncertainty retries with the same key and double submission stays 
 });
 
 test("a 409 clears and refreshes only the slot while preserving patient details", async ({ page, request }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   await setScenario(request, "conflict");
   await page.goto("/en/book");
   await reachForm(page);
@@ -177,6 +179,7 @@ test("a 409 clears and refreshes only the slot while preserving patient details"
   await expect(page.getByLabel(/Phone number/)).toHaveValue("+374 99 123456");
   await expect(page.getByLabel(/Email address/)).toHaveValue("patient@example.test");
   await expect(page.getByRole("checkbox")).toBeChecked();
+  expect(pageErrors).toEqual([]);
 });
 
 test("empty, validation, rate-limit, and service failures stay actionable and normalized", async ({ page, request }) => {

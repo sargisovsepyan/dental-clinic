@@ -14,6 +14,7 @@ export default defineConfig({
         "src/api/public-client.ts",
         "src/api/booking-client.ts",
         "src/api/staff-client.ts",
+        "src/api/staff-governance.ts",
         "src/api/public-view-models.ts",
         "src/components/locale-switcher.tsx",
         "src/components/booking-challenge.tsx",

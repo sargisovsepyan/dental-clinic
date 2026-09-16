@@ -12,6 +12,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { cn } from "@/lib/utils";
 import { staffManagementMessages } from "@/i18n/staff-management-messages";
 import { staffMediaMessages } from "@/i18n/staff-media-messages";
+import { staffGovernanceMessages } from "@/i18n/staff-governance-messages";
 
 function roleLabel(role: "admin" | "receptionist" | "dentist", copy: ReturnType<typeof useStaffAuth>["copy"]) {
   return role === "admin" ? copy.roleAdmin : role === "receptionist" ? copy.roleReceptionist : copy.roleDentist;
@@ -21,6 +22,7 @@ function StaffNavigation({ mobile = false, onNavigate }: { mobile?: boolean; onN
   const { locale, copy, user } = useStaffAuth();
   const managementCopy = staffManagementMessages[locale];
   const mediaCopy = staffMediaMessages[locale];
+  const governanceCopy = staffGovernanceMessages[locale];
   const pathname = usePathname();
   if (!user) return null;
   const links = [
@@ -33,6 +35,8 @@ function StaffNavigation({ mobile = false, onNavigate }: { mobile?: boolean; onN
       { href: `/${locale}/staff/clinic`, label: managementCopy.clinicNav, icon: Building2, exact: false },
       { href: `/${locale}/staff/media`, label: mediaCopy.mediaNav, icon: Images, exact: false },
       { href: `/${locale}/staff/before-after`, label: mediaCopy.casesNav, icon: PanelsTopLeft, exact: false },
+      { href: `/${locale}/staff/team`, label: governanceCopy.teamNav, icon: UsersRound, exact: false },
+      { href: `/${locale}/staff/audit`, label: governanceCopy.auditNav, icon: ShieldCheck, exact: false },
     ] : []),
     { href: `/${locale}/staff/account`, label: copy.account, icon: UserRound, exact: false },
   ];
@@ -84,14 +88,14 @@ export function StaffWorkspaceShell({ children }: { children: React.ReactNode })
   return (
     <div className="min-h-screen bg-muted/35 lg:grid lg:grid-cols-[17rem_1fr]">
       <aside className="hidden min-h-screen border-r bg-card lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
-        <div className="border-b p-6">
+        <div className="shrink-0 border-b p-6">
           <Link href={`/${locale}/staff` as Route} className="flex items-center gap-3 font-semibold">
             <span className="flex size-10 items-center justify-center rounded-xl bg-secondary"><ShieldCheck aria-hidden="true" className="size-5" /></span>
             <span><span className="block">{copy.brand}</span><span className="block text-xs font-normal text-muted-foreground">{copy.workspace}</span></span>
           </Link>
         </div>
-        <div className="flex-1 p-4"><StaffNavigation /></div>
-        <div className="border-t p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4"><StaffNavigation /></div>
+        <div className="shrink-0 border-t p-4">
           <p className="truncate px-3 text-sm font-semibold">{user.name}</p>
           <p className="mt-1 px-3 text-xs text-muted-foreground">{roleLabel(user.role, copy)}</p>
           <Button variant="ghost" className="mt-3 w-full justify-start" onClick={() => void signOut()} disabled={logoutPending}><LogOut aria-hidden="true" />{logoutPending ? copy.loggingOut : copy.logout}</Button>
@@ -103,9 +107,9 @@ export function StaffWorkspaceShell({ children }: { children: React.ReactNode })
             <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
               <SheetTrigger render={<Button variant="outline" size="icon" className="lg:hidden" />}><Menu aria-hidden="true" /><span className="sr-only">{copy.menu}</span></SheetTrigger>
               <SheetContent side="left" closeLabel={copy.closeMenu} className="w-[min(88vw,20rem)] bg-card">
-                <SheetHeader><SheetTitle>{copy.workspace}</SheetTitle><SheetDescription>{user.name} · {roleLabel(user.role, copy)}</SheetDescription></SheetHeader>
-                <StaffNavigation mobile onNavigate={() => setMenuOpen(false)} />
-                <div className="mt-auto border-t p-4"><Button variant="outline" className="w-full justify-start" onClick={() => void signOut()} disabled={logoutPending}><LogOut aria-hidden="true" />{copy.logout}</Button></div>
+                <SheetHeader className="shrink-0"><SheetTitle>{copy.workspace}</SheetTitle><SheetDescription>{user.name} · {roleLabel(user.role, copy)}</SheetDescription></SheetHeader>
+                <div className="min-h-0 flex-1 overflow-y-auto"><StaffNavigation mobile onNavigate={() => setMenuOpen(false)} /></div>
+                <div className="mt-auto shrink-0 border-t p-4"><Button variant="outline" className="w-full justify-start" onClick={() => void signOut()} disabled={logoutPending}><LogOut aria-hidden="true" />{copy.logout}</Button></div>
               </SheetContent>
             </Sheet>
             <p className="text-sm font-semibold lg:hidden">{copy.workspace}</p>

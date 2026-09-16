@@ -1,8 +1,20 @@
 # Frontend architecture
 
+## Phase 3C2: governed team and audit administration
+
+`/[locale]/staff/team` and `/[locale]/staff/audit` mount their protected content only for an admin principal. Denied receptionist/dentist routes perform no team/audit reads and retain the signed-in access-denied boundary. Backend authorization remains authoritative; a 403 alone never expires a valid session.
+
+`staff-governance.ts` positively projects staff, audit actors/events, and correlated pagination. It discards unknown backend fields and rejects malformed IDs/enums/dates/numbers or suspicious metadata. Metadata has per-value bounds (depth 4, arrays 20, object entries 50, strings 500) and a total 1,000-node render budget. It is rendered as controlled text/key-value content, never HTML. Audit hashes remain server-side.
+
+Team filters and audit filters/pagination are server-side. Reads are no-store and correlated to the applied filter/page/reload identity; AbortController cleanup plus post-response abort checks prevent old results from becoming actionable. Detail loads are tied to the selected staff ID. Mutation confirmations copy the reviewed target ID/name/email and do not retarget after a refresh. No mutation is optimistically reported or retried after network/body-delivery uncertainty. Only a parsed pre-handler HTTP 401 can trigger the established single refresh/replay.
+
+Invitation inputs are exactly name/email/role. Success remains pending setup; no invitation token/link is returned, stored, or printed. Uncertain results trigger authoritative refetch and explicit caution before a deliberate repeat. Deactivated setup-incomplete accounts are distinct from outstanding invitations and cannot be reactivated. No global partial-page search or per-device session features exist.
+
+Successful self revoke-all-sessions immediately clears the in-memory client/principal, broadcasts session clearing, and redirects to localized login without a protected refetch. All other mutations/conflicts refetch current team state, and the server alone enforces last-admin governance. Audit is read-only; explicitly UTC range fields produce ISO instants, with inclusive zoned backend boundaries and deterministic descending timestamp/ID pages. HY/RU/EN copy is authored explicitly. Team cards work at all widths; audit tables switch to cards below desktop widths.
+
 ## Purpose and scope
 
-The `frontend/` application contains two deliberately separated surfaces: the public presentation/no-account booking site and the authenticated staff workspace. The public side publishes clinic information, services, dentists, gallery media, and already-approved before/after cases. The staff side provides authentication/account security, admin/receptionist appointment operations, Phase 3B clinic management, and Phase 3C1 admin-only governed gallery, entity-image, cleanup, and before/after consent administration. It does not provide patient accounts, clinical records, generalized document management, or staff lifecycle/audit-log UI.
+The `frontend/` application contains two deliberately separated surfaces: the public presentation/no-account booking site and the authenticated staff workspace. The public side publishes clinic information, services, dentists, gallery media, and already-approved before/after cases. The staff side provides authentication/account security, admin/receptionist appointment operations, Phase 3B clinic management, Phase 3C1 admin-only governed media/consent administration, and Phase 3C2 staff lifecycle/session governance and privacy-safe audit administration. It does not provide patient accounts, clinical records, or generalized document management.
 
 The frontend consumes only documented `/api/v1` endpoints described by `openapi.yaml`. It does not connect directly to MongoDB or any backend provider SDK.
 

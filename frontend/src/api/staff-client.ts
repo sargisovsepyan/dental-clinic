@@ -1,4 +1,5 @@
 import type { components } from "@/api/generated/schema";
+import { parseGovernedStaff, parseStaffPage, parseAuditPage, type StaffFilters, type AuditFilters } from "@/api/staff-governance";
 import {
   localDatePattern,
   objectIdPattern,
@@ -103,7 +104,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
 function apiUrl(path: string) {
-  if (!/^[a-z0-9][a-z0-9/?=&._-]*$/i.test(path) || path.includes("..")) {
+  if (!/^[a-z0-9][a-z0-9/?=&._%+-]*$/i.test(path) || path.includes("..")) {
     throw new StaffApiError({ kind: "configuration" });
   }
   try {
@@ -147,11 +148,10 @@ async function rawRequest(options: RequestOptions) {
           : {}),
     });
   } catch (cause) {
+    clearTimeout(timeout);
     if (options.signal?.aborted) throw new StaffApiError({ kind: "cancelled", cause });
     if (timeoutController.signal.aborted) throw new StaffApiError({ kind: "timeout", cause });
     throw new StaffApiError({ kind: "network", cause });
-  } finally {
-    clearTimeout(timeout);
   }
 
   const requestIdValue = response.headers.get("x-request-id");
@@ -160,7 +160,11 @@ async function rawRequest(options: RequestOptions) {
   try {
     body = await response.json();
   } catch (cause) {
+    if (options.signal?.aborted) throw new StaffApiError({ kind: "cancelled", status: response.status, requestId, cause });
+    if (timeoutController.signal.aborted) throw new StaffApiError({ kind: "timeout", status: response.status, requestId, cause });
     throw new StaffApiError({ kind: "protocol", status: response.status, requestId, cause });
+  } finally {
+    clearTimeout(timeout);
   }
   if (!response.ok) {
     const codeValue = isRecord(body) ? body.code : undefined;
@@ -282,6 +286,52 @@ export class StaffApiClient {
     return this.#accessToken !== null;
   }
 
+  async listStaff(filters: StaffFilters, signal?: AbortSignal) {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) if (value !== undefined) query.set(key, String(value));
+    const data = dataRecord(await this.#protected({ path: `staff?${query}`, signal }));
+    try { return parseStaffPage(data, filters); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async getStaff(id: string, signal?: AbortSignal) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    const data = dataRecord(await this.#protected({ path: `staff/${id}`, signal }));
+    try {
+      const staff = parseGovernedStaff(data.staff);
+      if (staff.id !== id) throw new Error("Staff identity mismatch");
+      return staff;
+    } catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async inviteStaff(payload: { name: string; email: string; role: StaffRole }) {
+    // Authentication precedes the side effect. Only a definitive 401 may refresh;
+    // timeout, cancellation, network, 5xx, and malformed results are never replayed.
+    const data = dataRecord(await this.#protected({ path: "staff/invite", method: "POST",
+      body: { name: payload.name, email: payload.email, role: payload.role } }));
+    try { return parseGovernedStaff(data.staff); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async mutateStaff(id: string, action: "role" | "deactivate" | "reactivate" | "revoke-sessions", role?: StaffRole) {
+    if (!objectId.test(id) || (action === "role" && !roles.has(role))) throw new StaffApiError({ kind: "configuration" });
+    const data = dataRecord(await this.#protected({ path: `staff/${id}/${action}`, method: action === "role" ? "PATCH" : "POST",
+      ...(action === "role" ? { body: { role } } : {}) }));
+    try {
+      const staff = parseGovernedStaff(data.staff);
+      if (staff.id !== id) throw new Error("Staff identity mismatch");
+      return staff;
+    } catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
+  async listAuditLogs(filters: AuditFilters, signal?: AbortSignal) {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== "") query.set(key, String(value));
+    const data = dataRecord(await this.#protected({ path: `audit-logs?${query}`, signal }));
+    try { return parseAuditPage(data, filters); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
+  }
+
   clearSession() {
     this.#accessToken = null;
     this.#principal = null;
@@ -367,7 +417,7 @@ export class StaffApiClient {
       if (sessionEpoch !== this.#sessionEpoch) throw new StaffApiError({ kind: "cancelled", status: 401 });
       return body;
     } catch (error) {
-      if (!(error instanceof StaffApiError) || error.status !== 401 || !allowRefresh) throw error;
+      if (!(error instanceof StaffApiError) || error.kind !== "http" || error.status !== 401 || !allowRefresh) throw error;
       if (sessionEpoch !== this.#sessionEpoch) throw new StaffApiError({ kind: "cancelled", status: 401 });
       try {
         const refreshed = await coordinatedRefresh();

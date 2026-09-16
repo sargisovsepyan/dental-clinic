@@ -196,6 +196,7 @@ export const previewAccounts = {
   admin: { id: "64b000000000000000000091", name: "Preview Admin", email: "admin@preview.local", role: "admin" },
   receptionist: { id: "64b000000000000000000092", name: "Preview Reception", email: "reception@preview.local", role: "receptionist" },
   dentist: { id: "64b000000000000000000093", name: "Preview Dentist", email: "dentist@preview.local", role: "dentist" },
+  secondAdmin: { id: "64b000000000000000000094", name: "Second Admin", email: "second-admin@preview.local", role: "admin" },
 };
 
 const previewUsersByEmail = new Map(Object.values(previewAccounts).map((user) => [user.email, user]));
@@ -319,6 +320,9 @@ const allowedScenarios = [
   "staff-conflict",
   "staff-stale-availability",
   "staff-expired",
+  "staff-invite-uncertain",
+  "staff-last-admin-conflict",
+  "governance-forbidden",
   "management-schedule-conflict",
   "management-schedule-stale",
   "media-conflict",
@@ -407,6 +411,9 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
   let mediaSequence = 0;
   let scheduleExceptions = [];
   let clinicClosures = [];
+  let managedStaff = [];
+  let auditHistory = [];
+  let governanceSequence = 0;
   const idempotentResults = new Map();
   const refreshSessions = new Map();
   const accessSessions = new Map();
@@ -426,7 +433,9 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
   const authenticatedUser = (request) => {
     if (scenario === "staff-expired") return null;
     const authorization = String(request.headers.authorization || "");
-    return authorization.startsWith("Bearer ") ? accessSessions.get(authorization.slice(7)) || null : null;
+    const session = authorization.startsWith("Bearer ") ? accessSessions.get(authorization.slice(7)) : null;
+    const current = session && managedStaff.find((member) => member._id === session.id && member.isActive && member.isSetupComplete);
+    return current ? { id: current._id, name: current.name, email: current.email, role: current.role } : null;
   };
   const endTimeFor = (start) => {
     const [hours, minutes] = start.split(":").map(Number);
@@ -440,6 +449,24 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
     details: { currentMutationVersion: appointment.mutationVersion },
   });
   const resetManagement = () => {
+    governanceSequence = 0;
+    managedStaff = Object.values(previewAccounts).map((account) => ({
+      _id: account.id, name: account.name, email: account.email, role: account.role,
+      isActive: true, isSetupComplete: true, invitedBy: null, deactivatedAt: null, deactivatedBy: null,
+      createdAt: timestamp, updatedAt: timestamp,
+    }));
+    managedStaff.push(
+      { _id: "64b000000000000000000095", name: "Established Inactive", email: "inactive@preview.local", role: "receptionist", isActive: false, isSetupComplete: true, invitedBy: null, deactivatedAt: timestamp, deactivatedBy: previewAccounts.admin.id, createdAt: timestamp, updatedAt: timestamp },
+      { _id: "64b000000000000000000096", name: "Pending Setup", email: "pending@preview.local", role: "dentist", isActive: false, isSetupComplete: false, invitedBy: previewAccounts.admin.id, deactivatedAt: null, deactivatedBy: null, createdAt: timestamp, updatedAt: timestamp },
+    );
+    auditHistory = Array.from({ length: 36 }, (_, index) => ({
+      _id: (0x1000 + index).toString(16).padStart(24, "0"), requestId: `preview-audit-${index + 1}`,
+      actor: index % 6 === 0 ? null : { _id: previewAccounts.admin.id, name: previewAccounts.admin.name, email: previewAccounts.admin.email, role: "admin" },
+      action: index % 3 === 0 ? "future.unknown" : index % 3 === 1 ? "staff.invited" : "staff.sessions.revoked",
+      entityType: index % 3 === 0 ? "future-entity" : "user", entityId: managedStaff[index % managedStaff.length]._id,
+      method: "POST", path: "/staff/action", metadata: { outcome: "confirmed", nested: { safeReason: "<img src=x onerror=alert(1)> is plain text", values: [true, 2, null] } },
+      createdAt: `2026-09-15T${String(8 + Math.floor(index / 12)).padStart(2, "0")}:00:00.000Z`,
+    }));
     managedCategories = [structuredClone(category)];
     managedServices = [structuredClone(service)];
     managedDentists = [structuredClone(dentist)];
@@ -600,7 +627,9 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
     if (request.method === "POST" && url.pathname === "/api/v1/auth/login") {
       let body;
       try { body = await readJson(request); } catch { return send(response, 400, { success: false, code: "VALIDATION_ERROR" }); }
-      const user = previewUsersByEmail.get(String(body.email || "").trim().toLowerCase());
+      const account = previewUsersByEmail.get(String(body.email || "").trim().toLowerCase());
+      const member = account && managedStaff.find((item) => item._id === account.id && item.isActive && item.isSetupComplete);
+      const user = member ? { id: member._id, name: member.name, email: member.email, role: member.role } : null;
       if (!user || body.password !== previewPassword) {
         return send(response, 401, { success: false, code: "INVALID_CREDENTIALS", message: "Invalid credentials" });
       }
@@ -655,6 +684,68 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
       for (const [key, value] of accessSessions) if (value.id === user.id) accessSessions.delete(key);
       response.setHeader("set-cookie", "preview_refresh=; HttpOnly; SameSite=Strict; Path=/api/v1/auth; Max-Age=0");
       return send(response, 200, { success: true, message: "Password changed" });
+    }
+    const governanceStaffRoute = url.pathname.match(/^\/api\/v1\/staff\/([a-f\d]{24})(?:\/(role|deactivate|reactivate|revoke-sessions))?$/iu);
+    if (url.pathname === "/api/v1/staff" || url.pathname === "/api/v1/staff/invite" || governanceStaffRoute || url.pathname === "/api/v1/audit-logs") {
+      response.setHeader("cache-control", "no-store");
+      const user = authenticatedUser(request);
+      if (!user) return send(response, 401, { success: false, code: "UNAUTHORIZED" });
+      if (user.role !== "admin" || scenario === "governance-forbidden") return send(response, 403, { success: false, code: "FORBIDDEN" });
+      const page = Number(url.searchParams.get("page") || 1);
+      const limit = Number(url.searchParams.get("limit") || 50);
+      if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) return send(response, 400, { success: false });
+      const paginated = (items, key) => send(response, 200, { success: true, data: { [key]: items.slice((page - 1) * limit, page * limit), pagination: { page, limit, total: items.length, pages: Math.ceil(items.length / limit) } } });
+      const invalidate = (id) => {
+        for (const [key, value] of refreshSessions) if (value.id === id) refreshSessions.delete(key);
+        for (const [key, value] of accessSessions) if (value.id === id) accessSessions.delete(key);
+      };
+      const recordAudit = (action, member) => {
+        auditHistory.push({ _id: (0x2000 + ++governanceSequence).toString(16).padStart(24, "0"), requestId: `preview-change-${governanceSequence}`, actor: { _id: user.id, name: user.name, email: user.email, role: user.role }, action, entityType: "user", entityId: member._id, method: request.method, path: url.pathname, metadata: { outcome: "confirmed" }, createdAt: "2026-09-15T12:00:00.000Z" });
+      };
+      if (request.method === "GET" && url.pathname === "/api/v1/staff") {
+        const items = managedStaff.filter((member) => (!url.searchParams.has("role") || member.role === url.searchParams.get("role")) && (!url.searchParams.has("isActive") || member.isActive === (url.searchParams.get("isActive") === "true")) && (!url.searchParams.has("setupComplete") || member.isSetupComplete === (url.searchParams.get("setupComplete") === "true"))).sort((a, b) => a.name.localeCompare(b.name) || a._id.localeCompare(b._id));
+        return paginated(items, "staff");
+      }
+      if (request.method === "POST" && url.pathname === "/api/v1/staff/invite") {
+        const body = await readJson(request).catch(() => null);
+        if (!body || Object.keys(body).sort().join(",") !== "email,name,role" || typeof body.name !== "string" || body.name.trim().length < 2 || body.name.length > 100 || typeof body.email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(body.email) || !["admin", "receptionist", "dentist"].includes(body.role)) return send(response, 400, { success: false });
+        const email = body.email.trim().toLowerCase();
+        let member = managedStaff.find((item) => item.email === email);
+        if (member?.isSetupComplete) return send(response, 409, { success: false });
+        if (!member) {
+          member = { _id: (0x3000 + ++governanceSequence).toString(16).padStart(24, "0"), name: body.name.trim(), email, role: body.role, isActive: false, isSetupComplete: false, invitedBy: user.id, deactivatedAt: null, deactivatedBy: null, createdAt: timestamp, updatedAt: timestamp };
+          managedStaff.push(member);
+        }
+        member.deactivatedAt = null; member.deactivatedBy = null;
+        recordAudit("staff.invited", member);
+        if (scenario === "staff-invite-uncertain") return send(response, 503, { success: false });
+        return send(response, 201, { success: true, data: { staff: member } });
+      }
+      if (governanceStaffRoute) {
+        const [, id, action] = governanceStaffRoute;
+        const member = managedStaff.find((item) => item._id === id);
+        if (!member) return send(response, 404, { success: false });
+        if (!action && request.method === "GET") return send(response, 200, { success: true, data: { staff: member } });
+        if ((action === "role" && request.method !== "PATCH") || (action !== "role" && request.method !== "POST")) return send(response, 405, { success: false });
+        const body = action === "role" ? await readJson(request).catch(() => null) : {};
+        if (action === "role" && (!body || Object.keys(body).join(",") !== "role" || !["admin", "receptionist", "dentist"].includes(body.role))) return send(response, 400, { success: false });
+        if (["role", "deactivate"].includes(action) && user.id === id) return send(response, 409, { success: false });
+        if ((action === "deactivate" || (action === "role" && body.role !== "admin")) && member.role === "admin" && member.isActive && member.isSetupComplete && (scenario === "staff-last-admin-conflict" || managedStaff.filter((item) => item.role === "admin" && item.isActive && item.isSetupComplete).length <= 1)) return send(response, 409, { success: false });
+        if (action === "reactivate" && !member.isSetupComplete) return send(response, 409, { success: false });
+        if (action === "role") member.role = body.role;
+        if (action === "deactivate") { member.isActive = false; member.deactivatedAt = timestamp; member.deactivatedBy = user.id; }
+        if (action === "reactivate") { member.isActive = true; member.deactivatedAt = null; member.deactivatedBy = null; }
+        invalidate(id);
+        recordAudit(action === "role" ? "staff.role.updated" : action === "revoke-sessions" ? "staff.sessions.revoked" : `staff.${action === "deactivate" ? "deactivated" : "reactivated"}`, member);
+        return send(response, 200, { success: true, data: { staff: member } });
+      }
+      if (request.method === "GET" && url.pathname === "/api/v1/audit-logs") {
+        const from = url.searchParams.get("from"); const to = url.searchParams.get("to");
+        if ((from && !Number.isFinite(Date.parse(from))) || (to && !Number.isFinite(Date.parse(to))) || (from && to && Date.parse(from) > Date.parse(to))) return send(response, 400, { success: false });
+        const items = auditHistory.filter((log) => ["action", "entityType", "entityId"].every((key) => !url.searchParams.has(key) || log[key] === url.searchParams.get(key)) && (!url.searchParams.has("actorId") || log.actor?._id === url.searchParams.get("actorId")) && (!from || Date.parse(log.createdAt) >= Date.parse(from)) && (!to || Date.parse(log.createdAt) <= Date.parse(to))).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b._id.localeCompare(a._id));
+        return paginated(items, "logs");
+      }
+      return send(response, 404, { success: false });
     }
     const categoryRoute = url.pathname.match(/^\/api\/v1\/service-categories\/([0-9a-f]{24})(?:\/(restore))?$/i);
     const serviceRoute = url.pathname.match(/^\/api\/v1\/services\/([0-9a-f]{24})(?:\/(restore))?$/i);

@@ -104,12 +104,16 @@ await Promise.all([
 
 const nextProcess = spawn(
   process.execPath,
-  ["node_modules/next/dist/bin/next", "dev", "--hostname", host, "--port", String(frontendPort)],
+  // Windows Turbopack restore panics interrupted the broad route matrix. Keep
+  // its disposable dev cache on the documented Webpack path; production build
+  // remains unchanged and is verified independently.
+  ["node_modules/next/dist/bin/next", "dev", ...(process.platform === "win32" ? ["--webpack"] : []), "--hostname", host, "--port", String(frontendPort)],
   {
     cwd: process.cwd(),
     detached: process.platform !== "win32",
     env: {
       ...process.env,
+      NEXT_TELEMETRY_DISABLED: "1",
       NEXT_PUBLIC_API_URL: `http://${host}:${mockApiPort}/api/v1`,
       NEXT_PUBLIC_SITE_URL: `http://${host}:${frontendPort}`,
       NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: "preview-local",

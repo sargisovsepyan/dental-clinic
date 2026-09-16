@@ -17,6 +17,7 @@ type StaffAuthValue = {
   retryBootstrap(): Promise<void>;
   changePassword(currentPassword: string, newPassword: string): Promise<void>;
   handleApiError(error: unknown): void;
+  endRevokedSession(): void;
   clearNotice(): void;
   api: typeof staffApi;
 };
@@ -138,10 +139,16 @@ export function StaffAuthProvider({ locale, children }: { locale: Locale; childr
     clearLocalSession(error.status === 401 ? "anonymous" : "unavailable");
   }, [clearLocalSession]);
 
+  const endRevokedSession = useCallback(() => {
+    clearLocalSession();
+    setNotice(copy.sessionEnded);
+    publishClear();
+  }, [clearLocalSession, copy.sessionEnded, publishClear]);
+
   const value = useMemo<StaffAuthValue>(() => ({
     locale, copy, status, user, notice, login, logout, retryBootstrap, changePassword,
-    handleApiError, clearNotice: () => setNotice(null), api: staffApi,
-  }), [locale, copy, status, user, notice, login, logout, retryBootstrap, changePassword, handleApiError]);
+    handleApiError, endRevokedSession, clearNotice: () => setNotice(null), api: staffApi,
+  }), [locale, copy, status, user, notice, login, logout, retryBootstrap, changePassword, handleApiError, endRevokedSession]);
 
   return <StaffAuthContext.Provider value={value}>{children}</StaffAuthContext.Provider>;
 }

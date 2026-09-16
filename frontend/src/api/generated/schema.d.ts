@@ -194,7 +194,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Admin only. */
+        /** @description Admin only; no-store. Stable name/identifier ordering; default limit 50. */
         get: operations["listStaff"];
         put?: never;
         post?: never;
@@ -213,7 +213,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Admin only. Sends a one-time setup link through the configured mail adapter. */
+        /** @description Admin only; no-store. Sends a one-time setup link through mail, never in the response. Re-inviting a pending account does not update its name or role. */
         post: operations["inviteStaff"];
         delete?: never;
         options?: never;
@@ -289,7 +289,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Admin only. */
+        /** @description Admin only; completed setup required. Invalidates existing sessions. */
         post: operations["reactivateStaff"];
         delete?: never;
         options?: never;
@@ -308,7 +308,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Admin only; increments authorization version. */
+        /** @description Admin only; revokes all sessions and increments authorization version, including for self. */
         post: operations["revokeStaffSessions"];
         delete?: never;
         options?: never;
@@ -1055,7 +1055,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Admin only. */
+        /** @description Admin only. Returns a minimized administration projection; stored pseudonymized network/client hashes are not returned. Equal timestamps are ordered by descending identifier. Every outcome is no-store. */
         get: operations["listAuditLogs"];
         put?: never;
         post?: never;
@@ -1114,6 +1114,54 @@ export interface components {
             /** Format: email */
             email: string;
             role: components["schemas"]["Role"];
+        };
+        AuditActor: {
+            _id: components["schemas"]["ObjectId"];
+            name: string;
+            /** Format: email */
+            email: string;
+            role: components["schemas"]["Role"];
+        };
+        StaffAdminRecord: {
+            _id: components["schemas"]["ObjectId"];
+            name: string;
+            /** Format: email */
+            email: string;
+            role: components["schemas"]["Role"];
+            isActive: boolean;
+            isSetupComplete: boolean;
+            invitedBy: components["schemas"]["ObjectId"] | null;
+            deactivatedBy: components["schemas"]["ObjectId"] | null;
+            deactivatedAt: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description Recursively sanitized, bounded audit metadata value. */
+        AuditMetadataValue: null | string | number | boolean | components["schemas"]["AuditMetadataValue"][] | {
+            [key: string]: components["schemas"]["AuditMetadataValue"];
+        };
+        AuditLogAdmin: {
+            _id: components["schemas"]["ObjectId"];
+            requestId: string;
+            actor: components["schemas"]["AuditActor"] | null;
+            action: string;
+            entityType: string;
+            entityId: string;
+            method: string;
+            path: string;
+            metadata: components["schemas"]["AuditMetadataValue"];
+            /** Format: date-time */
+            createdAt: string;
+        };
+        AuditListEnvelope: {
+            /** @constant */
+            success: true;
+            data: {
+                logs: components["schemas"]["AuditLogAdmin"][];
+                pagination: components["schemas"]["Pagination"];
+            };
         };
         LoginRequest: {
             /** Format: email */
@@ -1995,6 +2043,50 @@ export interface components {
                 "application/json": components["schemas"]["BeforeAfterDetailEnvelope"];
             };
         };
+        /** @description Privacy-minimized, deterministically ordered audit administration page. */
+        AuditListSuccess: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["AuditListEnvelope"];
+            };
+        };
+        /** @description Admin-only validated staff page. */
+        StaffListSuccess: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: {
+                        staff: components["schemas"]["StaffAdminRecord"][];
+                        pagination: components["schemas"]["Pagination"];
+                    };
+                };
+            };
+        };
+        /** @description Safe staff administration record; no tokens or authorization internals. */
+        StaffDetailSuccess: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    message?: string;
+                    data: {
+                        staff: components["schemas"]["StaffAdminRecord"];
+                    };
+                };
+            };
+        };
         /** @description Authenticated; refresh cookie may be set */
         AuthSuccess: {
             headers: {
@@ -2101,6 +2193,16 @@ export interface components {
         /** @description Error response */
         Error: {
             headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description Protected error response that must not be stored. */
+        NoStoreError: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
                 [name: string]: unknown;
             };
             content: {
@@ -2461,9 +2563,10 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            200: components["responses"]["Success"];
-            401: components["responses"]["Error"];
-            403: components["responses"]["Error"];
+            200: components["responses"]["StaffListSuccess"];
+            400: components["responses"]["NoStoreError"];
+            401: components["responses"]["NoStoreError"];
+            403: components["responses"]["NoStoreError"];
         };
     };
     inviteStaff: {
@@ -2479,7 +2582,7 @@ export interface operations {
             };
         };
         responses: {
-            201: components["responses"]["Success"];
+            201: components["responses"]["StaffDetailSuccess"];
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
@@ -2497,7 +2600,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            200: components["responses"]["Success"];
+            200: components["responses"]["StaffDetailSuccess"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
@@ -2520,8 +2623,8 @@ export interface operations {
             };
         };
         responses: {
-            200: components["responses"]["Success"];
-            409: components["responses"]["Error"];
+            200: components["responses"]["StaffDetailSuccess"];
+            409: components["responses"]["NoStoreError"];
         };
     };
     deactivateStaff: {
@@ -2535,8 +2638,8 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            200: components["responses"]["Success"];
-            409: components["responses"]["Error"];
+            200: components["responses"]["StaffDetailSuccess"];
+            409: components["responses"]["NoStoreError"];
         };
     };
     reactivateStaff: {
@@ -2550,8 +2653,8 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            200: components["responses"]["Success"];
-            409: components["responses"]["Error"];
+            200: components["responses"]["StaffDetailSuccess"];
+            409: components["responses"]["NoStoreError"];
         };
     };
     revokeStaffSessions: {
@@ -2565,8 +2668,8 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            200: components["responses"]["Success"];
-            404: components["responses"]["Error"];
+            200: components["responses"]["StaffDetailSuccess"];
+            404: components["responses"]["NoStoreError"];
         };
     };
     listServiceCategories: {
@@ -3575,6 +3678,10 @@ export interface operations {
                 entityType?: string;
                 entityId?: string;
                 actorId?: components["schemas"]["ObjectId"];
+                /** @description Inclusive ISO instant with explicit Z or numeric timezone offset. Must not be later than `to`. */
+                from?: string;
+                /** @description Inclusive ISO instant with explicit Z or numeric timezone offset. Must not be earlier than `from`. */
+                to?: string;
             };
             header?: never;
             path?: never;
@@ -3582,7 +3689,11 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            200: components["responses"]["Success"];
+            200: components["responses"]["AuditListSuccess"];
+            400: components["responses"]["NoStoreError"];
+            401: components["responses"]["NoStoreError"];
+            403: components["responses"]["NoStoreError"];
+            500: components["responses"]["NoStoreError"];
         };
     };
 }
