@@ -13,6 +13,7 @@ const { seedCore, seedStaff, publicBooking } = await import('../test-support/fix
 const { default: app } = await import('../src/app.js');
 const { default: User } = await import('../src/modules/users/user.model.js');
 const { default: Dentist } = await import('../src/modules/dentists/dentist.model.js');
+const { default: Service } = await import('../src/modules/services/service.model.js');
 const { default: Appointment } = await import('../src/modules/appointments/appointment.model.js');
 const { createAppointment } = await import('../src/modules/appointments/appointment.service.js');
 const { getMyAppointments } = await import('../src/modules/appointments/assignedAppointment.service.js');
@@ -30,6 +31,10 @@ beforeEach(async () => {
 after(disconnectReplTestDatabase);
 
 test('assigned list and detail are paginated, no-store, and explicitly privacy-minimized', async () => {
+  const identity = await request(app).get('/api/v1/auth/me').set(auth(staff.dentistToken));
+  assert.equal(identity.status, 200);
+  assert.equal(identity.body.data.user.authVersion, undefined);
+  assert.equal(identity.body.data.user.dentistProfile, undefined);
   const result = await request(app).get('/api/v1/appointments/mine?limit=1').set(auth(staff.dentistToken));
   assert.equal(result.status, 200); assert.match(result.headers['cache-control'], /no-store/);
   assert.equal(result.body.data.pagination.total, 1);
@@ -41,6 +46,25 @@ test('assigned list and detail are paginated, no-store, and explicitly privacy-m
   assert.equal((await request(app).get(`/api/v1/appointments/mine/details/${other._id}`).set(auth(staff.dentistToken))).status, 404);
   const page = await request(app).get('/api/v1/appointments/mine?page=2&limit=1').set(auth(staff.dentistToken));
   assert.deepEqual(page.body.data.appointments, []);
+});
+
+test('translated appointment snapshots remain immutable when published names change', async () => {
+  await Dentist.updateOne({ _id: core.dentist._id }, { $set: {
+    'translations.en.firstName': 'Davit', 'translations.en.lastName': 'Petrosyan',
+    'translations.ru.firstName': 'Давид', 'translations.ru.lastName': 'Петросян',
+  } });
+  await Service.updateOne({ _id: core.service._id }, { $set: { 'translations.en.name': 'Hygiene', 'translations.ru.name': 'Гигиена' } });
+  const saved = await createAppointment(publicBooking(core, '11:00', '905'));
+  await Dentist.updateOne({ _id: core.dentist._id }, { $set: { 'translations.en.firstName': 'Changed' } });
+  await Service.updateOne({ _id: core.service._id }, { $set: { 'translations.en.name': 'Changed service' } });
+  const ownDetail = await request(app).get(`/api/v1/appointments/mine/details/${saved._id}`).set(auth(staff.dentistToken));
+  assert.equal(ownDetail.status, 200);
+  assert.equal(ownDetail.body.data.appointment.serviceSnapshot.translations.en.name, 'Hygiene');
+  assert.equal(ownDetail.body.data.appointment.serviceSnapshot.translations.ru.name, 'Гигиена');
+  assert.equal(ownDetail.body.data.appointment.dentistSnapshot, undefined);
+  const stored = await Appointment.findById(saved._id).lean();
+  assert.equal(stored.dentistSnapshot.translations.en.firstName, 'Davit');
+  assert.equal(stored.dentistSnapshot.translations.ru.lastName, 'Петросян');
 });
 
 test('arbitrary scopes, invalid dates, and all management endpoints remain forbidden', async () => {
@@ -56,7 +80,7 @@ test('arbitrary scopes, invalid dates, and all management endpoints remain forbi
 
 test('reads follow the current database association and fail closed when unlinked or inactive', async () => {
   await User.updateOne({ _id: staff.dentistUser._id }, { $set: { dentistProfile: core.secondDentist._id } });
-  const data = await getMyAppointments(staff.dentistUser._id, { page: 1, limit: 25 });
+  const data = await getMyAppointments(staff.dentistUser._id, { page: 1, limit: 25 }, 0);
   assert.equal(String(data.appointments[0]._id), String(other._id));
   await Dentist.updateOne({ _id: core.secondDentist._id }, { $set: { isActive: false } });
   assert.equal((await request(app).get('/api/v1/appointments/mine').set(auth(staff.dentistToken))).status, 403);
@@ -89,6 +113,34 @@ test('an assignment/version change while fetching suppresses the stale patient r
     return query;
   };
   try {
-    await assert.rejects(getMyAppointments(staff.dentistUser._id, { page: 1, limit: 25 }), (error) => error.code === 'DENTIST_PROFILE_REQUIRED');
+    await assert.rejects(getMyAppointments(staff.dentistUser._id, { page: 1, limit: 25 }, 0), (error) => error.code === 'DENTIST_PROFILE_REQUIRED');
   } finally { Appointment.find = original; }
 });
+
+for (const operation of ['list', 'detail']) {
+  test(`assignment revocation between authentication and the initial ${operation} lookup exposes no patient data`, async () => {
+    const original = User.findOne;
+    let changed = false;
+    User.findOne = function (...args) {
+      const query = original.apply(this, args);
+      if (args[0]?.role === 'dentist' && !changed) {
+        const lean = query.lean.bind(query);
+        query.lean = async () => {
+          changed = true;
+          await User.updateOne({ _id: staff.dentistUser._id }, { $set: { dentistProfile: core.secondDentist._id }, $inc: { authVersion: 1 } });
+          return lean();
+        };
+      }
+      return query;
+    };
+    try {
+      const path = operation === 'list' ? '/api/v1/appointments/mine' : `/api/v1/appointments/mine/details/${other._id}`;
+      const result = await request(app).get(path).set(auth(staff.dentistToken));
+      assert.equal(changed, true); assert.equal(result.status, 403);
+      assert.equal(result.body.code, 'DENTIST_PROFILE_REQUIRED');
+      assert.equal(result.body.data, undefined);
+      assert.ok(!JSON.stringify(result.body).includes(other.patientName));
+      assert.ok(!JSON.stringify(result.body).includes(other.patientPhone));
+    } finally { User.findOne = original; }
+  });
+}

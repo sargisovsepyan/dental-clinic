@@ -73,6 +73,8 @@ const auth = asyncHandler(
             );
         }
 
+        // Request-private stamp; never add it to the public current-user DTO.
+        req.authVersion = decoded.ver;
         req.user = {
             id: user._id,
             name: user.name,

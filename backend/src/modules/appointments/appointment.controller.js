@@ -3,11 +3,11 @@
 import * as assignedService from './assignedAppointment.service.js';
 
 const getMyAppointments = async (req, res) => {
-  const result = await assignedService.getMyAppointments(req.user.id, req.validatedQuery || req.query);
+  const result = await assignedService.getMyAppointments(req.user.id, req.validatedQuery || req.query, req.authVersion);
   res.status(200).json({ success: true, data: result });
 };
 const getMyAppointment = async (req, res) => {
-  const appointment = await assignedService.getMyAppointment(req.user.id, req.params.id);
+  const appointment = await assignedService.getMyAppointment(req.user.id, req.params.id, req.authVersion);
   res.status(200).json({ success: true, data: { appointment } });
 };
 

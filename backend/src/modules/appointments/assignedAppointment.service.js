@@ -18,24 +18,25 @@ const safeAppointment = (row) => ({
   },
 });
 
-const assignedProfile = async (userId) => {
+const assignedProfile = async (userId, authenticatedVersion) => {
   const user = await User.findOne({ _id: userId, role: 'dentist', isActive: true, isSetupComplete: true })
     .select('+dentistProfile +authVersion').lean();
-  if (!user?.dentistProfile || !await Dentist.exists({ _id: user.dentistProfile, isActive: true })) {
+  if (!Number.isInteger(authenticatedVersion) || user?.authVersion !== authenticatedVersion ||
+      !user?.dentistProfile || !await Dentist.exists({ _id: user.dentistProfile, isActive: true })) {
     throw new ApiError(403, 'A current doctor profile assignment is required', { code: 'DENTIST_PROFILE_REQUIRED' });
   }
   return { dentist: user.dentistProfile, authVersion: user.authVersion };
 };
 
 const assertAssignmentCurrent = async (userId, previous) => {
-  const current = await assignedProfile(userId);
+  const current = await assignedProfile(userId, previous.authVersion);
   if (String(current.dentist) !== String(previous.dentist) || current.authVersion !== previous.authVersion) {
     throw new ApiError(403, 'Care assignment changed; sign in again', { code: 'DENTIST_PROFILE_REQUIRED' });
   }
 };
 
-const getMyAppointments = async (userId, query) => {
-  const assignment = await assignedProfile(userId);
+const getMyAppointments = async (userId, query, authenticatedVersion) => {
+  const assignment = await assignedProfile(userId, authenticatedVersion);
   const { dentist } = assignment;
   const today = DateTime.now().setZone(env.CLINIC_TIMEZONE).toISODate();
   const filter = {
@@ -55,8 +56,8 @@ const getMyAppointments = async (userId, query) => {
   };
 };
 
-const getMyAppointment = async (userId, id) => {
-  const assignment = await assignedProfile(userId);
+const getMyAppointment = async (userId, id, authenticatedVersion) => {
+  const assignment = await assignedProfile(userId, authenticatedVersion);
   const { dentist } = assignment;
   // Ownership is in the database predicate, including the detail endpoint.
   const row = await Appointment.findOne({ _id: id, dentist }).select(fields).lean();
