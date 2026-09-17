@@ -1,6 +1,8 @@
 import express from 'express';
 
 import {
+  getDentistProfile,
+  setDentistProfile,
   listStaff,
   getStaff,
   inviteStaff,
@@ -10,6 +12,7 @@ import {
   revokeSessions,
 } from './staff.controller.js';
 import {
+  dentistProfileSchema,
   inviteStaffSchema,
   staffIdSchema,
   updateRoleSchema,
@@ -26,6 +29,11 @@ import noStore from '../../middlewares/noStore.js';
 const router = express.Router();
 
 router.use(noStore, auth, authorize('admin'));
+
+router.get('/:id/dentist-profile', validate(staffIdSchema), asyncHandler(getDentistProfile));
+router.put('/:id/dentist-profile', validate(dentistProfileSchema), auditAction({
+  action: 'staff.dentist_profile.updated', entityType: 'user',
+}, setDentistProfile));
 
 router.get(
   '/',

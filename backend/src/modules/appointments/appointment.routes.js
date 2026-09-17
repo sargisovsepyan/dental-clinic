@@ -2,6 +2,8 @@
 
 
 import {
+  getMyAppointments,
+  getMyAppointment,
   createAppointment,
   createAdminAppointment,
   rescheduleAppointment,
@@ -14,6 +16,7 @@ import {
 
 
 import {
+  listMyAppointmentsSchema,
   createAppointmentSchema,
   createAdminAppointmentSchema,
   appointmentIdSchema,
@@ -45,6 +48,9 @@ const router =
   express.Router();
 
 router.use(noStore);
+
+router.get('/mine', auth, authorize('dentist'), validate(listMyAppointmentsSchema), asyncHandler(getMyAppointments));
+router.get('/mine/details/:id', auth, authorize('dentist'), validate(appointmentIdSchema), asyncHandler(getMyAppointment));
 
 
 router.post(

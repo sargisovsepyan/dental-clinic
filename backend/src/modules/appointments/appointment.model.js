@@ -21,6 +21,8 @@ const snapshotNameTranslationSchema =
 const snapshotTitleTranslationSchema =
   new mongoose.Schema(
     {
+      firstName: { type: String, trim: true, maxlength: 80 },
+      lastName: { type: String, trim: true, maxlength: 80 },
       title: {
         type: String,
         trim: true,

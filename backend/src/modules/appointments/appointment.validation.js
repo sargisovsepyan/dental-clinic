@@ -296,7 +296,25 @@ const listAppointmentsSchema = {
 };
 
 
+const listMyAppointmentsSchema = {
+  query: Joi.object({
+    date: Joi.string().isoDate().pattern(/^\d{4}-\d{2}-\d{2}$/),
+    from: Joi.string().isoDate().pattern(/^\d{4}-\d{2}-\d{2}$/),
+    to: Joi.string().isoDate().pattern(/^\d{4}-\d{2}-\d{2}$/),
+    page: Joi.number().integer().min(1).max(100000).default(1),
+    limit: Joi.number().integer().min(1).max(50).default(25),
+  }).custom((value, helpers) => {
+    for (const field of ['date', 'from', 'to']) {
+      if (value[field] && new Date(`${value[field]}T12:00:00Z`).toISOString().slice(0, 10) !== value[field]) return helpers.error('any.invalid');
+    }
+    if (value.date && (value.from || value.to)) return helpers.error('any.invalid');
+    if (value.from && value.to && value.from > value.to) return helpers.error('any.invalid');
+    return value;
+  }).prefs({ stripUnknown: false }),
+};
+
 export {
+  listMyAppointmentsSchema,
   createAppointmentSchema,
   createAdminAppointmentSchema,
   appointmentIdSchema,

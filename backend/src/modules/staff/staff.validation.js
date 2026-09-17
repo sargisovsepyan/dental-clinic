@@ -56,8 +56,14 @@ const listStaffSchema = {
 };
 
 export {
+  dentistProfileSchema,
   inviteStaffSchema,
   staffIdSchema,
   updateRoleSchema,
   listStaffSchema,
+};
+
+const dentistProfileSchema = {
+  params: staffIdSchema.params,
+  body: Joi.object({ dentistId: mongoId.allow(null).required() }).required().prefs({ stripUnknown: false }),
 };

@@ -112,6 +112,7 @@ test('admin phone booking stores source, creator, consent method, and internal n
   assert.equal(response.status, 201);
   const stored = await Appointment.findById(response.body.data.appointment._id).lean();
   assert.equal(stored.source, 'phone');
+  assert.equal(stored.status, 'confirmed');
   assert.equal(String(stored.createdBy), String(staff.receptionist._id));
   assert.equal(stored.privacyConsentMethod, 'phone');
   assert.equal(stored.internalNote, 'Reception desk booking');

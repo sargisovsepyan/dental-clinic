@@ -255,6 +255,40 @@ paths:
       description: Admin only; revokes all sessions and increments authorization version, including for self.
       security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/StaffDetailSuccess' }, '404': { $ref: '#/components/responses/NoStoreError' } }
+  /staff/{id}/dentist-profile:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Staff]
+      operationId: getStaffDentistProfile
+      description: Admin-only care assignment. No-store; never included in public doctor records.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/DentistProfileSuccess' }
+        '401': { $ref: '#/components/responses/NoStoreError' }
+        '403': { $ref: '#/components/responses/NoStoreError' }
+        '404': { $ref: '#/components/responses/NoStoreError' }
+    put:
+      tags: [Staff]
+      operationId: setStaffDentistProfile
+      description: Admin only. Assign an active doctor profile to a dentist account, or null to unlink. Revokes existing sessions and access tokens. Multiple accounts may intentionally share one profile; no unique index is needed.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [dentistId]
+              properties:
+                dentistId: { oneOf: [{ $ref: '#/components/schemas/ObjectId' }, { type: 'null' }] }
+      responses:
+        '200': { $ref: '#/components/responses/DentistProfileSuccess' }
+        '400': { $ref: '#/components/responses/NoStoreError' }
+        '401': { $ref: '#/components/responses/NoStoreError' }
+        '403': { $ref: '#/components/responses/NoStoreError' }
+        '404': { $ref: '#/components/responses/NoStoreError' }
+        '409': { $ref: '#/components/responses/NoStoreError' }
   /service-categories:
     get:
       tags: [Catalog]
@@ -550,11 +584,71 @@ paths:
         '409': { $ref: '#/components/responses/Error' }
         '429': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
+  /appointments/mine:
+    get:
+      tags: [Appointments]
+      operationId: listMyAppointments
+      description: Dentist only. Scope comes from the current admin-controlled staff-to-doctor assignment. No arbitrary dentist, service, patient, or status filter is accepted. Defaults to today and upcoming in clinic time. Protected responses are no-store.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 25 } }
+        - { name: date, in: query, schema: { $ref: '#/components/schemas/LocalDate' } }
+        - { $ref: '#/components/parameters/FromDate' }
+        - { $ref: '#/components/parameters/ToDate' }
+      responses:
+        '200':
+          description: Assigned appointments only.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, const: true }
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required: [appointments, pagination, today, timezone]
+                    properties:
+                      appointments: { type: array, items: { $ref: '#/components/schemas/AssignedAppointment' } }
+                      pagination: { $ref: '#/components/schemas/Pagination' }
+                      today: { $ref: '#/components/schemas/LocalDate' }
+                      timezone: { type: string }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /appointments/mine/details/{id}:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    get:
+      tags: [Appointments]
+      operationId: getMyAppointment
+      description: Dentist-only minimized assigned appointment. Non-owned IDs return 404. No-store.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Assigned appointment.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: { type: boolean, const: true }
+                  data:
+                    type: object
+                    required: [appointment]
+                    properties:
+                      appointment: { $ref: '#/components/schemas/AssignedAppointment' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
   /appointments/admin:
     post:
       tags: [Appointments]
       operationId: createAdminAppointment
-      description: Admin or receptionist.
+      description: Admin or receptionist. Staff-created appointments are confirmed; public auto-confirm remains separately configurable.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -1126,6 +1220,23 @@ components:
               isFeatured: { type: boolean, default: false }
               sortOrder: { type: integer, minimum: 0, maximum: 10000 }
   responses:
+    DentistProfileSuccess:
+      description: No-store admin-only staff care assignment.
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, data]
+            properties:
+              success: { type: boolean, const: true }
+              data:
+                type: object
+                additionalProperties: false
+                required: [dentistId]
+                properties:
+                  dentistId: { oneOf: [{ $ref: '#/components/schemas/ObjectId' }, { type: 'null' }] }
     Success:
       description: Successful request
       content:
@@ -1416,11 +1527,20 @@ components:
         role: { $ref: '#/components/schemas/Role' }
         isActive: { type: boolean }
         isSetupComplete: { type: boolean }
+    NameTranslations:
+      type: object
+      additionalProperties: false
+      properties:
+        nameTranslations: { $ref: '#/components/schemas/NameTranslations' }
+        hy: { type: string, maxLength: 100 }
+        ru: { type: string, maxLength: 100 }
+        en: { type: string, maxLength: 100 }
     CurrentStaffUser:
       type: object
       additionalProperties: false
       required: [id, name, email, role]
       properties:
+        nameTranslations: { $ref: '#/components/schemas/NameTranslations' }
         id: { $ref: '#/components/schemas/ObjectId' }
         name: { type: string }
         email: { type: string, format: email }
@@ -2169,6 +2289,9 @@ components:
       additionalProperties: false
       minProperties: 1
       properties:
+        nameTranslations: { $ref: '#/components/schemas/NameTranslations' }
+        firstName: { type: string, minLength: 2, maxLength: 80 }
+        lastName: { type: string, minLength: 2, maxLength: 80 }
         title: { type: string, minLength: 2, maxLength: 150 }
         bio: { type: string, maxLength: 5000 }
         specializations:
@@ -2587,6 +2710,27 @@ components:
         from: { $ref: '#/components/schemas/AppointmentSnapshotPoint' }
         to: { $ref: '#/components/schemas/AppointmentSnapshotPoint' }
         changedAt: { type: string, format: date-time }
+    AssignedAppointment:
+      type: object
+      additionalProperties: false
+      description: Minimal assigned-care read model. No email, patient comments, internal notes, consent, audit, lock keys, history, staff identity or medical records.
+      required: [_id, patientName, patientPhone, date, startTime, endTime, status, serviceSnapshot]
+      properties:
+        _id: { $ref: '#/components/schemas/ObjectId' }
+        patientName: { type: string }
+        patientPhone: { type: string }
+        date: { $ref: '#/components/schemas/LocalDate' }
+        startTime: { $ref: '#/components/schemas/LocalTime' }
+        endTime: { $ref: '#/components/schemas/LocalTime' }
+        status: { $ref: '#/components/schemas/AppointmentStatus' }
+        serviceSnapshot:
+          type: object
+          additionalProperties: false
+          required: [name, durationMinutes, translations]
+          properties:
+            name: { type: string }
+            durationMinutes: { type: integer }
+            translations: { $ref: '#/components/schemas/Translations' }
     AppointmentAdmin:
       type: object
       additionalProperties: false

@@ -20,6 +20,8 @@ import {
 } from '../appointments/scheduleConflict.service.js';
 
 const LOCALIZED_FIELDS = Object.freeze([
+  'firstName',
+  'lastName',
   'title',
   'bio',
   'specializations',

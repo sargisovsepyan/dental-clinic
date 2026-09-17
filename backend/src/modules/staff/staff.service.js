@@ -2,6 +2,7 @@ import User from '../users/user.model.js';
 import Session from '../sessions/session.model.js';
 import OneTimeToken from '../auth/oneTimeToken.model.js';
 import AdminInvariant from './adminInvariant.model.js';
+import Dentist from '../dentists/dentist.model.js';
 
 import ApiError from '../../utils/ApiError.js';
 import runTransaction from '../../utils/runTransaction.js';
@@ -14,11 +15,12 @@ import {
 } from '../../mail/mail.service.js';
 
 const publicFields =
-  'name email role isActive isSetupComplete invitedBy deactivatedAt deactivatedBy createdAt updatedAt';
+  'name nameTranslations email role isActive isSetupComplete invitedBy deactivatedAt deactivatedBy createdAt updatedAt';
 
 const safeStaff = (user) => ({
   _id: user._id,
   name: user.name,
+  ...(user.nameTranslations ? { nameTranslations: user.nameTranslations } : {}),
   email: user.email,
   role: user.role,
   isActive: user.isActive,
@@ -309,7 +311,29 @@ const revokeAllStaffSessions = async (id) => (
   })
 );
 
+const getDentistProfile = async (id) => {
+  const user = await User.findById(id).select('+dentistProfile').lean();
+  if (!user) throw new ApiError(404, 'Staff member not found');
+  return { dentistId: user.dentistProfile || null };
+};
+
+const setDentistProfile = async (id, dentistId) => runTransaction(async (session) => {
+  const user = await User.findById(id).select('+dentistProfile +authVersion').session(session);
+  if (!user) throw new ApiError(404, 'Staff member not found');
+  if (user.role !== 'dentist') throw new ApiError(409, 'Only dentist accounts can have a doctor profile');
+  if (dentistId && !await Dentist.exists({ _id: dentistId, isActive: true }).session(session)) {
+    throw new ApiError(400, 'Select an active doctor profile');
+  }
+  user.dentistProfile = dentistId;
+  user.authVersion += 1;
+  await user.save({ session });
+  await revokeSessionsInTransaction(user._id, session);
+  return { dentistId: user.dentistProfile || null };
+});
+
 export {
+  getDentistProfile,
+  setDentistProfile,
   listStaff,
   getStaffById,
   inviteStaff,

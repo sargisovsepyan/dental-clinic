@@ -1,5 +1,16 @@
 ﻿import * as appointmentService from './appointment.service.js';
 
+import * as assignedService from './assignedAppointment.service.js';
+
+const getMyAppointments = async (req, res) => {
+  const result = await assignedService.getMyAppointments(req.user.id, req.validatedQuery || req.query);
+  res.status(200).json({ success: true, data: result });
+};
+const getMyAppointment = async (req, res) => {
+  const appointment = await assignedService.getMyAppointment(req.user.id, req.params.id);
+  res.status(200).json({ success: true, data: { appointment } });
+};
+
 import {
   verifyPublicBookingChallenge,
 } from '../../security/botChallenge.js';
@@ -217,6 +228,8 @@ const rescheduleAppointment =
 
 
 export {
+  getMyAppointments,
+  getMyAppointment,
   createAppointment,
   createAdminAppointment,
   rescheduleAppointment,

@@ -10,6 +10,8 @@ import { SLUG_PATTERN } from '../../utils/buildSlug.js';
 
 const dentistTranslationSchema = new mongoose.Schema(
   {
+    firstName: { type: String, trim: true, minlength: 2, maxlength: 80 },
+    lastName: { type: String, trim: true, minlength: 2, maxlength: 80 },
     title: {
       type: String,
       trim: true,

@@ -62,6 +62,8 @@ const revokeSessions = async (req, res) => {
 };
 
 export {
+  getDentistProfile,
+  setDentistProfile,
   listStaff,
   getStaff,
   inviteStaff,
@@ -69,4 +71,11 @@ export {
   deactivate,
   reactivate,
   revokeSessions,
+};
+
+const getDentistProfile = async (req, res) => {
+  res.status(200).json({ success: true, data: await staffService.getDentistProfile(req.params.id) });
+};
+const setDentistProfile = async (req, res) => {
+  res.status(200).json({ success: true, data: await staffService.setDentistProfile(req.params.id, req.body.dentistId) });
 };

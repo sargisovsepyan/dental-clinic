@@ -10,6 +10,8 @@ const mongoId = Joi.string()
   .length(24);
 
 const dentistTranslation = Joi.object({
+  firstName: Joi.string().trim().min(2).max(80),
+  lastName: Joi.string().trim().min(2).max(80),
   title: Joi.string()
     .trim()
     .min(2)

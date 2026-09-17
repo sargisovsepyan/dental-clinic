@@ -76,6 +76,7 @@ const auth = asyncHandler(
         req.user = {
             id: user._id,
             name: user.name,
+            ...(user.nameTranslations ? { nameTranslations: user.nameTranslations } : {}),
             email: user.email,
             role: user.role,
         };

@@ -14,6 +14,23 @@ const userSchema = new mongoose.Schema(
       maxlength: 100,
     },
 
+    nameTranslations: {
+      type: new mongoose.Schema({
+        hy: { type: String, trim: true, maxlength: 100 },
+        ru: { type: String, trim: true, maxlength: 100 },
+        en: { type: String, trim: true, maxlength: 100 },
+      }, { _id: false, strict: 'throw' }),
+      default: undefined,
+    },
+
+    // Admin-controlled care assignment. Multiple accounts may share a profile.
+    dentistProfile: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Dentist',
+      default: null,
+      select: false,
+    },
+
     email: {
       type: String,
       required: true,

@@ -433,7 +433,7 @@ const prepareAppointment = async ({
     quotaReservationId: appointmentId,
     scheduleRevision: 0,
     notificationLocale: data.locale || 'hy',
-    status: settings.autoConfirmAppointments ? 'confirmed' : 'pending',
+    status: context.createdBy || settings.autoConfirmAppointments ? 'confirmed' : 'pending',
     source: context.source || 'website',
     patientComment: data.patientComment || '',
     internalNote: context.internalNote || '',

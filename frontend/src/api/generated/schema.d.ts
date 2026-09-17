@@ -316,6 +316,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/staff/{id}/dentist-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** @description Admin-only care assignment. No-store; never included in public doctor records. */
+        get: operations["getStaffDentistProfile"];
+        /** @description Admin only. Assign an active doctor profile to a dentist account, or null to unlink. Revokes existing sessions and access tokens. Multiple accounts may intentionally share one profile; no unique index is needed. */
+        put: operations["setStaffDentistProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/service-categories": {
         parameters: {
             query?: never;
@@ -647,6 +667,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/appointments/mine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Dentist only. Scope comes from the current admin-controlled staff-to-doctor assignment. No arbitrary dentist, service, patient, or status filter is accepted. Defaults to today and upcoming in clinic time. Protected responses are no-store. */
+        get: operations["listMyAppointments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/appointments/mine/details/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** @description Dentist-only minimized assigned appointment. Non-owned IDs return 404. No-store. */
+        get: operations["getMyAppointment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/appointments/admin": {
         parameters: {
             query?: never;
@@ -656,7 +712,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Admin or receptionist. */
+        /** @description Admin or receptionist. Staff-created appointments are confirmed; public auto-confirm remains separately configurable. */
         post: operations["createAdminAppointment"];
         delete?: never;
         options?: never;
@@ -1108,7 +1164,14 @@ export interface components {
             isActive: boolean;
             isSetupComplete: boolean;
         };
+        NameTranslations: {
+            nameTranslations?: components["schemas"]["NameTranslations"];
+            hy?: string;
+            ru?: string;
+            en?: string;
+        };
         CurrentStaffUser: {
+            nameTranslations?: components["schemas"]["NameTranslations"];
             id: components["schemas"]["ObjectId"];
             name: string;
             /** Format: email */
@@ -1546,6 +1609,9 @@ export interface components {
             sortOrder?: number;
         };
         DentistTranslation: {
+            nameTranslations?: components["schemas"]["NameTranslations"];
+            firstName?: string;
+            lastName?: string;
             title?: string;
             bio?: string;
             specializations?: string[];
@@ -1801,6 +1867,21 @@ export interface components {
             /** Format: date-time */
             changedAt: string;
         };
+        /** @description Minimal assigned-care read model. No email, patient comments, internal notes, consent, audit, lock keys, history, staff identity or medical records. */
+        AssignedAppointment: {
+            _id: components["schemas"]["ObjectId"];
+            patientName: string;
+            patientPhone: string;
+            date: components["schemas"]["LocalDate"];
+            startTime: components["schemas"]["LocalTime"];
+            endTime: components["schemas"]["LocalTime"];
+            status: components["schemas"]["AppointmentStatus"];
+            serviceSnapshot: {
+                name: string;
+                durationMinutes: number;
+                translations: components["schemas"]["Translations"];
+            };
+        };
         /** @description Authorized administrative appointment. This includes patient contact data, internal notes, reschedule history, and server-recorded privacy evidence; it is never a public collection schema. */
         AppointmentAdmin: {
             _id: components["schemas"]["ObjectId"];
@@ -1943,6 +2024,22 @@ export interface components {
         };
     };
     responses: {
+        /** @description No-store admin-only staff care assignment. */
+        DentistProfileSuccess: {
+            headers: {
+                "Cache-Control"?: "no-store";
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    success: true;
+                    data: {
+                        dentistId: components["schemas"]["ObjectId"] | null;
+                    };
+                };
+            };
+        };
         /** @description Successful request */
         Success: {
             headers: {
@@ -2673,6 +2770,48 @@ export interface operations {
             404: components["responses"]["NoStoreError"];
         };
     };
+    getStaffDentistProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["DentistProfileSuccess"];
+            401: components["responses"]["NoStoreError"];
+            403: components["responses"]["NoStoreError"];
+            404: components["responses"]["NoStoreError"];
+        };
+    };
+    setStaffDentistProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    dentistId: components["schemas"]["ObjectId"] | null;
+                };
+            };
+        };
+        responses: {
+            200: components["responses"]["DentistProfileSuccess"];
+            400: components["responses"]["NoStoreError"];
+            401: components["responses"]["NoStoreError"];
+            403: components["responses"]["NoStoreError"];
+            404: components["responses"]["NoStoreError"];
+            409: components["responses"]["NoStoreError"];
+        };
+    };
     listServiceCategories: {
         parameters: {
             query?: never;
@@ -3178,6 +3317,76 @@ export interface operations {
             409: components["responses"]["Error"];
             429: components["responses"]["Error"];
             503: components["responses"]["Error"];
+        };
+    };
+    listMyAppointments: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                limit?: number;
+                date?: components["schemas"]["LocalDate"];
+                from?: components["parameters"]["FromDate"];
+                to?: components["parameters"]["ToDate"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Assigned appointments only. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: {
+                            appointments: components["schemas"]["AssignedAppointment"][];
+                            pagination: components["schemas"]["Pagination"];
+                            today: components["schemas"]["LocalDate"];
+                            timezone: string;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+        };
+    };
+    getMyAppointment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Assigned appointment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: {
+                            appointment: components["schemas"]["AssignedAppointment"];
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
         };
     };
     createAdminAppointment: {

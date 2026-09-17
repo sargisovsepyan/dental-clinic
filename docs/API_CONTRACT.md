@@ -178,3 +178,15 @@ Public before/after list and detail responses expose the published case content 
 ## Frontend freeze
 
 The public schema, locale policy, authentication/cookie behavior, booking inputs, availability slots, appointment statuses, and media/consent flows are frozen sufficiently for frontend implementation. New optional fields or endpoints may be added compatibly. No known breaking public schema decision is deferred. Deployment origins/cookie domain are environment choices, not API-shape changes.
+
+## Arelis assigned-care and localization additions
+
+`GET /appointments/mine` and `GET /appointments/mine/details/:id` are dentist-only, read-only and `no-store`. The server resolves the current `User.dentistProfile` relationship, requires an active doctor, and applies ownership in the database predicate to both rows and counts. List filters are only `date`, `from`, `to`, `page` (1–100000), and `limit` (1–50, default 25). Unknown scope keys are rejected. Dates must be real calendar dates; `date` cannot be combined with a range. Without a date/from boundary, the list starts at the clinic-local current day. The response includes `today` and the deployment clinic timezone.
+
+The explicit assigned-care DTO contains only ID, patient name and phone, date/start/end, status and the immutable service name/duration/translations. Phone is included for the assigned-care workflow only. It does not expose email, comments, internal notes, consent, confirmation codes, prices, history, staff actors, lock/quota/idempotency metadata, global patients or medical records. Non-owned detail IDs return 404. Unlinked/inactive profiles fail closed with 403 `DENTIST_PROFILE_REQUIRED`. Assignment/authorization version is rechecked before sending fetched data. All existing appointment management routes remain admin/receptionist-only.
+
+`GET`/`PUT /staff/:id/dentist-profile` are admin-only and no-store. PUT accepts exactly `{ dentistId: ObjectId | null }`, requires a dentist staff account and an active doctor (unless unlinking), records a privacy-minimized audit event, and revokes the employee's existing sessions/access version transactionally. The relationship is hidden from ordinary user queries and all public dentist content. Multiple staff accounts may intentionally share the same doctor profile; no new unique index or migration is required. Existing accounts remain unlinked until an explicit admin assignment; there is no email/name guessing or automatic production linking.
+
+Dentist translations optionally include `firstName` and `lastName`, with HY remaining canonical. New appointment snapshots retain these names alongside existing localized titles. Auth/current-staff/admin-staff identities optionally include explicit `nameTranslations`; legacy identity strings remain intact. No translations or consent evidence are invented for historical data.
+
+Staff-created appointments now begin `confirmed`; public website bookings still respect `bookingSettings.autoConfirmAppointments`, whose default remains false. Admission, unique appointment locks, phone quota, idempotency, schedule guards, outbox and mutation transitions are unchanged.
