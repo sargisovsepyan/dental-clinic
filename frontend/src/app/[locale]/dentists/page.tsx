@@ -26,7 +26,7 @@ export default async function DentistsPage({ params }: Props) {
   let dentists: ReturnType<typeof dentistView>[] = [];
   try {
     const cloudName = getFrontendEnvironment().cloudinaryCloudName;
-    dentists = (await getDentists()).map((item) => dentistView(item, locale, cloudName));
+    dentists = (await getDentists()).map((item) => dentistView(item, locale, cloudName)).filter((item) => item.fullName);
   } catch (error) {
     failed = true;
     requestId = error instanceof PublicApiError ? error.requestId : undefined;

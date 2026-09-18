@@ -22,6 +22,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { safeExternalUrl, safeSocialUrl } from "@/lib/safe-urls";
+import { productMessages } from '@/i18n/product-messages';
 
 function nullableNumber(value: FormDataEntryValue | null) {
   const raw = String(value ?? "").trim();
@@ -34,7 +35,7 @@ function ClinicSettingsForm({ clinic, onSaved }: {
   clinic: StaffClinic;
   onSaved: (clinic: StaffClinic) => void;
 }) {
-  const { api, handleApiError } = useStaffAuth();
+  const { api, locale, handleApiError } = useStaffAuth();
   const copy = useManagementCopy();
   const [translations, setTranslations] = useState<LocalizedDraft>(() => localizedDraft(clinic.translations, ["clinicName", "tagline", "description", "address"]));
   const [pending, setPending] = useState(false);
@@ -124,7 +125,7 @@ function ClinicSettingsForm({ clinic, onSaved }: {
         <label className={labelClass}>{copy.longitude}<input className={fieldClass} name="longitude" type="number" min={-180} max={180} step="any" defaultValue={clinic.longitude ?? ""} disabled={pending} /></label>
         {(["instagram", "facebook", "whatsapp", "telegram"] as const).map((platform) => <label key={platform} className={labelClass}>{copy[platform]}<input className={fieldClass} name={platform} type="url" maxLength={2_048} defaultValue={clinic.socialLinks[platform]} disabled={pending} /></label>)}
       </div></section>
-      <section className="rounded-xl border bg-card p-5 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">{copy.bookingPolicy}</h2><span className="rounded-full bg-muted px-3 py-1.5 text-xs">{copy.timezone}: {clinic.timezone}</span></div><p className="mt-2 text-xs text-muted-foreground">{copy.scheduleRevision}: {clinic.scheduleRevision}</p><div className="mt-4 grid gap-4 md:grid-cols-2">
+      <section className="rounded-xl border bg-card p-5 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">{copy.bookingPolicy}</h2><span className="rounded-full bg-muted px-3 py-1.5 text-xs">{copy.timezone}: {clinic.timezone}</span></div><details className="mt-3 text-xs text-muted-foreground"><summary className="min-h-8 cursor-pointer">{productMessages[locale].advanced}</summary><p className="py-2">{copy.scheduleRevision}: {clinic.scheduleRevision}</p></details><div className="mt-4 grid gap-4 md:grid-cols-2">
         <label className={labelClass}>{copy.slotInterval}<select className={fieldClass} name="slotIntervalMinutes" defaultValue={booking.slotIntervalMinutes} disabled={pending}>{[10, 15, 20, 30, 60].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
         <label className={labelClass}>{copy.minimumNotice}<input className={fieldClass} name="minBookingNoticeMinutes" type="number" min={0} max={10_080} step={1} defaultValue={booking.minBookingNoticeMinutes} disabled={pending} /></label>
         <label className={labelClass}>{copy.bookingHorizon}<input className={fieldClass} name="maxBookingDaysAhead" type="number" min={1} max={365} step={1} defaultValue={booking.maxBookingDaysAhead} disabled={pending} /></label>

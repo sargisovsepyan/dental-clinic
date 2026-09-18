@@ -49,7 +49,7 @@ describe("public view models", () => {
     };
 
     const view = beforeAfterView(record, "en", undefined);
-    expect(view.title).toEqual({ text: "Դեպք", lang: "hy" });
+    expect(view.title).toEqual({ text: "", lang: undefined });
     expect(view.beforeImage).toBeNull();
     expect(view).not.toHaveProperty("consentStatus");
     expect(view).not.toHaveProperty("externalConsentReference");
@@ -72,6 +72,7 @@ describe("public view models", () => {
         caption: "Մակագրություն",
       },
       en: {
+        firstName: "Ani", lastName: "Test",
         name: "English name",
         description: "English description",
         shortDescription: "Short",
@@ -152,8 +153,8 @@ describe("public view models", () => {
     expect(categoryView(category, "en").name).toEqual({ text: "English name", lang: "en" });
     expect(serviceView(service, "en", "clinic").image?.src).toContain("res.cloudinary.com/clinic/");
     expect(dentistView(dentist, "en", "clinic")).toMatchObject({
-      fullName: "Անի Փորձարկում",
-      fullNameLang: "hy",
+      fullName: "Ani Test",
+      fullNameLang: "en",
       specializations: { values: ["Therapy"], lang: "en" },
       services: [{ id: "service-id", slug: "cleaning" }],
       bookingEnabled: true,
@@ -162,7 +163,7 @@ describe("public view models", () => {
     expect(galleryImageView(galleryImage, "en", "clinic").alt.text).toBe("Image description");
     expect(beforeAfterView(beforeAfter, "en", "clinic")).toMatchObject({
       service: { id: "service-id", slug: "cleaning" },
-      dentist: { id: "dentist-id", slug: "ani-test", fullName: "Անի Փորձարկում", fullNameLang: "hy" },
+      dentist: { id: "dentist-id", slug: "ani-test", fullName: "Ani Test", fullNameLang: "en" },
     });
   });
 });

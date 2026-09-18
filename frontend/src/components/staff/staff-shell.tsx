@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { staffManagementMessages } from "@/i18n/staff-management-messages";
 import { staffMediaMessages } from "@/i18n/staff-media-messages";
 import { staffGovernanceMessages } from "@/i18n/staff-governance-messages";
+import { productMessages } from '@/i18n/product-messages';
 
 function roleLabel(role: "admin" | "receptionist" | "dentist", copy: ReturnType<typeof useStaffAuth>["copy"]) {
   return role === "admin" ? copy.roleAdmin : role === "receptionist" ? copy.roleReceptionist : copy.roleDentist;
@@ -27,6 +28,7 @@ function StaffNavigation({ mobile = false, onNavigate }: { mobile?: boolean; onN
   if (!user) return null;
   const links = [
     { href: `/${locale}/staff`, label: copy.dashboard, icon: LayoutDashboard, exact: true },
+    ...(user.role === 'dentist' ? [{ href: `/${locale}/staff/my-appointments`, label: productMessages[locale].myAppointments, icon: CalendarDays, exact: false }] : []),
     ...(user.role !== "dentist" ? [{ href: `/${locale}/staff/appointments`, label: copy.appointments, icon: CalendarDays, exact: false }] : []),
     ...(user.role === "admin" ? [
       { href: `/${locale}/staff/services`, label: managementCopy.catalogNav, icon: Stethoscope, exact: false },
@@ -60,6 +62,7 @@ export function StaffWorkspaceShell({ children }: { children: React.ReactNode })
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
+  const staffName = user?.nameTranslations?.[locale] || user?.name;
   useEffect(() => {
     if (status === "anonymous") router.replace(`/${locale}/staff/login` as Route);
   }, [locale, router, status]);
@@ -96,7 +99,7 @@ export function StaffWorkspaceShell({ children }: { children: React.ReactNode })
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-4"><StaffNavigation /></div>
         <div className="shrink-0 border-t p-4">
-          <p className="truncate px-3 text-sm font-semibold">{user.name}</p>
+          <p className="truncate px-3 text-sm font-semibold">{staffName}</p>
           <p className="mt-1 px-3 text-xs text-muted-foreground">{roleLabel(user.role, copy)}</p>
           <Button variant="ghost" className="mt-3 w-full justify-start" onClick={() => void signOut()} disabled={logoutPending}><LogOut aria-hidden="true" />{logoutPending ? copy.loggingOut : copy.logout}</Button>
         </div>
@@ -107,14 +110,14 @@ export function StaffWorkspaceShell({ children }: { children: React.ReactNode })
             <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
               <SheetTrigger render={<Button variant="outline" size="icon" className="lg:hidden" />}><Menu aria-hidden="true" /><span className="sr-only">{copy.menu}</span></SheetTrigger>
               <SheetContent side="left" closeLabel={copy.closeMenu} className="w-[min(88vw,20rem)] bg-card">
-                <SheetHeader className="shrink-0"><SheetTitle>{copy.workspace}</SheetTitle><SheetDescription>{user.name} · {roleLabel(user.role, copy)}</SheetDescription></SheetHeader>
+                <SheetHeader className="shrink-0"><SheetTitle>{copy.workspace}</SheetTitle><SheetDescription>{staffName} · {roleLabel(user.role, copy)}</SheetDescription></SheetHeader>
                 <div className="min-h-0 flex-1 overflow-y-auto"><StaffNavigation mobile onNavigate={() => setMenuOpen(false)} /></div>
                 <div className="mt-auto shrink-0 border-t p-4"><Button variant="outline" className="w-full justify-start" onClick={() => void signOut()} disabled={logoutPending}><LogOut aria-hidden="true" />{copy.logout}</Button></div>
               </SheetContent>
             </Sheet>
             <p className="text-sm font-semibold lg:hidden">{copy.workspace}</p>
           </div>
-          <div className="text-right"><p className="max-w-48 truncate text-sm font-medium">{user.name}</p><p className="text-xs text-muted-foreground">{roleLabel(user.role, copy)}</p></div>
+          <div className="text-right"><p className="max-w-48 truncate text-sm font-medium">{staffName}</p><p className="text-xs text-muted-foreground">{roleLabel(user.role, copy)}</p></div>
         </header>
         {notice && <div className="px-4 pt-4 lg:px-8"><Alert><AlertDescription>{notice}</AlertDescription></Alert></div>}
         <main id="main-content" tabIndex={-1} className="p-4 sm:p-6 lg:p-8">{children}</main>

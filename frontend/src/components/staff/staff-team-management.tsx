@@ -5,10 +5,13 @@ import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { UserPlus } from "lucide-react";
 import { StaffApiError, type StaffRole } from "@/api/staff-client";
+import { localizedPersonName, localizedStaffName } from '@/i18n/localized-content';
+import { productMessages } from '@/i18n/product-messages';
+import type { StaffDentist } from '@/api/staff-management';
 import type { GovernedStaff, StaffFilters } from "@/api/staff-governance";
 import { useStaffAuth } from "@/components/staff/staff-auth-provider";
 import { StaffAccessDenied } from "@/components/staff/staff-shell";
-import { ManagementHeader, fieldClass, labelClass } from "@/components/staff/staff-management-shared";
+import { ManagementHeader, fieldClass, labelClass, useManagementCopy } from "@/components/staff/staff-management-shared";
 import { GovernanceFeedback, GovernancePaginationControls, governanceTimestamp, useGovernanceCopy, useRoleLabel } from "@/components/staff/staff-governance-shared";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -133,7 +136,7 @@ function TeamWorkspace() {
       {!current.staff.length && <p role="status" className="mt-6">{gov.emptyTeam}</p>}
       <ul className="mt-6 grid gap-4 md:grid-cols-2 2xl:grid-cols-3" aria-label={gov.teamNav}>
         {current.staff.map((staff) => <li key={staff.id} className="min-w-0 rounded-xl border bg-card p-5" data-testid={`staff-${staff.id}`}>
-          <div className="flex flex-wrap items-start justify-between gap-2"><h2 className="break-words font-semibold">{staff.name}{staff.id === user?.id && <span className="ml-2 text-xs text-muted-foreground">({gov.you})</span>}</h2><span className="rounded-full bg-secondary px-2 py-1 text-xs font-semibold">{lifecycle(staff)}</span></div>
+          <div className="flex flex-wrap items-start justify-between gap-2"><h2 className="break-words font-semibold">{localizedStaffName(staff, locale)}{staff.id === user?.id && <span className="ml-2 text-xs text-muted-foreground">({gov.you})</span>}</h2><span className="rounded-full bg-secondary px-2 py-1 text-xs font-semibold">{lifecycle(staff)}</span></div>
           <p className="mt-2 break-all text-sm text-muted-foreground">{staff.email}</p><p className="mt-2 text-sm">{roleLabel(staff.role)} · {!staff.isSetupComplete ? gov.setupPending : gov.setupComplete}</p>
           {staff.id === user?.id && <p className="mt-3 text-xs text-muted-foreground">{gov.selfAction}</p>}
           <div className="mt-5">{actions(staff)}</div>
@@ -141,7 +144,7 @@ function TeamWorkspace() {
       </ul><GovernancePaginationControls value={current.pagination} pending={pending} onPage={(page) => setFilters({ ...filters, page })} />
     </>}
     <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}><DialogContent closeLabel={copy.close}>
-      <DialogTitle>{gov.details}</DialogTitle><DialogDescription className="mt-3 break-words">{selected?.name} · {selected?.email}</DialogDescription>
+      <DialogTitle>{gov.details}</DialogTitle><DialogDescription className="mt-3 break-words">{selected && localizedStaffName(selected, locale)} · {selected?.email}</DialogDescription>
       {detailError ? <GovernanceFeedback value={{ error: true, message: gov.loadError }} /> : detail && detail.id === selected?.id ? <dl className="mt-5 space-y-3 break-words">
         <div><dt className="text-sm text-muted-foreground">{gov.staffId}</dt><dd className="break-all">{detail.id}</dd></div>
         <div><dt className="text-sm text-muted-foreground">{copy.role}</dt><dd>{roleLabel(detail.role)}</dd></div>
@@ -149,10 +152,11 @@ function TeamWorkspace() {
         <div><dt className="text-sm text-muted-foreground">{copy.created}</dt><dd>{governanceTimestamp(detail.createdAt, locale)}</dd></div>
         {detail.deactivatedAt && <div><dt className="text-sm text-muted-foreground">{gov.deactivatedAt}</dt><dd>{governanceTimestamp(detail.deactivatedAt, locale)}</dd></div>}
       </dl> : <p role="status" className="mt-5">{gov.loadingTeam}</p>}
+      {detail?.role === 'dentist' && detail.id === selected?.id && <DentistAssignment key={detail.id} staffId={detail.id} />}
     </DialogContent></Dialog>
     <Dialog open={Boolean(review)} onOpenChange={(open) => !open && !busy.current && setReview(null)}><DialogContent closeLabel={copy.close}>
       <DialogTitle>{reviewLabel}</DialogTitle><DialogDescription className="mt-3">{reviewBody}</DialogDescription>
-      <p className="mt-4 break-words font-semibold">{review?.target.name}</p><p className="break-all text-sm text-muted-foreground">{review?.target.email} · {review?.target.id}</p>
+      <p className="mt-4 break-words font-semibold">{review && localizedStaffName(review.target, locale)}</p><p className="break-all text-sm text-muted-foreground">{review?.target.email} · {review?.target.id}</p>
       {review?.action === "revoke-sessions" && review.target.id === user?.id && <p className="mt-4 text-sm">{gov.selfRevokeHelp}</p>}
       {review?.action === "role" && <label className={`${labelClass} mt-5`}>{copy.role}<select aria-label={copy.role} value={review.role} disabled={pending} className={fieldClass} onChange={(event) => setReview({ ...review, role: event.target.value as StaffRole })}>{(["admin", "receptionist", "dentist"] as const).map((value) => <option key={value} value={value}>{roleLabel(value)}</option>)}</select></label>}
       <div className="mt-6 flex flex-wrap justify-end gap-3"><Button variant="outline" disabled={pending} onClick={() => setReview(null)}>{copy.close}</Button><Button variant="destructive" disabled={pending || (review?.action === "role" && review.role === review.target.role)} onClick={() => void mutate()}>{pending ? copy.updating : gov.confirm}</Button></div>
@@ -167,4 +171,39 @@ function TeamWorkspace() {
       </form>
     </DialogContent></Dialog>
   </div>;
+}
+
+function DentistAssignment({ staffId }: { staffId: string }) {
+  const { api, locale, copy, handleApiError } = useStaffAuth();
+  const management = useManagementCopy();
+  const text = productMessages[locale];
+  const [state, setState] = useState<{ dentists: StaffDentist[]; original: string; selected: string } | null>(null);
+  const [pending, setPending] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const active = useRef(true);
+  const busy = useRef(false);
+  useEffect(() => {
+    active.current = true;
+    const controller = new AbortController();
+    void Promise.all([api.listDentists(controller.signal), api.getDentistProfile(staffId, controller.signal)]).then(([dentists, dentistId]) => {
+      if (!controller.signal.aborted) setState({ dentists: dentists.filter((item) => item.isActive), original: dentistId ?? '', selected: dentistId ?? '' });
+    }, (error) => { if (!controller.signal.aborted) { handleApiError(error); setFeedback(copy.appointmentsError); } });
+    return () => { active.current = false; controller.abort(); };
+  }, [api, copy.appointmentsError, handleApiError, staffId]);
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    if (!state || busy.current) return;
+    busy.current = true; setPending(true); setFeedback(null);
+    try {
+      const dentistId = await api.setDentistProfile(staffId, state.selected || null);
+      if (active.current) { setState({ ...state, original: dentistId ?? '', selected: dentistId ?? '' }); setFeedback(text.assignmentSaved); }
+    } catch (error) { if (active.current) { handleApiError(error); setFeedback(copy.networkError); } }
+    finally { busy.current = false; if (active.current) setPending(false); }
+  }
+  return <form onSubmit={(event) => void save(event)} className="mt-6 space-y-3 border-t pt-5">
+    <label className={labelClass}>{text.doctorAssignment}<select className={fieldClass} disabled={!state || pending} value={state?.selected ?? ''} onChange={(event) => state && setState({ ...state, selected: event.target.value })}><option value="">{text.unassigned}</option>{state?.dentists.map((item) => <option key={item._id} value={item._id}>{localizedPersonName(item, locale) || text.untranslated}</option>)}</select></label>
+    <p className="text-sm text-muted-foreground">{text.assignmentHelp}</p>
+    {feedback && <p role="status" className="text-sm">{feedback}</p>}
+    <Button type="submit" disabled={!state || pending || state.selected === state.original}>{pending ? copy.updating : management.save}</Button>
+  </form>;
 }

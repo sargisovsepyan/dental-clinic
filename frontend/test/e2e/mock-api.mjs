@@ -1,5 +1,6 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
+import { buildArelisContent } from '../preview/arelis-content.mjs';
 
 const timestamp = "2026-01-01T00:00:00.000Z";
 const image = (name) => ({
@@ -42,6 +43,7 @@ const service = {
       description: '<img src=x onerror="alert(1)"> ցուցադրվում է որպես սովորական տեքստ։',
     },
     ru: { name: "Чистка зубов", shortDescription: "Опубликованная тестовая услуга", description: "Описание услуги" },
+    en: { name: "Tooth cleaning", shortDescription: "Published test service", description: '<img src=x onerror="alert(1)"> remains escaped plain text.' },
   },
   priceType: "from",
   priceFrom: 20000,
@@ -67,9 +69,9 @@ const dentist = {
   specializations: [],
   bio: "",
   translations: {
-    hy: { title: "Ատամնաբույժ", bio: "Հրապարակված թեստային կենսագրություն", specializations: ["Թերապիա"] },
-    ru: { title: "Стоматолог", bio: "Опубликованная тестовая биография", specializations: ["Терапия"] },
-    en: { title: "Dentist", bio: "Published test biography", specializations: ["Therapy"] },
+    hy: { firstName: "Անի", lastName: "Փորձարկում", title: "Ատամնաբույժ", bio: "Հրապարակված թեստային կենսագրություն", specializations: ["Թերապիա"] },
+    ru: { firstName: "Ани", lastName: "Тест", title: "Стоматолог", bio: "Опубликованная тестовая биография", specializations: ["Терапия"] },
+    en: { firstName: "Ani", lastName: "Test", title: "Dentist", bio: "Published test biography", specializations: ["Therapy"] },
   },
   experienceYears: 0,
   photoUrl: "",
@@ -198,8 +200,6 @@ export const previewAccounts = {
   dentist: { id: "64b000000000000000000093", name: "Preview Dentist", email: "dentist@preview.local", role: "dentist" },
   secondAdmin: { id: "64b000000000000000000094", name: "Second Admin", email: "second-admin@preview.local", role: "admin" },
 };
-
-const previewUsersByEmail = new Map(Object.values(previewAccounts).map((user) => [user.email, user]));
 
 function clinicDate(daysAhead) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -395,12 +395,49 @@ function parseMultipartJson(value, fallback = {}) {
   try { return JSON.parse(value || "{}"); } catch { return fallback; }
 }
 
-export function createMockApiServer(port = 5100, initialScenario = "success") {
+const testFixtures = { category, service, dentist, clinic, galleryImage, beforeAfter, secondBeforeAfter,
+  previewAccounts, makeAppointment, initialAppointments };
+const idForPreview = (number) => `66a${number.toString(16).padStart(21, '0')}`;
+
+export function createMockApiServer(port = 5100, initialScenario = "success", options = {}) {
+  const content = options.profile === 'arelis' ? buildArelisContent(testFixtures.previewAccounts) : null;
+  const category = content?.categories[0] ?? testFixtures.category;
+  const service = content?.services[2] ?? testFixtures.service;
+  const dentist = content?.dentists[3] ?? testFixtures.dentist;
+  const clinic = content?.clinic ?? testFixtures.clinic;
+  const galleryImage = content?.gallery[0] ?? testFixtures.galleryImage;
+  const beforeAfter = content?.cases[0] ?? testFixtures.beforeAfter;
+  const secondBeforeAfter = content?.cases[1] ?? testFixtures.secondBeforeAfter;
+  const previewAccounts = content?.staff ?? testFixtures.previewAccounts;
+  const previewUsersByEmail = new Map(Object.values(previewAccounts).map((user) => [user.email, user]));
+  const makeAppointment = (values) => {
+    const row = testFixtures.makeAppointment(values);
+    if (!content) return row;
+    const selectedDoctor = managedDentists.find((item) => item._id === values.dentistId) ?? content.dentists.find((item) => item._id === values.dentistId) ?? dentist;
+    const selectedService = managedServices.find((item) => item._id === values.serviceId) ?? content.services.find((item) => item._id === values.serviceId) ?? service;
+    return { ...row, dentist: selectedDoctor._id, service: selectedService._id,
+      dentistSnapshot: { firstName: selectedDoctor.firstName, lastName: selectedDoctor.lastName,
+        title: selectedDoctor.title, translations: selectedDoctor.translations },
+      serviceSnapshot: { name: selectedService.name, durationMinutes: selectedService.durationMinutes,
+        translations: selectedService.translations },
+      priceSnapshot: { priceType: selectedService.priceType, priceFrom: selectedService.priceFrom, priceTo: null, currency: 'AMD' },
+      patientEmail: '', patientComment: '', internalNote: '', privacyPolicyVersion: '2026-09',
+    };
+  };
+  const workingDate = (ahead) => {
+    const date = clinicDate(ahead);
+    return new Date(`${date}T12:00:00+04:00`).getUTCDay() === 0 ? clinicDate(ahead + 1) : date;
+  };
+  const initialAppointments = () => !content ? testFixtures.initialAppointments() : [
+    makeAppointment({ id: idForPreview(701), code: 'DC-1234567890ABCDEF', status: 'confirmed', date: workingDate(0), startTime: '09:00', endTime: '10:00', patientName: 'Alex Martin', patientPhone: '+37499000001' }),
+    makeAppointment({ id: idForPreview(702), code: 'DC-1234567890ABCDE0', status: 'confirmed', date: workingDate(2), startTime: '10:30', endTime: '11:30', patientName: 'Sofia David', patientPhone: '+37499000002' }),
+    makeAppointment({ id: idForPreview(703), code: 'DC-1234567890ABCDE1', status: 'confirmed', date: workingDate(4), startTime: '14:30', endTime: '15:15', patientName: 'Levon Adam', patientPhone: '+37499000003', dentistId: content.dentists[1]._id, serviceId: content.services[8]._id }),
+  ];
   let scenario = allowedScenarios.includes(initialScenario) ? initialScenario : "success";
   let conflictReturned = false;
   let staffConflictReturned = false;
   let managementConflictReturned = false;
-  let appointments = initialAppointments();
+  let appointments = [];
   let managedCategories = [];
   let managedServices = [];
   let managedDentists = [];
@@ -435,12 +472,28 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
     const authorization = String(request.headers.authorization || "");
     const session = authorization.startsWith("Bearer ") ? accessSessions.get(authorization.slice(7)) : null;
     const current = session && managedStaff.find((member) => member._id === session.id && member.isActive && member.isSetupComplete);
-    return current ? { id: current._id, name: current.name, email: current.email, role: current.role } : null;
+    return current ? { id: current._id, name: current.name, email: current.email, role: current.role,
+      ...(current.nameTranslations ? { nameTranslations: current.nameTranslations } : {}) } : null;
   };
-  const endTimeFor = (start) => {
+  const endTimeFor = (start, serviceId) => {
     const [hours, minutes] = start.split(":").map(Number);
-    const end = hours * 60 + minutes + service.durationMinutes;
+    const end = hours * 60 + minutes + (managedServices.find((item) => item._id === serviceId) ?? service).durationMinutes;
     return `${String(Math.floor(end / 60)).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}`;
+  };
+  const cleanRelationship = (dentistId, serviceId) => {
+    const doctor = managedDentists.find((item) => item._id === dentistId && item.isActive && item.bookingEnabled);
+    const selected = managedServices.find((item) => item._id === serviceId && item.isActive && item.bookingEnabled);
+    return doctor && selected && doctor.services.some((item) => item._id === serviceId) ? { doctor, selected } : null;
+  };
+  const cleanSlotAvailable = (date, start, end, dentistId, excludeId) => {
+    const parsed = new Date(`${date}T12:00:00+04:00`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) return false;
+    const day = parsed.getUTCDay() || 7;
+    const clinicDay = managedClinic.weeklySchedule.find((item) => item.dayOfWeek === day);
+    const doctorDay = managedDentists.find((item) => item._id === dentistId)?.weeklySchedule.find((item) => item.dayOfWeek === day);
+    const fits = (shifts) => shifts?.some((shift) => start >= shift.start && end <= shift.end);
+    return Boolean(clinicDay?.isOpen && doctorDay?.isWorking && fits(clinicDay.shifts) && fits(doctorDay.shifts) &&
+      !appointments.some((item) => item._id !== excludeId && item.dentist === dentistId && item.date === date && item.status !== 'cancelled' && item.startTime < end && item.endTime > start));
   };
   const versionConflict = (response, appointment) => send(response, 409, {
     success: false,
@@ -452,6 +505,8 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
     governanceSequence = 0;
     managedStaff = Object.values(previewAccounts).map((account) => ({
       _id: account.id, name: account.name, email: account.email, role: account.role,
+      ...(account.nameTranslations ? { nameTranslations: account.nameTranslations } : {}),
+      dentistProfile: account.dentistProfile ?? (account.role === 'dentist' ? dentist._id : null),
       isActive: true, isSetupComplete: true, invitedBy: null, deactivatedAt: null, deactivatedBy: null,
       createdAt: timestamp, updatedAt: timestamp,
     }));
@@ -467,18 +522,20 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
       method: "POST", path: "/staff/action", metadata: { outcome: "confirmed", nested: { safeReason: "<img src=x onerror=alert(1)> is plain text", values: [true, 2, null] } },
       createdAt: `2026-09-15T${String(8 + Math.floor(index / 12)).padStart(2, "0")}:00:00.000Z`,
     }));
-    managedCategories = [structuredClone(category)];
-    managedServices = [structuredClone(service)];
-    managedDentists = [structuredClone(dentist)];
+    if (content) managedStaff = managedStaff.filter((item) => item.isActive);
+    if (content) auditHistory = [];
+    managedCategories = structuredClone(content?.categories ?? [category]);
+    managedServices = structuredClone(content?.services ?? [service]);
+    managedDentists = structuredClone(content?.dentists ?? [dentist]);
     managedClinic = structuredClone(clinic);
     scheduleExceptions = [];
     clinicClosures = [];
-    managedGallery = [structuredClone(galleryImage)];
-    managedBeforeAfter = [beforeAfter, secondBeforeAfter].map((item) => ({
+    managedGallery = structuredClone(content?.gallery ?? [galleryImage]);
+    managedBeforeAfter = (content?.cases ?? [beforeAfter, secondBeforeAfter]).map((item) => ({
       ...structuredClone(item),
       publicationStatus: "published",
       consentStatus: "active",
-      consentPolicyVersion: "preview-2026-01",
+      consentPolicyVersion: content ? "2026-09" : "preview-2026-01",
       consentMethod: "written",
       consentConfirmedAt: timestamp,
       consentRecordedBy: previewAccounts.admin.id,
@@ -489,7 +546,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
       purgedAt: null,
       purgedBy: null,
       consentHistory: [{
-        action: "confirmed", policyVersion: "preview-2026-01", method: "written",
+        action: "confirmed", policyVersion: content ? "2026-09" : "preview-2026-01", method: "written",
         actor: previewAccounts.admin.id, occurredAt: timestamp, reason: "",
       }],
       createdBy: previewAccounts.admin,
@@ -511,10 +568,12 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
       createdAt: timestamp,
       updatedAt: timestamp,
     }];
+    if (content) mediaCleanupJobs = [];
     mediaSequence = 0;
     managementConflictReturned = false;
   };
   resetManagement();
+  appointments = initialAppointments();
   const scheduleAcknowledgement = "a".repeat(64);
   const categorySummary = (value) => ({
     _id: value._id,
@@ -615,8 +674,8 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
       scenario = requested;
       conflictReturned = false;
       staffConflictReturned = false;
-      appointments = initialAppointments();
       resetManagement();
+      appointments = initialAppointments();
       idempotentResults.clear();
       if (requested === "success") {
         refreshSessions.clear();
@@ -629,7 +688,8 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
       try { body = await readJson(request); } catch { return send(response, 400, { success: false, code: "VALIDATION_ERROR" }); }
       const account = previewUsersByEmail.get(String(body.email || "").trim().toLowerCase());
       const member = account && managedStaff.find((item) => item._id === account.id && item.isActive && item.isSetupComplete);
-      const user = member ? { id: member._id, name: member.name, email: member.email, role: member.role } : null;
+      const user = member ? { id: member._id, name: member.name, email: member.email, role: member.role,
+        ...(member.nameTranslations ? { nameTranslations: member.nameTranslations } : {}) } : null;
       if (!user || body.password !== previewPassword) {
         return send(response, 401, { success: false, code: "INVALID_CREDENTIALS", message: "Invalid credentials" });
       }
@@ -685,7 +745,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
       response.setHeader("set-cookie", "preview_refresh=; HttpOnly; SameSite=Strict; Path=/api/v1/auth; Max-Age=0");
       return send(response, 200, { success: true, message: "Password changed" });
     }
-    const governanceStaffRoute = url.pathname.match(/^\/api\/v1\/staff\/([a-f\d]{24})(?:\/(role|deactivate|reactivate|revoke-sessions))?$/iu);
+    const governanceStaffRoute = url.pathname.match(/^\/api\/v1\/staff\/([a-f\d]{24})(?:\/(role|deactivate|reactivate|revoke-sessions|dentist-profile))?$/iu);
     if (url.pathname === "/api/v1/staff" || url.pathname === "/api/v1/staff/invite" || governanceStaffRoute || url.pathname === "/api/v1/audit-logs") {
       response.setHeader("cache-control", "no-store");
       const user = authenticatedUser(request);
@@ -702,6 +762,17 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
       const recordAudit = (action, member) => {
         auditHistory.push({ _id: (0x2000 + ++governanceSequence).toString(16).padStart(24, "0"), requestId: `preview-change-${governanceSequence}`, actor: { _id: user.id, name: user.name, email: user.email, role: user.role }, action, entityType: "user", entityId: member._id, method: request.method, path: url.pathname, metadata: { outcome: "confirmed" }, createdAt: "2026-09-15T12:00:00.000Z" });
       };
+      if (governanceStaffRoute?.[2] === 'dentist-profile') {
+        const member = managedStaff.find((item) => item._id === governanceStaffRoute[1]);
+        if (!member) return send(response, 404, { success: false });
+        if (request.method === 'GET') return send(response, 200, { success: true, data: { dentistId: member.dentistProfile ?? null } });
+        if (request.method !== 'PUT' || member.role !== 'dentist') return send(response, 409, { success: false });
+        const body = await readJson(request).catch(() => null);
+        if (!body || Object.keys(body).join(',') !== 'dentistId' || (body.dentistId !== null && !managedDentists.some((item) => item._id === body.dentistId && item.isActive))) return send(response, 400, { success: false });
+        member.dentistProfile = body.dentistId;
+        invalidate(member._id); recordAudit('staff.dentist_profile.updated', member);
+        return send(response, 200, { success: true, data: { dentistId: member.dentistProfile } });
+      }
       if (request.method === "GET" && url.pathname === "/api/v1/staff") {
         const items = managedStaff.filter((member) => (!url.searchParams.has("role") || member.role === url.searchParams.get("role")) && (!url.searchParams.has("isActive") || member.isActive === (url.searchParams.get("isActive") === "true")) && (!url.searchParams.has("setupComplete") || member.isSetupComplete === (url.searchParams.get("setupComplete") === "true"))).sort((a, b) => a.name.localeCompare(b.name) || a._id.localeCompare(b._id));
         return paginated(items, "staff");
@@ -1270,6 +1341,34 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
       return send(response, 405, { success: false, code: "METHOD_NOT_ALLOWED" });
     }
 
+    const ownRoute = url.pathname.match(/^\/api\/v1\/appointments\/mine(?:\/details\/([0-9a-f]{24}))?$/i);
+    if (ownRoute) {
+      const user = authenticatedUser(request);
+      if (!user) return send(response, 401, { success: false, code: 'UNAUTHORIZED' });
+      if (user.role !== 'dentist') return send(response, 403, { success: false, code: 'FORBIDDEN' });
+      if (request.method !== 'GET') return send(response, 405, { success: false });
+      if ([...url.searchParams.keys()].some((key) => !['page', 'limit', 'date', 'from', 'to'].includes(key))) return send(response, 400, { success: false });
+      const profile = managedStaff.find((member) => member._id === user.id)?.dentistProfile;
+      if (!managedDentists.some((doctor) => doctor._id === profile && doctor.isActive)) return send(response, 403, { success: false, code: 'DENTIST_PROFILE_REQUIRED' });
+      const minimal = (item) => ({ _id: item._id, patientName: item.patientName, patientPhone: item.patientPhone,
+        date: item.date, startTime: item.startTime, endTime: item.endTime, status: item.status,
+        serviceSnapshot: { name: item.serviceSnapshot.name, durationMinutes: item.serviceSnapshot.durationMinutes,
+          translations: Object.fromEntries(['hy', 'ru', 'en'].flatMap((locale) => item.serviceSnapshot.translations?.[locale]?.name ? [[locale, { name: item.serviceSnapshot.translations[locale].name }]] : [])) },
+      });
+      const owned = appointments.filter((item) => item.dentist === profile);
+      if (ownRoute[1]) {
+        const item = owned.find((row) => row._id === ownRoute[1]);
+        return item ? send(response, 200, { success: true, data: { appointment: minimal(item) } }) : send(response, 404, { success: false });
+      }
+      const page = Number(url.searchParams.get('page') || 1), limit = Number(url.searchParams.get('limit') || 25);
+      if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(limit) || limit < 1 || limit > 50) return send(response, 400, { success: false });
+      const today = clinicDate(0);
+      const visible = owned.filter((item) => (!url.searchParams.get('date') || item.date === url.searchParams.get('date')) &&
+        (url.searchParams.get('date') || item.date >= (url.searchParams.get('from') || today)) &&
+        (!url.searchParams.get('to') || item.date <= url.searchParams.get('to'))).sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+      return send(response, 200, { success: true, data: { appointments: visible.slice((page - 1) * limit, page * limit).map(minimal), today, timezone: clinic.timezone,
+        pagination: { page, limit, total: visible.length, pages: Math.ceil(visible.length / limit) } } });
+    }
     const appointmentRoute = url.pathname.match(/^\/api\/v1\/appointments\/([0-9a-f]{24})(?:\/(availability|status|cancel|reschedule))?$/i);
     const protectedAppointmentsRoute =
       url.pathname === "/api/v1/appointments/admin" ||
@@ -1303,12 +1402,15 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
         if (!body || typeof body.patientName !== "string" || typeof body.patientPhone !== "string" || body.privacyAccepted !== true) {
           return send(response, 400, { success: false, code: "VALIDATION_ERROR", message: "Invalid appointment" });
         }
-        const endTime = endTimeFor(body.startTime);
+        const endTime = endTimeFor(body.startTime, body.serviceId);
+        if (content && !cleanRelationship(body.dentistId, body.serviceId)) return send(response, 400, { success: false, code: 'VALIDATION_ERROR' });
+        if (content && !cleanSlotAvailable(body.date, body.startTime, endTime, body.dentistId)) return send(response, 409, { success: false, code: 'SLOT_UNAVAILABLE' });
         const created = {
           ...makeAppointment({
-            id: "64b000000000000000000079", code: "DC-PREVIEW00000009", status: "pending",
+            id: content ? idForPreview(900 + appointments.length) : "64b000000000000000000079", code: content ? `DC-${(900 + appointments.length).toString(16).padStart(16, '0').toUpperCase()}` : "DC-1234567890ABCDE9", status: "confirmed",
             date: body.date, startTime: body.startTime, endTime,
             patientName: body.patientName, patientPhone: body.patientPhone, patientEmail: body.patientEmail || "",
+            dentistId: body.dentistId, serviceId: body.serviceId,
           }),
           patientComment: body.patientComment || "",
           internalNote: body.internalNote || "",
@@ -1336,16 +1438,19 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
           return versionConflict(response, appointment);
         }
         const date = url.searchParams.get("date") || appointment.date;
+        const dentistId = url.searchParams.get('dentistId') || appointment.dentist;
+        const serviceId = url.searchParams.get('serviceId') || appointment.service;
+        if (content && !cleanRelationship(dentistId, serviceId)) return send(response, 400, { success: false, code: 'VALIDATION_ERROR' });
         const starts = ["09:00", "12:00", "14:30"];
         const slots = starts.map((start) => {
-          const end = endTimeFor(start);
+          const end = endTimeFor(start, content ? serviceId : undefined);
           return { start, end, ...appointmentTimes(date, start, end) };
-        });
+        }).filter((slot) => !content || cleanSlotAvailable(date, slot.start, slot.end, dentistId, appointment._id));
         return send(response, 200, { success: true, data: { availability: {
           date,
           timezone: clinic.timezone,
-          available: true,
-          reason: null,
+          available: slots.length > 0,
+          reason: slots.length ? null : 'FULLY_BOOKED',
           dentist: { id: url.searchParams.get("dentistId") },
           service: { id: url.searchParams.get("serviceId") },
           rules: { slotIntervalMinutes: 30, bufferMinutes: 0, minBookingNoticeMinutes: 120 },
@@ -1368,16 +1473,27 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
           appointment.cancelledAt = new Date().toISOString();
         }
         if (action === "reschedule") {
+          const dentistId = body.dentistId || appointment.dentist;
+          const serviceId = body.serviceId || appointment.service;
+          const nextEnd = endTimeFor(body.startTime, content ? serviceId : undefined);
+          if (content && !cleanRelationship(dentistId, serviceId)) return send(response, 400, { success: false, code: 'VALIDATION_ERROR' });
+          if (content && !cleanSlotAvailable(body.date, body.startTime, nextEnd, dentistId, appointment._id)) return send(response, 409, { success: false, code: 'SLOT_UNAVAILABLE' });
           const previous = {
             date: appointment.date, startTime: appointment.startTime, endTime: appointment.endTime,
             dentist: appointment.dentist, service: appointment.service, reason: body.reason || "",
           };
           appointment.date = body.date;
           appointment.startTime = body.startTime;
-          appointment.endTime = endTimeFor(body.startTime);
+          appointment.endTime = nextEnd;
           Object.assign(appointment, appointmentTimes(appointment.date, appointment.startTime, appointment.endTime));
           appointment.dentist = body.dentistId || appointment.dentist;
           appointment.service = body.serviceId || appointment.service;
+          if (content) {
+            const refreshed = makeAppointment({ ...appointment, dentistId, serviceId });
+            appointment.dentistSnapshot = refreshed.dentistSnapshot;
+            appointment.serviceSnapshot = refreshed.serviceSnapshot;
+            appointment.priceSnapshot = refreshed.priceSnapshot;
+          }
           appointment.rescheduleHistory = [...appointment.rescheduleHistory, previous];
         }
         appointment.mutationVersion += 1;
@@ -1404,19 +1520,29 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
       const semantic = JSON.stringify({ ...body, challengeToken: undefined });
       const existing = idempotentResults.get(key);
       if (existing && existing.semantic !== semantic) return send(response, 409, { success: false, message: "Synthetic idempotency mismatch" });
+      const selectedDentist = managedDentists.find((item) => item._id === body.dentistId) ?? dentist;
+      const selectedService = managedServices.find((item) => item._id === body.serviceId) ?? service;
+      if (content && !existing) {
+        if (!cleanRelationship(body.dentistId, body.serviceId)) return send(response, 400, { success: false, code: 'VALIDATION_ERROR' });
+        const end = endTimeFor(body.startTime, selectedService._id);
+        if (!cleanSlotAvailable(body.date, body.startTime, end, body.dentistId)) return send(response, 409, { success: false, code: 'SLOT_UNAVAILABLE' });
+      }
       const result = existing?.result || {
-        id: "64b000000000000000000071",
-        confirmationCode: "DC-0123456789ABCDEF",
+        id: content ? idForPreview(800 + appointments.length) : "64b000000000000000000071",
+        confirmationCode: content ? `DC-${(800 + appointments.length).toString(16).padStart(16, '0').toUpperCase()}` : "DC-0123456789ABCDEF",
         patientName: body.patientName,
         date: body.date,
         startTime: body.startTime,
-        endTime: body.startTime === "10:30" ? "11:30" : "10:00",
-        status: scenario === "confirmed" ? "confirmed" : "pending",
-        dentist: { id: dentist._id, firstName: dentist.firstName, lastName: dentist.lastName, slug: dentist.slug, translations: dentist.translations },
-        service: { id: service._id, name: service.name, slug: service.slug, translations: service.translations, durationMinutes: service.durationMinutes, priceType: service.priceType, priceFrom: service.priceFrom, priceTo: service.priceTo, currency: service.currency },
-        price: { priceType: service.priceType, priceFrom: service.priceFrom, priceTo: service.priceTo, currency: service.currency },
+        endTime: endTimeFor(body.startTime, selectedService._id),
+        status: scenario === "confirmed" || (content && managedClinic.bookingSettings.autoConfirmAppointments) ? "confirmed" : "pending",
+        dentist: { id: selectedDentist._id, firstName: selectedDentist.firstName, lastName: selectedDentist.lastName, slug: selectedDentist.slug, translations: selectedDentist.translations },
+        service: { id: selectedService._id, name: selectedService.name, slug: selectedService.slug, translations: selectedService.translations, durationMinutes: selectedService.durationMinutes, priceType: selectedService.priceType, priceFrom: selectedService.priceFrom, priceTo: selectedService.priceTo, currency: selectedService.currency },
+        price: { priceType: selectedService.priceType, priceFrom: selectedService.priceFrom, priceTo: selectedService.priceTo, currency: selectedService.currency },
       };
       idempotentResults.set(key, { semantic, result });
+      if (content && !existing) appointments.push({ ...makeAppointment({ id: result.id, code: result.confirmationCode,
+        patientName: body.patientName, patientPhone: body.patientPhone, dentistId: body.dentistId, serviceId: body.serviceId,
+        date: body.date, startTime: body.startTime, endTime: result.endTime, status: result.status }), source: 'website' });
       return send(response, 201, { success: true, message: "Appointment created successfully", data: { appointment: result } });
     }
     if (request.method !== "GET") return send(response, 405, { success: false, message: "Method not allowed" });
@@ -1430,12 +1556,15 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
     }
     const publicService = managedServices.find((item) => url.pathname === `/api/v1/services/${item.slug}` && item.isActive);
     if (publicService) return send(response, 200, { success: true, data: { service: publicService } });
-    if (url.pathname === "/api/v1/dentists") return send(response, 200, { success: true, data: { dentists: managedDentists.filter((item) => item.isActive) } });
+    if (url.pathname === "/api/v1/dentists") return send(response, 200, { success: true, data: { dentists: managedDentists.filter((item) => item.isActive && (!content || !url.searchParams.has('service') || item.services.some((entry) => entry._id === url.searchParams.get('service')))) } });
     const publicDentist = managedDentists.find((item) => url.pathname === `/api/v1/dentists/${item.slug}` && item.isActive);
     if (publicDentist) return send(response, 200, { success: true, data: { dentist: publicDentist } });
     if (url.pathname === "/api/v1/clinic") return send(response, 200, { success: true, data: { clinic: managedClinic } });
     if (url.pathname === "/api/v1/availability") {
+      const dentist = managedDentists.find((item) => item._id === url.searchParams.get('dentistId')) ?? testFixtures.dentist;
+      const service = managedServices.find((item) => item._id === url.searchParams.get('serviceId')) ?? testFixtures.service;
       const date = url.searchParams.get("date") || "2026-09-10";
+      if (content && !cleanRelationship(dentist._id, service._id)) return send(response, 400, { success: false, code: 'VALIDATION_ERROR' });
       const empty = scenario === "empty-availability";
       const starts = scenario === "conflict" && conflictReturned ? ["10:30", "12:00"] : ["09:00", "10:30", "12:00", "14:30"];
       const slots = empty ? [] : starts.map((start) => {
@@ -1448,7 +1577,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success") {
           startAt: new Date(`${date}T${start}:00+04:00`).toISOString(),
           endAt: new Date(`${date}T${end}:00+04:00`).toISOString(),
         };
-      });
+      }).filter((slot) => !content || cleanSlotAvailable(date, slot.start, slot.end, dentist._id));
       return send(response, 200, { success: true, data: { availability: {
         date,
         timezone: clinic.timezone,

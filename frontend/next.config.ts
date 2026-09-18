@@ -55,6 +55,9 @@ if (production && (apiUrl.origin !== siteUrl.origin ||
 }
 
 const nextConfig: NextConfig = {
+  // Hide only in the supervised manual preview, not normal dev or production.
+  ...(process.env.NODE_ENV === 'development' && process.env.ARELIS_SUPERVISED_PREVIEW === '1'
+    ? { devIndicators: false as const } : {}),
   distDir: process.env.NEXT_DIST_DIR || ".next",
   poweredByHeader: false,
   typedRoutes: true,

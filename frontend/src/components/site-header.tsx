@@ -41,7 +41,7 @@ export function SiteHeader({
               <span className="size-3 rounded-full bg-primary transition-transform group-hover:scale-75" />
             </span>
             <span lang={clinicName?.lang || (clinicName?.text ? undefined : "en")} className="display-type max-w-44 truncate text-base sm:max-w-64 sm:text-lg">
-              {clinicName?.text || "Dental Clinic"}
+              {clinicName?.text || "Arelis Dental"}
             </span>
           </Link>
           <nav aria-label={copy.primaryNavigation} className="hidden items-center gap-1 xl:flex">

@@ -34,17 +34,19 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type { Locale } from "@/i18n/locales";
+import { localizedPersonName } from "@/i18n/localized-content";
+import { productMessages } from "@/i18n/product-messages";
 
-function dentistName(dentist: StaffDentist) {
-  return `${dentist.firstName} ${dentist.lastName}`.trim();
+function dentistName(dentist: StaffDentist, locale: Locale) {
+  return localizedPersonName(dentist, locale) || productMessages[locale].untranslated;
 }
 
 function serviceName(service: StaffService, locale: Locale) {
-  return service.translations[locale]?.name || service.translations.hy?.name || service.name;
+  return service.translations[locale]?.name || (locale === 'hy' ? service.name : productMessages[locale].untranslated);
 }
 
 function caseTitle(item: StaffBeforeAfterCase, locale: Locale) {
-  return item.translations[locale]?.title || item.translations.hy?.title || item.title || "—";
+  return item.translations[locale]?.title || (locale === 'hy' ? item.title : productMessages[locale].untranslated) || '—';
 }
 
 function consentLabel(item: StaffBeforeAfterCase, copy: ReturnType<typeof useMediaCopy>) {
@@ -178,7 +180,7 @@ function CaseEditor({
         ]} />
         <div className="grid gap-4 sm:grid-cols-2">
           <label className={labelClass}>{copy.service}<select className={fieldClass} value={serviceId} onChange={(event) => setServiceId(event.target.value)} disabled={pending}><option value="">{copy.noRelation}</option>{retainedInactiveService && <option value={retainedInactiveService.id}>{retainedInactiveService.label} — {copy.archived}</option>}{activeServices.map((item) => <option key={item._id} value={item._id}>{serviceName(item, locale)}</option>)}</select></label>
-          <label className={labelClass}>{copy.dentist}<select className={fieldClass} value={dentistId} onChange={(event) => setDentistId(event.target.value)} disabled={pending}><option value="">{copy.noRelation}</option>{retainedInactiveDentist && <option value={retainedInactiveDentist.id}>{retainedInactiveDentist.label} — {copy.archived}</option>}{activeDentists.map((item) => <option key={item._id} value={item._id}>{dentistName(item)}</option>)}</select></label>
+          <label className={labelClass}>{copy.dentist}<select className={fieldClass} value={dentistId} onChange={(event) => setDentistId(event.target.value)} disabled={pending}><option value="">{copy.noRelation}</option>{retainedInactiveDentist && <option value={retainedInactiveDentist.id}>{retainedInactiveDentist.label} — {copy.archived}</option>}{activeDentists.map((item) => <option key={item._id} value={item._id}>{dentistName(item, locale)}</option>)}</select></label>
           <label className={labelClass}>{copy.displayOrder}<input className={fieldClass} type="number" min={0} max={10_000} value={sortOrder} onChange={(event) => setSortOrder(Number(event.target.value))} disabled={pending} required /></label>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -288,14 +290,22 @@ function BeforeAfterContent() {
       const [caseResult, nextServices, nextDentists] = await Promise.all([
         api.listBeforeAfterCases(requestedPage, signal), api.listServices(signal), api.listDentists(signal),
       ]);
-      setCases(caseResult.cases); setPages(caseResult.pagination.pages); setPage(caseResult.pagination.page);
+      if (signal?.aborted) return;
+      setCases(caseResult.cases.map((item) => {
+        const service = nextServices.find((candidate) => candidate._id === item.service?.id);
+        const dentist = nextDentists.find((candidate) => candidate._id === item.dentist?.id);
+        return { ...item,
+          service: item.service ? { ...item.service, label: service ? serviceName(service, locale) : locale === 'hy' ? item.service.label : productMessages[locale].untranslated } : null,
+          dentist: item.dentist ? { ...item.dentist, label: dentist ? dentistName(dentist, locale) : locale === 'hy' ? item.dentist.label : productMessages[locale].untranslated } : null,
+        };
+      })); setPages(caseResult.pagination.pages); setPage(caseResult.pagination.page);
       setServices(nextServices); setDentists(nextDentists);
     } catch (error) {
       if (error instanceof StaffApiError && error.kind === "cancelled") return;
       handleApiError(error); if (report) setFeedback({ ...mediaFeedback(error, copy), message: copy.loadError });
       throw error;
     } finally { if (report && !signal?.aborted) setLoading(false); }
-  }, [api, copy, handleApiError, page]);
+  }, [api, copy, handleApiError, locale, page]);
 
   useEffect(() => {
     const controller = new AbortController();

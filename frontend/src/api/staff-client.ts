@@ -38,6 +38,33 @@ import {
   type MediaCleanupStatus,
 } from "@/api/staff-media";
 import { getFrontendEnvironment } from "@/lib/env";
+import { parseGovernancePagination } from '@/api/staff-governance';
+
+export type AssignedAppointment = components['schemas']['AssignedAppointment'];
+export type MyAppointmentFilters = { page: number; limit: number; date?: string; from?: string; to?: string };
+
+function parseAssignedAppointment(value: unknown): AssignedAppointment {
+  if (!isRecord(value) || !objectId.test(String(value._id)) ||
+      typeof value.patientName !== 'string' || typeof value.patientPhone !== 'string' ||
+      !localDatePattern.test(String(value.date)) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(value.startTime)) ||
+      !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(value.endTime)) || !statuses.has(value.status) ||
+      !isRecord(value.serviceSnapshot) || typeof value.serviceSnapshot.name !== 'string' ||
+      !Number.isInteger(value.serviceSnapshot.durationMinutes) || !isRecord(value.serviceSnapshot.translations)) {
+    throw new StaffApiError({ kind: 'protocol' });
+  }
+  const translations: Record<string, { name: string }> = {};
+  for (const locale of ['hy', 'ru', 'en']) {
+    const entry = value.serviceSnapshot.translations[locale];
+    if (entry === undefined) continue;
+    if (!isRecord(entry) || typeof entry.name !== 'string') throw new StaffApiError({ kind: 'protocol' });
+    translations[locale] = { name: entry.name };
+  }
+  return { _id: String(value._id), patientName: value.patientName, patientPhone: value.patientPhone,
+    date: String(value.date), startTime: String(value.startTime), endTime: String(value.endTime),
+    status: value.status as StaffAppointmentStatus,
+    serviceSnapshot: { name: value.serviceSnapshot.name, durationMinutes: value.serviceSnapshot.durationMinutes as number, translations },
+  };
+}
 
 export type StaffRole = components["schemas"]["Role"];
 export type StaffUser = components["schemas"]["CurrentStaffUser"];
@@ -200,7 +227,17 @@ function parseUser(value: unknown): StaffUser {
     !isRecord(value) || !objectId.test(String(value.id)) || typeof value.name !== "string" ||
     typeof value.email !== "string" || !roles.has(value.role)
   ) throw new StaffApiError({ kind: "protocol" });
-  return { id: String(value.id), name: value.name, email: value.email, role: value.role as StaffRole };
+  const nameTranslations: StaffUser['nameTranslations'] = {};
+  if (value.nameTranslations !== undefined) {
+    if (!isRecord(value.nameTranslations)) throw new StaffApiError({ kind: 'protocol' });
+    for (const locale of ['hy', 'ru', 'en'] as const) {
+      const name = value.nameTranslations[locale];
+      if (name !== undefined && (typeof name !== 'string' || name.length > 100)) throw new StaffApiError({ kind: 'protocol' });
+      if (typeof name === 'string') nameTranslations[locale] = name;
+    }
+  }
+  return { id: String(value.id), name: value.name, email: value.email, role: value.role as StaffRole,
+    ...(value.nameTranslations !== undefined ? { nameTranslations } : {}) };
 }
 
 function parseAuth(value: unknown) {
@@ -455,6 +492,45 @@ export class StaffApiClient {
       }
       throw error;
     }
+  }
+
+  async listMyAppointments(filters: MyAppointmentFilters, signal?: AbortSignal) {
+    if (Object.keys(filters).some((key) => !['page', 'limit', 'date', 'from', 'to'].includes(key))) {
+      throw new StaffApiError({ kind: 'configuration' });
+    }
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== '') query.set(key, String(value));
+    const data = dataRecord(await this.#protected({ path: `appointments/mine?${query}`, signal }));
+    if (!Array.isArray(data.appointments) || !localDatePattern.test(String(data.today)) || typeof data.timezone !== 'string') throw new StaffApiError({ kind: 'protocol' });
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: data.timezone });
+      const pagination = parseGovernancePagination(data.pagination, filters);
+      if (data.appointments.length > filters.limit) throw new Error('Oversized assigned page');
+      const appointments = data.appointments.map(parseAssignedAppointment);
+      if (new Set(appointments.map((item) => item._id)).size !== appointments.length) throw new Error('Duplicate appointment');
+      return { appointments, pagination, today: String(data.today), timezone: data.timezone };
+    } catch (cause) { throw new StaffApiError({ kind: 'protocol', cause }); }
+  }
+
+  async getMyAppointment(id: string, signal?: AbortSignal) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: 'configuration' });
+    const appointment = parseAssignedAppointment(dataRecord(await this.#protected({ path: `appointments/mine/details/${id}`, signal })).appointment);
+    if (appointment._id !== id) throw new StaffApiError({ kind: 'protocol' });
+    return appointment;
+  }
+
+  async getDentistProfile(id: string, signal?: AbortSignal) {
+    if (!objectId.test(id)) throw new StaffApiError({ kind: 'configuration' });
+    const data = dataRecord(await this.#protected({ path: `staff/${id}/dentist-profile`, signal }));
+    if (data.dentistId !== null && !objectId.test(String(data.dentistId))) throw new StaffApiError({ kind: 'protocol' });
+    return data.dentistId as string | null;
+  }
+
+  async setDentistProfile(id: string, dentistId: string | null) {
+    if (!objectId.test(id) || (dentistId !== null && !objectId.test(dentistId))) throw new StaffApiError({ kind: 'configuration' });
+    const data = dataRecord(await this.#protected({ path: `staff/${id}/dentist-profile`, method: 'PUT', body: { dentistId } }));
+    if (data.dentistId !== dentistId) throw new StaffApiError({ kind: 'protocol' });
+    return dentistId;
   }
 
   async listAppointments(filters: {

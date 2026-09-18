@@ -13,6 +13,7 @@ import type {
   UpdateServicePayload,
 } from "@/api/staff-management";
 import { useStaffAuth } from "@/components/staff/staff-auth-provider";
+import { productMessages } from '@/i18n/product-messages';
 import { StaffAccessDenied } from "@/components/staff/staff-shell";
 import {
   compactTranslations,
@@ -33,12 +34,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type { Locale } from "@/i18n/locales";
+import { messages } from '@/i18n/messages';
 
 function localizedName(
   entity: Pick<StaffCategory | StaffService, "name" | "translations">,
   locale: Locale,
 ) {
-  return entity.translations[locale]?.name || entity.translations.hy?.name || entity.name;
+  return entity.translations[locale]?.name || (locale === 'hy' ? entity.name : productMessages[locale].untranslated);
 }
 
 function numberInput(value: FormDataEntryValue | null) {
@@ -119,6 +121,7 @@ function ServiceDialog({ value, categories, open, pending, onOpenChange, onSubmi
   onOpenChange: (open: boolean) => void;
   onSubmit: (payload: CreateServicePayload | UpdateServicePayload) => Promise<void>;
 }) {
+  const { locale } = useStaffAuth();
   const copy = useManagementCopy();
   const [translations, setTranslations] = useState<LocalizedDraft>(() => localizedDraft(value?.translations, ["name", "shortDescription", "description"]));
   const [active, setActive] = useState(value?.isActive ?? true);
@@ -182,7 +185,7 @@ function ServiceDialog({ value, categories, open, pending, onOpenChange, onSubmi
             <label className={labelClass}>{copy.category}
               <select className={fieldClass} name="category" defaultValue={value?.category._id ?? ""} disabled={pending} required>
                 <option value="" disabled>{copy.category}</option>
-                {availableCategories.map((category) => <option key={category._id} value={category._id}>{category.name}{category.isActive ? "" : ` — ${copy.inactive}`}</option>)}
+                {availableCategories.map((category) => <option key={category._id} value={category._id}>{localizedName(category, locale)}{category.isActive ? "" : ` — ${copy.inactive}`}</option>)}
               </select>
             </label>
             <label className={labelClass}>{copy.duration}
@@ -222,7 +225,7 @@ function ServiceDialog({ value, categories, open, pending, onOpenChange, onSubmi
 function CatalogAdminContent() {
   const { locale, api, handleApiError } = useStaffAuth();
   const copy = useManagementCopy();
-  const [view, setView] = useState<"categories" | "services">("categories");
+  const [view, setView] = useState<"categories" | "services">("services");
   const [categories, setCategories] = useState<StaffCategory[]>([]);
   const [services, setServices] = useState<StaffService[]>([]);
   const [loading, setLoading] = useState(true);
@@ -292,16 +295,18 @@ function CatalogAdminContent() {
       />
       <ManagementFeedback value={feedback} onRetry={() => void load()} />
       <div role="tablist" aria-label={copy.catalogTitle} className="mt-7 inline-flex rounded-xl border bg-card p-1">
-        <Button role="tab" aria-selected={view === "categories"} variant={view === "categories" ? "secondary" : "ghost"} onClick={() => setView("categories")}><FolderTree aria-hidden="true" />{copy.categories}</Button>
         <Button role="tab" aria-selected={view === "services"} variant={view === "services" ? "secondary" : "ghost"} onClick={() => setView("services")}><Stethoscope aria-hidden="true" />{copy.services}</Button>
+        <Button role="tab" aria-selected={view === "categories"} variant={view === "categories" ? "secondary" : "ghost"} onClick={() => setView("categories")}><FolderTree aria-hidden="true" />{copy.categories}</Button>
       </div>
+      {view === 'categories' && <p className="mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">{productMessages[locale].sectionHelp}</p>}
       {loading ? <p role="status" className="mt-8 text-sm text-muted-foreground">{copy.loading}</p> : view === "categories" ? (
         categories.length === 0 ? <p className="mt-8 rounded-xl border bg-card p-6 text-muted-foreground">{copy.noCategories}</p> :
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
           {categories.map((category) => (
             <article key={category._id} className="rounded-xl border bg-card p-5 shadow-sm">
-              <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{localizedName(category, locale)}</h2><p className="mt-1 text-xs text-muted-foreground">/{category.slug}</p></div><StatusBadge active={category.isActive} copy={copy} /></div>
-              <p className="mt-4 line-clamp-3 min-h-6 text-sm leading-6 text-muted-foreground">{category.translations[locale]?.description || category.translations.hy?.description || "—"}</p>
+              <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{localizedName(category, locale)}</h2><p className="mt-2 text-xs text-muted-foreground">{productMessages[locale].sectionCount}: {services.filter((service) => service.category._id === category._id).length}</p></div><StatusBadge active={category.isActive} copy={copy} /></div>
+              <details className="mt-3 text-xs text-muted-foreground"><summary className="min-h-8 cursor-pointer">{productMessages[locale].advanced}</summary><p className="break-all py-2">/{category.slug}</p></details>
+              <p className="mt-4 line-clamp-3 min-h-6 text-sm leading-6 text-muted-foreground">{category.translations[locale]?.description || (locale === 'hy' ? category.description : '') || "—"}</p>
               <div className="mt-5 flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" onClick={() => setCategoryEditor({ open: true, value: category })}><Pencil aria-hidden="true" />{copy.edit}</Button>
                 {category.isActive ? <Button variant="destructive" size="sm" onClick={() => setArchiveTarget({ kind: "category", value: category })}><Archive aria-hidden="true" />{copy.archive}</Button>
@@ -315,7 +320,7 @@ function CatalogAdminContent() {
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
           {services.map((service) => (
             <article key={service._id} className="rounded-xl border bg-card p-5 shadow-sm">
-              <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{localizedName(service, locale)}</h2><p className="mt-1 text-xs text-muted-foreground">{localizedName(service.category, locale)} · {service.durationMinutes} min</p></div><StatusBadge active={service.isActive} copy={copy} /></div>
+              <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">{localizedName(service, locale)}</h2><p className="mt-1 text-xs text-muted-foreground">{localizedName(service.category, locale)} · {service.durationMinutes} {messages[locale].minutes}</p></div><StatusBadge active={service.isActive} copy={copy} /></div>
               <p className="mt-4 text-sm text-muted-foreground">{priceLabels[service.priceType]}{service.priceFrom !== null ? ` · ${service.priceFrom.toLocaleString()} AMD` : ""}{service.priceTo !== null ? `–${service.priceTo.toLocaleString()} AMD` : ""}</p>
               <div className="mt-3 flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-muted px-2.5 py-1">{service.bookingEnabled ? copy.bookingEnabled : `¬ ${copy.bookingEnabled}`}</span>{service.isFeatured && <span className="rounded-full bg-secondary px-2.5 py-1">{copy.featured}</span>}</div>
               <div className="mt-5 flex flex-wrap gap-2">

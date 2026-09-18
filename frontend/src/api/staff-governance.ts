@@ -1,7 +1,9 @@
 import type { StaffRole } from "@/api/staff-client";
+import type { Locale } from "@/i18n/locales";
 
 export type GovernedStaff = {
   id: string; name: string; email: string; role: StaffRole;
+  nameTranslations?: Partial<Record<Locale, string>>;
   isActive: boolean; isSetupComplete: boolean;
   deactivatedAt: string | null; createdAt: string; updatedAt: string;
 };
@@ -43,8 +45,16 @@ function instant(value: unknown): string {
 }
 export function parseGovernedStaff(value: unknown): GovernedStaff {
   if (!record(value) || typeof value.isActive !== "boolean" || typeof value.isSetupComplete !== "boolean") invalid();
+  const nameTranslations: Partial<Record<Locale, string>> = {};
+  if (value.nameTranslations !== undefined) {
+    if (!record(value.nameTranslations)) invalid();
+    for (const locale of ["hy", "ru", "en"] as const) {
+      if (value.nameTranslations[locale] !== undefined) nameTranslations[locale] = text(value.nameTranslations[locale], 100, false);
+    }
+  }
   return {
     id: id(value._id), name: text(value.name, 100, false), email: email(value.email), role: role(value.role),
+    ...(Object.keys(nameTranslations).length ? { nameTranslations } : {}),
     isActive: value.isActive, isSetupComplete: value.isSetupComplete,
     deactivatedAt: value.deactivatedAt === null ? null : instant(value.deactivatedAt),
     createdAt: instant(value.createdAt), updatedAt: instant(value.updatedAt),

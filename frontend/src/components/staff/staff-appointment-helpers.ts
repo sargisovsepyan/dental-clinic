@@ -1,6 +1,16 @@
 import type { StaffAppointment, StaffAppointmentStatus } from "@/api/staff-client";
 import type { Locale } from "@/i18n/locales";
 import type { StaffMessages } from "@/i18n/staff-messages";
+import { productMessages } from '@/i18n/product-messages';
+import { localizedPersonName } from '@/i18n/localized-content';
+
+export function snapshotServiceName(item: Pick<StaffAppointment, 'serviceSnapshot'>, locale: Locale) {
+  const name = item.serviceSnapshot.translations?.[locale]?.name;
+  return typeof name === 'string' && name ? name : locale === 'hy' ? item.serviceSnapshot.name : productMessages[locale].untranslated;
+}
+export function snapshotDentistName(item: Pick<StaffAppointment, 'dentistSnapshot'>, locale: Locale) {
+  return localizedPersonName(item.dentistSnapshot, locale) || productMessages[locale].untranslated;
+}
 
 export const transitions: Record<StaffAppointmentStatus, StaffAppointmentStatus[]> = {
   pending: ["confirmed", "no_show"],

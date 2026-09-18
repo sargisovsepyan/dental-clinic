@@ -10,9 +10,9 @@ export async function getStaffCatalog(locale: Locale): Promise<StaffCatalog | nu
     const [services, dentists, clinic] = await Promise.all([
       getBookingServices(), getBookingDentists(), getBookingClinic(),
     ]);
-    const serviceViews = services.map((item) => serviceView(item, locale));
+    const serviceViews = services.map((item) => serviceView(item, locale)).filter((item) => item.name.text);
     const activeIds = new Set(serviceViews.map((item) => item.id));
-    const dentistViews = dentists.map((item) => dentistView(item, locale));
+    const dentistViews = dentists.map((item) => dentistView(item, locale)).filter((item) => item.fullName);
     const clinicData = clinicView(clinic, locale);
     return {
       services: serviceViews.map((item) => ({ id: item.id, name: item.name.text, durationMinutes: item.durationMinutes })),

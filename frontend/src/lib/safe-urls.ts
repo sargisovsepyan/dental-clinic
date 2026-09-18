@@ -60,6 +60,16 @@ export function safeManagedImage(
     typeof asset.format !== "string"
   ) return null;
 
+  const illustrationNames = new Set(['waiting', 'treatment', 'diagnostics', 'consultation',
+    'hygiene-before', 'hygiene-after', 'restoration-before', 'restoration-after', 'whitening-before', 'whitening-after']);
+  const illustration = asset.publicId.replace(/^tests\/arelis\//, '');
+  if (process.env.NODE_ENV !== 'production' && cloudinaryCloudName === 'preview-local' &&
+      asset.publicId === `tests/arelis/${illustration}` && illustrationNames.has(illustration) &&
+      asset.secureUrl === `/illustrations/${illustration}.svg` && asset.format === 'svg' &&
+      asset.width === 1200 && asset.height === 800) {
+    return { src: asset.secureUrl, width: 1200, height: 800 };
+  }
+
   if (
     process.env.NODE_ENV !== "production" &&
     cloudinaryCloudName === "preview-local" &&

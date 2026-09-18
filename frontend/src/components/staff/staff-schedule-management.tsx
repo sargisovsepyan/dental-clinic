@@ -3,6 +3,7 @@
 import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { StaffApiError } from "@/api/staff-client";
+import { localizedPersonName } from '@/i18n/localized-content';
 import type {
   ClinicClosurePayload,
   ClinicWorkingDay,
@@ -123,7 +124,7 @@ function WeeklyPanel({ kind, schedule, revision, title, pendingGlobal, save, ref
 
   return (
     <section className="rounded-xl border bg-muted/20 p-4 sm:p-5">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-semibold">{title}</h2><p className="mt-1 text-xs text-muted-foreground">{copy.scheduleRevision}: {revision}</p></div><Button onClick={submit} disabled={pending || pendingGlobal}>{pending ? copy.saving : copy.saveSchedule}</Button></div>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-semibold">{title}</h2><details className="mt-1 text-xs text-muted-foreground"><summary>{copy.scheduleRevision}</summary><p>{copy.scheduleRevision}: {revision}</p></details></div><Button onClick={submit} disabled={pending || pendingGlobal}>{pending ? copy.saving : copy.saveSchedule}</Button></div>
       {invalid && <Alert variant="destructive" className="mb-4"><AlertDescription>{copy.invalidShift}</AlertDescription></Alert>}
       <WeeklyScheduleEditor days={days} onChange={(next) => { setDays(next); setInvalid(false); setImpact(null); }} disabled={pending || pendingGlobal} />
       {impact && <ScheduleImpactDialog open conflicts={impact.conflicts} conflictCount={impact.count} truncated={impact.truncated} pending={pending} onCancel={() => setImpact(null)} onConfirm={() => void attempt(impact.operation, impact.token)} />}
@@ -222,7 +223,7 @@ function OverridePanel({ mode, items, revision, from, to, disabled, onRange, per
 
   return (
     <section className="rounded-xl border bg-muted/20 p-4 sm:p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-semibold">{mode === "clinic" ? copy.closures : copy.exceptions}</h2><p className="mt-1 text-xs text-muted-foreground">{copy.scheduleRevision}: {revision}</p></div><Button onClick={() => setEditor({ open: true, value: null })} disabled={disabled || pending}><Plus aria-hidden="true" />{copy.addOverride}</Button></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-xl font-semibold">{mode === "clinic" ? copy.closures : copy.exceptions}</h2><details className="mt-1 text-xs text-muted-foreground"><summary>{copy.scheduleRevision}</summary><p>{copy.scheduleRevision}: {revision}</p></details></div><Button onClick={() => setEditor({ open: true, value: null })} disabled={disabled || pending}><Plus aria-hidden="true" />{copy.addOverride}</Button></div>
       <form className="mt-5 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end" onSubmit={(event) => { event.preventDefault(); if (isRealLocalDate(range.from) && isRealLocalDate(range.to) && range.from <= range.to) void onRange(range.from, range.to); }}>
         <label className={labelClass}>{copy.fromDate}<input className={fieldClass} type="date" value={range.from} onChange={(event) => setRange({ ...range, from: event.target.value })} required /></label>
         <label className={labelClass}>{copy.toDate}<input className={fieldClass} type="date" value={range.to} onChange={(event) => setRange({ ...range, to: event.target.value })} required /></label>
@@ -240,7 +241,7 @@ function OverridePanel({ mode, items, revision, from, to, disabled, onRange, per
 }
 
 function ScheduleAdminContent() {
-  const { api, handleApiError } = useStaffAuth();
+  const { api, handleApiError, locale } = useStaffAuth();
   const copy = useManagementCopy();
   const [view, setView] = useState<"clinic" | "dentist" | "exceptions" | "closures">("clinic");
   const [clinic, setClinic] = useState<StaffClinic | null>(null);
@@ -422,10 +423,10 @@ function ScheduleAdminContent() {
       <div className="mt-5 flex flex-wrap gap-2 text-sm"><span className="rounded-full bg-secondary px-3 py-1.5">{copy.timezone}: {clinic.timezone}</span></div>
       <ManagementFeedback value={feedbackValue} onRetry={() => void load()} />
       <div role="tablist" aria-label={copy.schedulesTitle} className="mt-7 flex flex-wrap gap-2">{tabs.map(([id, label]) => <Button key={id} role="tab" aria-selected={view === id} variant={view === id ? "secondary" : "outline"} onClick={() => setView(id)}>{label}</Button>)}</div>
-      {(view === "dentist" || view === "exceptions") && <label className={`${labelClass} mt-6 max-w-xl`}>{copy.selectDentist}<select className={fieldClass} value={selectedDentistId} onChange={(event) => void changeDentist(event.target.value)}><option value="">{copy.selectDentist}</option>{dentists.map((dentist) => <option key={dentist._id} value={dentist._id}>{dentist.firstName} {dentist.lastName}{dentist.isActive ? "" : ` — ${copy.inactive}`}</option>)}</select></label>}
+      {(view === "dentist" || view === "exceptions") && <label className={`${labelClass} mt-6 max-w-xl`}>{copy.selectDentist}<select className={fieldClass} value={selectedDentistId} onChange={(event) => void changeDentist(event.target.value)}><option value="">{copy.selectDentist}</option>{dentists.map((dentist) => <option key={dentist._id} value={dentist._id}>{localizedPersonName(dentist, locale)}{dentist.isActive ? "" : ` — ${copy.inactive}`}</option>)}</select></label>}
       <div className="mt-6">
         {view === "clinic" && <WeeklyPanel key={`clinic-${clinic.scheduleRevision}`} kind="clinic" schedule={clinic.weeklySchedule} revision={clinic.scheduleRevision} title={copy.clinicWeekly} pendingGlobal={loading} save={(schedule, revision, acknowledgement) => api.updateClinic({ weeklySchedule: schedule as ClinicWorkingDay[], expectedScheduleRevision: revision, ...(acknowledgement ? { scheduleConflictAcknowledgement: acknowledgement } : {}) }).then(() => undefined)} refresh={load} feedback={setFeedbackValue} />}
-        {view === "dentist" && (selectedDentist ? <WeeklyPanel key={`dentist-${selectedDentist._id}-${selectedDentist.scheduleRevision}`} kind="dentist" schedule={selectedDentist.weeklySchedule} revision={selectedDentist.scheduleRevision} title={`${copy.dentistWeekly} · ${selectedDentist.firstName} ${selectedDentist.lastName}`} pendingGlobal={loading} save={(schedule, revision, acknowledgement) => api.updateDentist(selectedDentist._id, { weeklySchedule: schedule as DentistWorkingDay[], expectedScheduleRevision: revision, ...(acknowledgement ? { scheduleConflictAcknowledgement: acknowledgement } : {}) }).then(() => undefined)} refresh={load} feedback={setFeedbackValue} /> : <p className="rounded-xl border bg-card p-5 text-muted-foreground">{copy.selectDentist}</p>)}
+        {view === "dentist" && (selectedDentist ? <WeeklyPanel key={`dentist-${selectedDentist._id}-${selectedDentist.scheduleRevision}`} kind="dentist" schedule={selectedDentist.weeklySchedule} revision={selectedDentist.scheduleRevision} title={`${copy.dentistWeekly} · ${localizedPersonName(selectedDentist, locale)}`} pendingGlobal={loading} save={(schedule, revision, acknowledgement) => api.updateDentist(selectedDentist._id, { weeklySchedule: schedule as DentistWorkingDay[], expectedScheduleRevision: revision, ...(acknowledgement ? { scheduleConflictAcknowledgement: acknowledgement } : {}) }).then(() => undefined)} refresh={load} feedback={setFeedbackValue} /> : <p className="rounded-xl border bg-card p-5 text-muted-foreground">{copy.selectDentist}</p>)}
         {view === "exceptions" && <OverridePanel key={`exceptions-${selectedDentist?._id ?? "none"}`} mode="dentist" items={exceptions} revision={selectedDentist?.scheduleRevision ?? 0} from={range.from} to={range.to} disabled={!selectedDentist} onRange={updateRange} perform={async (operation, acknowledgement) => {
           if (!selectedDentist) return;
           if (operation.type === "set") await api.setScheduleException(selectedDentist._id, operation.date, { expectedScheduleRevision: operation.revision, isWorking: operation.enabled, shifts: operation.shifts, note: operation.note, ...(acknowledgement ? { scheduleConflictAcknowledgement: acknowledgement } : {}) } as ScheduleExceptionPayload);

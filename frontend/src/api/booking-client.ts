@@ -1,5 +1,7 @@
 import type { components } from "@/api/generated/schema";
 import type { Locale } from "@/i18n/locales";
+import { localizedPersonName } from "@/i18n/localized-content";
+import { productMessages } from "@/i18n/product-messages";
 import { getFrontendEnvironment } from "@/lib/env";
 import { readJsonWithSignal } from "./abortable-json";
 
@@ -70,17 +72,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const safeCode = (value: unknown) =>
   typeof value === "string" && /^[A-Z0-9_]{1,80}$/.test(value) ? value : undefined;
 
-const primaryTextLanguage = (value: string): Locale | undefined =>
-  /\p{Script=Armenian}/u.test(value) ? "hy" : undefined;
-
 function localizedSummaryName(
   baseName: string,
   translations: unknown,
   locale: Locale,
 ) {
-  if (translations === undefined) return { name: baseName, nameLang: primaryTextLanguage(baseName) };
+  if (translations === undefined) return { name: locale === "hy" ? baseName : productMessages[locale].untranslated, nameLang: locale };
   if (!isRecord(translations)) throw new BookingApiError({ kind: "protocol" });
-  for (const candidate of [locale, "hy"] as const) {
+  for (const candidate of [locale] as const) {
     const entry = translations[candidate];
     if (entry === undefined) continue;
     if (!isRecord(entry)) throw new BookingApiError({ kind: "protocol" });
@@ -90,7 +89,7 @@ function localizedSummaryName(
     }
     return { name: entry.name, nameLang: candidate };
   }
-  return { name: baseName, nameLang: primaryTextLanguage(baseName) };
+  return { name: locale === "hy" ? baseName : productMessages[locale].untranslated, nameLang: locale };
 }
 
 function apiUrl(path: string) {
@@ -286,7 +285,7 @@ export async function createPublicAppointment(
     throw new BookingApiError({ kind: "protocol" });
   }
   const serviceName = localizedSummaryName(service.name, service.translations, payload.locale);
-  const dentistName = `${dentist.firstName} ${dentist.lastName}`.trim();
+  const dentistName = localizedPersonName({ firstName: dentist.firstName, lastName: dentist.lastName, translations: dentist.translations }, payload.locale);
   return {
     confirmationCode: value.confirmationCode,
     patientName: value.patientName,
@@ -295,9 +294,9 @@ export async function createPublicAppointment(
     endTime: value.endTime,
     status: value.status,
     dentist: {
-      firstName: dentist.firstName,
-      lastName: dentist.lastName,
-      ...(primaryTextLanguage(dentistName) ? { nameLang: "hy" as const } : {}),
+      firstName: dentistName || productMessages[payload.locale].untranslated,
+      lastName: "",
+      nameLang: payload.locale,
     },
     service: {
       name: serviceName.name,

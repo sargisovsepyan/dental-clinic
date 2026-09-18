@@ -42,6 +42,9 @@ describe("staff clinic settings", () => {
   it("saves localized safe settings and never submits timezone or weekly schedule", async () => {
     render(<StaffClinicManagement />);
     expect(await screen.findByText("Clinic timezone: Asia/Yerevan")).toBeVisible();
+    expect(screen.getByText('Schedule version: 4')).not.toBeVisible();
+    fireEvent.click(screen.getByText('More details'));
+    expect(screen.getByText('Schedule version: 4')).toBeVisible();
     fireEvent.change(screen.getByLabelText("Primary phone"), { target: { value: "+374 10 111111" } });
     fireEvent.change(screen.getByLabelText("Booking horizon (days)"), { target: { value: "90" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -56,7 +59,7 @@ describe("staff clinic settings", () => {
     expect(payload).not.toHaveProperty("timezone");
     expect(payload).not.toHaveProperty("weeklySchedule");
     expect(payload).not.toHaveProperty("scheduleRevision");
-    expect(await screen.findByText("Clinic settings were saved from the authoritative response.")).toBeVisible();
+    expect(await screen.findByText("Clinic settings saved.")).toBeVisible();
   });
 
   it("rejects credential-bearing and off-platform links before mutation", async () => {

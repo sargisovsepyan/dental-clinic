@@ -11,6 +11,7 @@ const activeService = {
 const historicalService = {
   ...activeService,
   _id: "64b000000000000000000012", name: "Historical service", slug: "historical-service",
+  translations: { en: { name: 'Historical service' } },
   isActive: false,
 };
 const unrelatedService = {
@@ -19,11 +20,13 @@ const unrelatedService = {
 };
 const activeDentist = {
   _id: "64b000000000000000000021", firstName: "Active", lastName: "Dentist", slug: "active-dentist",
+  translations: { en: { firstName: 'Active', lastName: 'Dentist' } },
   isActive: true,
 };
 const historicalDentist = {
   ...activeDentist,
   _id: "64b000000000000000000022", firstName: "Historical", lastName: "Dentist",
+  translations: { en: { firstName: 'Historical', lastName: 'Dentist' } },
   slug: "historical-dentist", isActive: false,
 };
 const unrelatedDentist = {

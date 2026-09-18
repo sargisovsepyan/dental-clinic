@@ -30,6 +30,8 @@ async function openCaseEditor(page: Page) {
   await dialog.getByLabel("Before *").setInputFiles(png("before.png"));
   await dialog.getByLabel("After *").setInputFiles(png("after.png"));
   await dialog.getByLabel("Case title *").fill("Նոր արդյունք");
+  await dialog.getByRole("tab", { name: "English (EN)" }).click();
+  await dialog.getByRole("tabpanel", { name: "English (EN)" }).getByLabel("Case title (Optional)").fill("New result");
   return dialog;
 }
 
@@ -63,7 +65,7 @@ test("admin uploads, archives, restores, and validates gallery media without ext
   });
   await login(page);
   await page.goto("/en/staff/media");
-  await expect(page.getByRole("heading", { name: "Governed media" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Gallery and photos" })).toBeVisible();
   await expect(page.getByRole("img", { name: "Test clinic photograph" })).toBeVisible();
 
   await page.getByRole("button", { name: "Upload gallery image" }).click();
@@ -75,7 +77,7 @@ test("admin uploads, archives, restores, and validates gallery media without ext
   await dialog.getByRole("button", { name: "Upload" }).click();
   const created = page.locator("article").filter({ hasText: "New gallery image" });
   await expect(created).toBeVisible();
-  await created.getByRole("button", { name: "Archive" }).click();
+  await created.getByRole("button", { name: "Archive", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Confirm archive" }).click();
   await expect(created.getByText("Archived")).toBeVisible();
   await created.getByRole("button", { name: "Restore" }).click();
@@ -93,8 +95,8 @@ test("failed dentist replacement preserves the prior photo and service removal i
   await login(page);
   await page.goto("/en/staff/media");
   await page.getByRole("tab", { name: "Dentist photos" }).click();
-  const dentist = page.locator("article").filter({ hasText: "Անի Փորձարկում" });
-  await expect(dentist.getByRole("img", { name: "Անի Փորձարկում" })).toBeVisible();
+  const dentist = page.locator("article").filter({ hasText: "Ani Test" });
+  await expect(dentist.getByRole("img", { name: "Ani Test" })).toBeVisible();
 
   await setScenario(request, "media-replacement-failure");
   await dentist.getByRole("button", { name: "Replace image" }).click();
@@ -103,15 +105,15 @@ test("failed dentist replacement preserves the prior photo and service removal i
   await dialog.getByRole("button", { name: "Upload" }).click();
   await expect(page.getByText(/server could not complete the media operation/i)).toBeVisible();
   await dialog.getByRole("button", { name: "Cancel" }).first().click();
-  await expect(dentist.getByRole("img", { name: "Անի Փորձարկում" })).toBeVisible();
+  await expect(dentist.getByRole("img", { name: "Ani Test" })).toBeVisible();
 
   await page.getByRole("tab", { name: "Service images" }).click();
-  const service = page.locator("article").filter({ hasText: "Ատամների մաքրում" });
+  const service = page.locator("article").filter({ hasText: "Tooth cleaning" });
   await service.getByRole("button", { name: "Remove image" }).click();
   dialog = page.getByRole("dialog");
-  await expect(dialog.getByText(/provider deletion runs only after the server confirms/i)).toBeVisible();
+  await expect(dialog.getByText(/scheduled for permanent deletion/i)).toBeVisible();
   await dialog.getByRole("button", { name: "Confirm removal" }).click();
-  await expect(service.getByRole("img", { name: "Ատամների մաքրում" })).toBeVisible();
+  await expect(service.getByRole("img", { name: "Tooth cleaning" })).toBeVisible();
 });
 
 test("a concurrent media conflict preserves the session and refetches authoritative state", async ({ page, request }) => {
@@ -120,12 +122,13 @@ test("a concurrent media conflict preserves the session and refetches authoritat
   await setScenario(request, "media-conflict");
   const item = page.locator("article").filter({ has: page.getByRole("heading", { name: "Test clinic photograph" }) });
 
-  await item.getByRole("button", { name: "Archive" }).click();
+  await item.getByRole("button", { name: "Archive", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "Confirm archive" }).click();
   await dialog.getByRole("button", { name: "Cancel" }).first().click();
 
-  await expect(page.getByText(/another administrator changed this media/i)).toBeVisible();
+  await expect(page.getByText("Another administrator changed this image. Review the updated version before trying again.")).toBeVisible();
+  await expect(page.getByText("Preview Admin").first()).toBeVisible();
   await expect(item.getByText("Published", { exact: true })).toBeVisible();
   await expect(page).toHaveURL(/\/en\/staff\/media$/);
 });
@@ -137,14 +140,14 @@ test("pair creation requires explicit consent and a failed pair never appears pa
   });
   await login(page);
   await page.goto("/en/staff/before-after");
-  await expect(page.getByRole("heading", { name: "Before & after governance" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Before & after" })).toBeVisible();
   let dialog = await openCaseEditor(page);
   await dialog.getByRole("button", { name: "Create case" }).click();
   await expect(dialog.getByText("Confirm that governed consent evidence exists before creating this case.")).toBeVisible();
   expect(createRequests).toBe(0);
   await dialog.getByRole("checkbox", { name: /selected consent method is supported/ }).check();
   await dialog.getByRole("button", { name: "Create case" }).click();
-  const createdCase = page.locator("article").filter({ has: page.getByRole("heading", { name: "Նոր արդյունք" }) });
+  const createdCase = page.locator("article").filter({ has: page.getByRole("heading", { name: "New result", exact: true }) });
   await expect(createdCase).toBeVisible();
   expect(createRequests).toBe(1);
 
@@ -160,10 +163,14 @@ test("pair creation requires explicit consent and a failed pair never appears pa
   await dialog.getByLabel("Before *").setInputFiles(png("failed-before.png"));
   await dialog.getByLabel("After *").setInputFiles(png("failed-after.png"));
   await dialog.getByLabel("Case title *").fill("Չպահպանված զույգ");
+  await dialog.getByRole("tab", { name: "English (EN)" }).click();
+  await dialog.getByRole("tabpanel", { name: "English (EN)" }).getByLabel("Case title (Optional)").fill("Unsaved pair");
   await dialog.getByRole("checkbox", { name: /selected consent method is supported/ }).check();
   await dialog.getByRole("button", { name: "Create case" }).click();
   await expect(page.getByText(/server could not complete the media operation/i)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Չպահպանված զույգ" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Unsaved pair", exact: true })).toHaveCount(0);
+  expect(createRequests).toBe(2);
 });
 
 test("consent withdrawal immediately removes the public case and purge retains only governance state", async ({ page, context, request }) => {
@@ -200,7 +207,7 @@ test("consent withdrawal immediately removes the public case and purge retains o
 
 test("media routes deny non-admins without fetch leakage and admin screens stay responsive and axe-clean", async ({ page, request }) => {
   await login(page, "receptionist");
-  await expect(page.getByRole("link", { name: "Media / Gallery" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Gallery" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Before & After" })).toHaveCount(0);
   const adminRequests: string[] = [];
   page.on("request", (networkRequest) => {
@@ -226,7 +233,7 @@ test("media routes deny non-admins without fetch leakage and admin screens stay 
   for (const width of [375, 430, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/en/staff/media");
-    await expect(page.getByRole("heading", { name: "Governed media" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Gallery and photos" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
   }
   await page.goto("/en/staff/before-after");

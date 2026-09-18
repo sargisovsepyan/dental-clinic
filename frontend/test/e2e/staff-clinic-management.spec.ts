@@ -62,22 +62,26 @@ test("catalog creation uses localized server state and referential conflicts fai
 
   await login(page);
   await page.goto("/en/staff/services");
-  await expect(page.getByRole("heading", { name: "Services and categories" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Services" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Services", exact: true })).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("tab", { name: "Service sections" }).click();
   await expect(page.getByRole("heading", { name: "Therapeutic dentistry" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Add category" }).click();
+  await page.getByRole("button", { name: "Add section" }).click();
   let dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "Create" }).click();
   await expect(dialog.getByText("Review the highlighted fields.")).toBeVisible();
   expect(writes).toHaveLength(0);
-  await dialog.getByRole("textbox", { name: "Category name *", exact: true }).fill("Նոր կատեգորիա");
+  await dialog.getByRole("textbox", { name: "Section name *", exact: true }).fill("Նոր կատեգորիա");
   await dialog.getByLabel("Display order").fill("2");
+  await dialog.getByRole("tab", { name: "English (EN)" }).click();
+  await dialog.getByRole("tabpanel", { name: "English (EN)" }).getByLabel("Section name (Optional)").fill("Preview category");
   await dialog.getByRole("button", { name: "Create" }).click();
-  await expect(page.getByRole("heading", { name: "Նոր կատեգորիա" })).toBeVisible();
-  await page.locator("article").filter({ hasText: "Նոր կատեգորիա" }).getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("heading", { name: "Preview category" })).toBeVisible();
+  await page.locator("article").filter({ hasText: "Preview category" }).getByRole("button", { name: "Edit" }).click();
   dialog = page.getByRole("dialog");
   await dialog.getByRole("tab", { name: "English (EN)" }).click();
-  await dialog.getByRole("tabpanel", { name: "English (EN)" }).getByLabel("Category name (Optional)").fill("Preview category");
+  await dialog.getByRole("tabpanel", { name: "English (EN)" }).getByLabel("Section name (Optional)").fill("Preview category");
   await dialog.getByRole("button", { name: "Save changes" }).click();
   await expect(page.getByRole("heading", { name: "Preview category" })).toBeVisible();
 
@@ -85,15 +89,17 @@ test("catalog creation uses localized server state and referential conflicts fai
   await page.getByRole("button", { name: "Add service" }).click();
   dialog = page.getByRole("dialog");
   await dialog.getByRole("textbox", { name: "Service name *", exact: true }).fill("Նոր ծառայություն");
-  await dialog.getByLabel("Category").selectOption("64b000000000000000000002");
+  await dialog.getByLabel("Service section").selectOption("64b000000000000000000002");
   await dialog.getByLabel("Duration (minutes)").fill("10");
   await dialog.getByRole("button", { name: "Create" }).click();
   await expect(dialog.getByText("Review the highlighted fields.")).toBeVisible();
   expect(writes).toHaveLength(1);
   await dialog.getByLabel("Duration (minutes)").fill("45");
+  await dialog.getByRole("tab", { name: "English (EN)" }).click();
+  await dialog.getByRole("tabpanel", { name: "English (EN)" }).getByLabel("Service name (Optional)").fill("Preview service");
   await dialog.getByRole("button", { name: "Create" }).click();
-  await expect(page.getByRole("heading", { name: "Նոր ծառայություն" })).toBeVisible();
-  await page.locator("article").filter({ hasText: "Նոր ծառայություն" }).getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("heading", { name: "Preview service" })).toBeVisible();
+  await page.locator("article").filter({ hasText: "Preview service" }).getByRole("button", { name: "Edit" }).click();
   dialog = page.getByRole("dialog");
   await dialog.getByRole("tab", { name: "English (EN)" }).click();
   await dialog.getByRole("tabpanel", { name: "English (EN)" }).getByLabel("Service name (Optional)").fill("Preview service");
@@ -105,12 +111,12 @@ test("catalog creation uses localized server state and referential conflicts fai
   expect(updates).toHaveLength(2);
   expect(updates.every((body) => !("slug" in body) && !("imageUrl" in body))).toBe(true);
 
-  await page.getByRole("tab", { name: "Categories" }).click();
+  await page.getByRole("tab", { name: "Service sections" }).click();
   const categoryCard = page.locator("article").filter({ hasText: "Therapeutic dentistry" });
-  await categoryCard.getByRole("button", { name: "Archive" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Confirm archive" }).click();
-  await expect(page.getByText("Archive the active services in this category first.")).toBeVisible();
-  await expect(page.getByRole("dialog", { name: "Archive this category?" })).toBeVisible();
+  await categoryCard.getByRole("button", { name: "Hide from site" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Hide from site" }).click();
+  await expect(page.getByText("Hide the active services in this section first.")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Hide this section from the site?" })).toBeVisible();
   await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).first().click();
   await expect(page.getByRole("heading", { name: "Therapeutic dentistry" })).toBeVisible();
 
@@ -141,7 +147,10 @@ test("dentist lifecycle keeps profile writes separate from schedule and media", 
   await dialog.getByLabel("First name").fill("Mane");
   await dialog.getByLabel("Last name").fill("Preview");
   await dialog.getByRole("textbox", { name: "Professional title *", exact: true }).fill("Մանկական ատամնաբույժ");
-  await dialog.getByRole("checkbox", { name: "Ատամների մաքրում" }).check();
+  await dialog.getByRole("checkbox", { name: "Tooth cleaning" }).check();
+  await dialog.getByRole("tab", { name: "English (EN)" }).click();
+  await dialog.getByRole("tabpanel", { name: "English (EN)" }).getByLabel("Given name in this language (Optional)").fill("Mane");
+  await dialog.getByRole("tabpanel", { name: "English (EN)" }).getByLabel("Family name in this language (Optional)").fill("Preview");
   await dialog.getByRole("button", { name: "Create" }).click();
   await expect(page.getByRole("heading", { name: "Mane Preview" })).toBeVisible();
   expect(createPayload).toMatchObject({ weeklySchedule: [], bookingEnabled: false });
@@ -152,6 +161,8 @@ test("dentist lifecycle keeps profile writes separate from schedule and media", 
   await page.locator("article").filter({ hasText: "Mane Preview" }).getByRole("button", { name: "Edit" }).click();
   dialog = page.getByRole("dialog");
   await dialog.getByLabel("Last name").fill("Updated");
+  await dialog.getByRole("tab", { name: "English (EN)" }).click();
+  await dialog.getByRole("tabpanel", { name: "English (EN)" }).getByLabel("Family name in this language (Optional)").fill("Updated");
   await dialog.getByRole("button", { name: "Save changes" }).click();
   const card = page.locator("article").filter({ hasText: "Mane Updated" });
   await expect(card).toBeVisible();
@@ -161,8 +172,8 @@ test("dentist lifecycle keeps profile writes separate from schedule and media", 
   expect(updatePayload).not.toHaveProperty("photoUrl");
   expect(updatePayload).not.toHaveProperty("photo");
 
-  await card.getByRole("button", { name: "Archive" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Confirm archive" }).click();
+  await card.getByRole("button", { name: "Hide from site" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Hide from site" }).click();
   await expect(card.getByText("Archived")).toBeVisible();
   await card.getByRole("button", { name: "Restore" }).click();
   await expect(card.getByText("Published")).toBeVisible();
@@ -190,7 +201,7 @@ test("weekly schedules require exact impact acknowledgement and stale writes nev
   await expect(impact).not.toContainText("Aram Preview");
   await expect(impact).not.toContainText("+374");
   await impact.getByRole("button", { name: "I reviewed the impact. Save these exact hours" }).click();
-  await expect(page.getByText("The schedule was saved and authoritative revisions were refreshed.")).toBeVisible();
+  await expect(page.getByText("Schedule saved.")).toBeVisible();
   expect(conflictWrites).toHaveLength(2);
   expect(conflictWrites[0]).not.toHaveProperty("scheduleConflictAcknowledgement");
   expect(conflictWrites[1]).toMatchObject({
@@ -211,7 +222,8 @@ test("weekly schedules require exact impact acknowledgement and stale writes nev
   await page.getByRole("button", { name: "Save weekly schedule" }).click();
   await expect(page.getByText(/Another operator changed this schedule/)).toBeVisible();
   expect(staleWrites).toHaveLength(1);
-  await expect(page.getByText("Schedule revision: 1").first()).toBeVisible();
+  await page.locator("summary").filter({ hasText: "Schedule version" }).first().click();
+  await expect(page.getByText("Schedule version: 1").first()).toBeVisible();
 });
 
 test("clinic and dentist date overrides refetch parent revisions after create and delete", async ({ page }) => {
@@ -240,7 +252,8 @@ test("clinic and dentist date overrides refetch parent revisions after create an
   await dialog.getByLabel("Operational note").fill("Preview day off");
   await dialog.getByRole("button", { name: "Save changes" }).click();
   await expect(page.locator("article").filter({ hasText: exceptionDate })).toContainText("Preview day off");
-  await expect(page.getByText("Schedule revision: 1").first()).toBeVisible();
+  await page.locator("summary").filter({ hasText: "Schedule version" }).first().click();
+  await expect(page.getByText("Schedule version: 1").first()).toBeVisible();
 });
 
 test("clinic settings reject unsafe URLs and accept only the server-confirmed safe payload", async ({ page }) => {
@@ -262,7 +275,7 @@ test("clinic settings reject unsafe URLs and accept only the server-confirmed sa
   await page.getByLabel("HTTPS map URL").fill("https://maps.google.com/?q=Yerevan");
   await page.getByLabel("Primary phone").fill("+374 10 654321");
   await page.getByRole("button", { name: "Save changes" }).click();
-  await expect(page.getByText("Clinic settings were saved from the authoritative response.")).toBeVisible();
+  await expect(page.getByText("Clinic settings saved.")).toBeVisible();
   expect(writes).toHaveLength(1);
   expect(writes[0]).not.toHaveProperty("timezone");
   expect(writes[0]).not.toHaveProperty("weeklySchedule");
@@ -295,7 +308,7 @@ test("non-admin routes issue no management fetches and representative admin page
   await login(page);
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/en/staff/services");
-  await expect(page.getByRole("heading", { name: "Services and categories" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Services" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(accessibility.violations).toEqual([]);

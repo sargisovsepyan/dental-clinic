@@ -6,7 +6,7 @@ import type {
   ServiceCategoryRecord,
   ServiceRecord,
 } from "@/api/public-client";
-import { selectLocalizedField, type LocalizedValue } from "@/i18n/localized-content";
+import { selectPublishedField as selectLocalizedField, localizedPersonName, type LocalizedValue } from "@/i18n/localized-content";
 import type { Locale } from "@/i18n/locales";
 import { safeManagedImage } from "@/lib/safe-urls";
 
@@ -37,10 +37,6 @@ function listView(value: LocalizedValue<unknown>) {
       : [],
     lang: value.resolvedLocale,
   };
-}
-
-function primaryTextLanguage(value: string): Locale | undefined {
-  return /\p{Script=Armenian}/u.test(value) ? "hy" : undefined;
 }
 
 export function categoryView(category: CategorySummary, locale: Locale) {
@@ -81,14 +77,14 @@ export function dentistView(
   locale: Locale,
   cloudinaryCloudName?: string,
 ) {
-  const fullName = `${dentist.firstName} ${dentist.lastName}`.trim();
+  const fullName = localizedPersonName(dentist, locale);
   return {
     id: dentist._id,
     slug: dentist.slug,
-    firstName: dentist.firstName,
-    lastName: dentist.lastName,
+    firstName: dentist.translations?.[locale]?.firstName || (locale === 'hy' ? dentist.firstName : ''),
+    lastName: dentist.translations?.[locale]?.lastName || (locale === 'hy' ? dentist.lastName : ''),
     fullName,
-    fullNameLang: primaryTextLanguage(fullName),
+    fullNameLang: locale,
     title: textView(selectLocalizedField(dentist.translations, locale, "title")),
     bio: textView(selectLocalizedField(dentist.translations, locale, "bio")),
     specializations: listView(
@@ -165,8 +161,8 @@ export function beforeAfterView(
       ? {
           id: item.dentist._id,
           slug: item.dentist.slug,
-          fullName: `${item.dentist.firstName} ${item.dentist.lastName}`.trim(),
-          fullNameLang: primaryTextLanguage(`${item.dentist.firstName} ${item.dentist.lastName}`.trim()),
+          fullName: localizedPersonName(item.dentist, locale),
+          fullNameLang: locale,
         }
       : null,
   };

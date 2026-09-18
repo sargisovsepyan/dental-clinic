@@ -22,7 +22,7 @@ const clinic = {
 };
 const dentist = {
   _id: "64b000000000000000000021", firstName: "Ani", lastName: "Preview", slug: "ani-preview",
-  title: "", specializations: [], bio: "", translations: { hy: { title: "Ատամնաբույժ" } },
+  title: "", specializations: [], bio: "", translations: { hy: { title: "Ատամնաբույժ" }, en: { firstName: "Ani", lastName: "Preview" } },
   experienceYears: 5, photoUrl: "", photo: null, languages: ["hy"], services: [],
   weeklySchedule: [], scheduleRevision: 0, isFeatured: false, bookingEnabled: false, isActive: true, sortOrder: 1,
   createdAt: timestamp, updatedAt: timestamp,
@@ -112,7 +112,7 @@ describe("staff schedule management", () => {
     expect(first).toMatchObject({ expectedScheduleRevision: 0 });
     expect(first).not.toHaveProperty("scheduleConflictAcknowledgement");
     expect(second).toEqual({ ...first, scheduleConflictAcknowledgement: acknowledgementToken });
-    expect(await screen.findByText("The schedule was saved and authoritative revisions were refreshed.")).toBeVisible();
+    expect(await screen.findByText("Schedule saved.")).toBeVisible();
   });
 
   it("does not auto-retry stale writes and refreshes the authoritative revision", async () => {
@@ -127,7 +127,8 @@ describe("staff schedule management", () => {
 
     expect(await screen.findByText(/Another operator changed this schedule/)).toBeVisible();
     expect(api.updateClinic).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText("Schedule revision: 1")).toBeVisible();
+    fireEvent.click(screen.getByText('Schedule version', { selector: 'summary' }));
+    expect(await screen.findByText("Schedule version: 1")).toBeVisible();
   });
 
   it("guards a clinic closure with the same frozen impact acknowledgement workflow", async () => {
@@ -181,7 +182,8 @@ describe("staff schedule management", () => {
 
     await waitFor(() => expect(api.setClinicClosure).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Appointments are affected" })).toBeNull());
-    expect(await screen.findByText("Schedule revision: 1")).toBeVisible();
+    fireEvent.click(screen.getByText('Schedule version', { selector: 'summary' }));
+    expect(await screen.findByText("Schedule version: 1")).toBeVisible();
 
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(api.setClinicClosure).toHaveBeenCalledTimes(3));

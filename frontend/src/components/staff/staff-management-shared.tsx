@@ -18,6 +18,7 @@ import {
   type StaffManagementMessages,
 } from "@/i18n/staff-management-messages";
 import { cn } from "@/lib/utils";
+import { productMessages } from '@/i18n/product-messages';
 
 export const fieldClass =
   "mt-2 min-h-11 w-full rounded-md border bg-background px-3 py-2 text-base shadow-sm disabled:cursor-not-allowed disabled:bg-muted/50 disabled:text-muted-foreground";
@@ -108,15 +109,18 @@ export function ManagementFeedback({ value, onRetry }: {
 type UiLocale = "hy" | "ru" | "en";
 export type LocalizedDraft = Record<UiLocale, Record<string, string>>;
 
-export function LocalizedFields({ value, onChange, fields, disabled, primaryRequired = [] }: {
+export function LocalizedFields({ value, onChange, fields, disabled, primaryRequired = [], primaryOmit = [] }: {
   value: LocalizedDraft;
   onChange: (value: LocalizedDraft) => void;
   fields: Array<{ name: string; label: string; multiline?: boolean; maxLength: number }>;
   disabled?: boolean;
   primaryRequired?: string[];
+  primaryOmit?: string[];
 }) {
   const copy = useManagementCopy();
   const baseId = useId();
+  const { locale: uiLocale } = useStaffAuth();
+  const missing = (['hy', 'ru', 'en'] as const).filter((item) => fields.some((field) => !(value[item][field.name] || '').trim()));
   const [locale, setLocale] = useState<UiLocale>("hy");
   const labels: Record<UiLocale, string> = {
     hy: copy.languageHy,
@@ -152,7 +156,7 @@ export function LocalizedFields({ value, onChange, fields, disabled, primaryRequ
           hidden={locale !== item}
           className="mt-4 space-y-4"
         >
-          {fields.map((field) => {
+          {fields.filter((field) => item !== 'hy' || !primaryOmit.includes(field.name)).map((field) => {
             const required = item === "hy" && primaryRequired.includes(field.name);
             const props = {
               id: `${baseId}-${item}-${field.name}`,
@@ -177,6 +181,7 @@ export function LocalizedFields({ value, onChange, fields, disabled, primaryRequ
         </div>
       ))}
       {primaryRequired.length > 0 && <p className="mt-3 text-xs text-muted-foreground">{copy.armenianRequired}</p>}
+      {primaryRequired.length > 0 && missing.length > 0 && <p role="status" className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">{productMessages[uiLocale].translationWarning} ({missing.map((item) => item.toUpperCase()).join(', ')})</p>}
     </fieldset>
   );
 }

@@ -43,6 +43,7 @@ export default async function DentistDetailPage({ params }: Props) {
     throw error;
   }
 
+  if (!dentist.fullName) notFound();
   return (
     <article className="site-container py-12 sm:py-20">
       <Link href={localizedPath(locale, "dentists")} className="inline-flex min-h-11 items-center gap-2 text-sm font-bold text-primary"><ArrowLeft aria-hidden="true" className="size-4" />{copy.back}</Link>

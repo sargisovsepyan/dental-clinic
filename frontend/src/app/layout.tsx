@@ -8,22 +8,22 @@ import "./globals.css";
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL!),
   title: {
-    default: "Dental Clinic",
-    template: "%s | Dental Clinic",
+    default: "Arelis Dental",
+    template: "%s | Arelis Dental",
   },
-  description: "Public clinic information, services, dentists, and published gallery content.",
+  description: "Ատամնաբուժական խնամք Երևանի կենտրոնում։",
   robots: { index: true, follow: true },
   openGraph: {
     type: "website",
-    title: "Dental Clinic",
-    description: "Public clinic information, services, dentists, and published gallery content.",
-    images: [{ url: "/og.png", width: 1733, height: 916, alt: "Dental Clinic" }],
+    title: "Arelis Dental",
+    description: "Ատամնաբուժական խնամք Երևանի կենտրոնում։",
+    images: [{ url: "/arelis-social.svg", width: 1200, height: 630, alt: "Arelis Dental" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Dental Clinic",
-    description: "Public clinic information, services, dentists, and published gallery content.",
-    images: ["/og.png"],
+    title: "Arelis Dental",
+    description: "Ատամնաբուժական խնամք Երևանի կենտրոնում։",
+    images: ["/arelis-social.svg"],
   },
 };
 

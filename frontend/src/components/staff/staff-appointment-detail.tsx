@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StaffApiError, type StaffAppointment, type StaffAppointmentStatus } from "@/api/staff-client";
 import {
   cancellable, formatClinicDate, formatClinicTimestamp, referenceId, reschedulable,
-  statusClass, statusLabel, transitions,
+  statusClass, statusLabel, transitions, snapshotServiceName, snapshotDentistName,
 } from "@/components/staff/staff-appointment-helpers";
 import type { StaffCatalog } from "@/components/staff/staff-appointment-types";
 import { staffErrorMessage } from "@/components/staff/staff-feedback";
@@ -177,8 +177,8 @@ export function StaffAppointmentDetail({ appointmentId, catalog }: { appointment
   const availableTransitions = transitions[appointment.status];
   const currentServiceId = referenceId(appointment.service);
   const currentDentistId = referenceId(appointment.dentist);
-  const knownServices = catalog.services.some((item) => item.id === currentServiceId) ? catalog.services : [{ id: currentServiceId, name: appointment.serviceSnapshot.name, durationMinutes: appointment.serviceSnapshot.durationMinutes }, ...catalog.services];
-  const knownDentists = dentistOptions.some((item) => item.id === currentDentistId) || serviceId !== currentServiceId ? dentistOptions : [{ id: currentDentistId, name: `${appointment.dentistSnapshot.firstName} ${appointment.dentistSnapshot.lastName}`, serviceIds: [serviceId] }, ...dentistOptions];
+  const knownServices = catalog.services.some((item) => item.id === currentServiceId) ? catalog.services : [{ id: currentServiceId, name: snapshotServiceName(appointment, locale), durationMinutes: appointment.serviceSnapshot.durationMinutes }, ...catalog.services];
+  const knownDentists = dentistOptions.some((item) => item.id === currentDentistId) || serviceId !== currentServiceId ? dentistOptions : [{ id: currentDentistId, name: snapshotDentistName(appointment, locale), serviceIds: [serviceId] }, ...dentistOptions];
 
   return (
     <section className="max-w-6xl">
@@ -192,8 +192,8 @@ export function StaffAppointmentDetail({ appointmentId, catalog }: { appointment
           <dl className="mt-5 grid gap-x-6 gap-y-5 sm:grid-cols-2">
             <div><dt className="text-xs font-semibold text-muted-foreground">{copy.date}</dt><dd className="mt-1">{formatClinicDate(appointment.date, locale)}</dd></div>
             <div><dt className="text-xs font-semibold text-muted-foreground">{copy.time} · {catalog.clinic.timezone}</dt><dd className="mt-1">{appointment.startTime}–{appointment.endTime}</dd></div>
-            <div><dt className="text-xs font-semibold text-muted-foreground">{copy.service}</dt><dd className="mt-1">{appointment.serviceSnapshot.name}</dd></div>
-            <div><dt className="text-xs font-semibold text-muted-foreground">{copy.dentist}</dt><dd className="mt-1">{appointment.dentistSnapshot.firstName} {appointment.dentistSnapshot.lastName}</dd></div>
+            <div><dt className="text-xs font-semibold text-muted-foreground">{copy.service}</dt><dd className="mt-1">{snapshotServiceName(appointment, locale)}</dd></div>
+            <div><dt className="text-xs font-semibold text-muted-foreground">{copy.dentist}</dt><dd className="mt-1">{snapshotDentistName(appointment, locale)}</dd></div>
             <div><dt className="text-xs font-semibold text-muted-foreground">{copy.phone}</dt><dd className="mt-1"><a href={`tel:${appointment.patientPhone.replace(/[^+\d]/g, "")}`} className="underline-offset-4 hover:underline">{appointment.patientPhone}</a></dd></div>
             <div><dt className="text-xs font-semibold text-muted-foreground">{copy.patientEmail}</dt><dd className="mt-1 break-all">{appointment.patientEmail || copy.noEmail}</dd></div>
             <div><dt className="text-xs font-semibold text-muted-foreground">{copy.source}</dt><dd className="mt-1">{appointment.source}</dd></div>

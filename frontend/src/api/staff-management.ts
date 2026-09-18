@@ -278,7 +278,7 @@ export function parseDentist(value: unknown): StaffDentist {
     title: string(value.title, 150),
     specializations: value.specializations.map((item) => string(item, 100)),
     bio: string(value.bio, 5_000),
-    translations: copyTranslations(value.translations, ["title", "bio", "specializations"]),
+    translations: copyTranslations(value.translations, ["firstName", "lastName", "title", "bio", "specializations"]),
     experienceYears: integer(value.experienceYears, 0, 70),
     photoUrl: string(value.photoUrl, 2_000),
     photo: parseImage(value.photo),

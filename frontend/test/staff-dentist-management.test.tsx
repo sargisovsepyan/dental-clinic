@@ -13,7 +13,7 @@ const service = {
 };
 const dentist = {
   _id: "64b000000000000000000021", firstName: "Ani", lastName: "Preview", slug: "ani-preview",
-  title: "", specializations: [], bio: "", translations: { hy: { title: "Ատամնաբույժ" }, en: { title: "Dentist" } },
+  title: "", specializations: [], bio: "", translations: { hy: { title: "Ատամնաբույժ" }, en: { firstName: "Ani", lastName: "Preview", title: "Dentist" } },
   experienceYears: 5, photoUrl: "", photo: null, languages: ["hy", "en"],
   services: [{ _id: service._id, name: service.name, slug: service.slug, translations: service.translations, isActive: true, bookingEnabled: true }],
   weeklySchedule: [], scheduleRevision: 3, isFeatured: false, bookingEnabled: false, isActive: true, sortOrder: 1,

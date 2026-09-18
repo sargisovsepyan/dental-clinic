@@ -128,14 +128,14 @@ test("logout clears another authenticated tab and a late refresh cannot restore 
     await page.getByRole("button", { name: "Sign out" }).last().click();
     await expect(page).toHaveURL(/\/en\/staff\/login$/);
     await expect(secondPage).toHaveURL(/\/en\/staff\/login$/);
-    await expect(secondPage.getByRole("heading", { name: "Sign in to the clinic workspace" })).toBeVisible();
+    await expect(secondPage.getByRole("heading", { name: "Staff sign in" })).toBeVisible();
     await expect(secondPage.getByText("Preview Admin")).toHaveCount(0);
   } finally {
     releaseRefresh();
   }
 
   await refreshFulfilled;
-  await expect(secondPage.getByRole("heading", { name: "Sign in to the clinic workspace" })).toBeVisible();
+  await expect(secondPage.getByRole("heading", { name: "Staff sign in" })).toBeVisible();
   await secondPage.waitForTimeout(250);
   await expect(secondPage).toHaveURL(/\/en\/staff\/login$/);
   await expect(secondPage.getByText("Preview Admin")).toHaveCount(0);
@@ -143,7 +143,7 @@ test("logout clears another authenticated tab and a late refresh cannot restore 
   await secondPage.unroute("**/api/v1/auth/refresh");
   await secondPage.goto("/en/staff");
   await expect(secondPage).toHaveURL(/\/en\/staff\/login$/);
-  await expect(secondPage.getByRole("heading", { name: "Sign in to the clinic workspace" })).toBeVisible();
+  await expect(secondPage.getByRole("heading", { name: "Staff sign in" })).toBeVisible();
 });
 
 test("HY, RU, and EN staff shells render the correct locale without overflow", async ({ page }) => {
@@ -162,7 +162,8 @@ test("receptionists can manage appointments while dentists are denied in UI and 
   await page.getByRole("button", { name: "Sign out" }).last().click();
 
   await login(page, "dentist");
-  await expect(page.getByRole("link", { name: "Appointments" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Appointments", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "My appointments", exact: true })).toBeVisible();
   await page.goto("/en/staff/appointments");
   await expect(page.getByText("Access denied")).toBeVisible();
   await expect(page.getByText("Aram Preview")).toHaveCount(0);
@@ -239,7 +240,7 @@ test("stale CAS writes and stale availability are refused without automatic muta
   await setScenario(request, "staff-conflict");
   await page.getByRole("button", { name: "Mark as Confirmed" }).click();
   await expect(page.getByText(/changed after you opened it/i)).toBeVisible();
-  await expect(page.getByText("Pending").first()).toBeVisible();
+  await expect(page.getByText("Awaiting confirmation").first()).toBeVisible();
   await page.getByRole("button", { name: "Mark as Confirmed" }).click();
   await expect(page.getByText("Confirmed").first()).toBeVisible();
 
@@ -258,7 +259,7 @@ test("expired refresh sessions fail closed and return to sign-in", async ({ page
   await setScenario(request, "staff-expired");
   await page.reload();
   await expect(page).toHaveURL(/\/en\/staff\/login$/);
-  await expect(page.getByRole("heading", { name: "Sign in to the clinic workspace" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Staff sign in" })).toBeVisible();
   await expect(page.getByText("Aram Preview")).toHaveCount(0);
 });
 

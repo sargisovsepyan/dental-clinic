@@ -54,7 +54,7 @@ await Promise.all([
   rm(distPath, { force: true, maxRetries: 3, recursive: true, retryDelay: 250 }),
 ]);
 
-const api = createMockApiServer(apiPort, initialScenario);
+const api = createMockApiServer(apiPort, initialScenario, { profile: 'arelis' });
 await new Promise((resolve, reject) => {
   api.once("error", reject);
   api.listen(apiPort, host, resolve);
@@ -71,6 +71,7 @@ const next = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", 
     NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: "disabled",
     NEXT_PUBLIC_TURNSTILE_SITE_KEY: "",
     NEXT_DIST_DIR: distDir,
+    ARELIS_SUPERVISED_PREVIEW: '1',
   },
   ...createPreviewChildIsolation(),
 });

@@ -44,8 +44,8 @@ test.beforeEach(async ({ page, request }) => {
 });
 
 async function reachForm(page: Page, date = bookingDate, time = "09:00") {
-  await page.getByRole("button", { name: /Ատամների մաքրում/ }).click();
-  await page.getByRole("button", { name: /Անի Փորձարկում/ }).click();
+  await page.getByRole("button", { name: /Tooth cleaning/ }).click();
+  await page.getByRole("button", { name: /Ani Test/ }).click();
   await page.getByLabel("Visit date").fill(date);
   await page.getByRole("button", { name: `Choose ${time}` }).click();
 }
@@ -61,7 +61,7 @@ async function fillForm(page: Page) {
 async function submitLocalizedBooking(page: Page, locale: "hy" | "ru", keyboard = false) {
   await page.goto(`/${locale}/book`);
   const service = page.getByRole("button", { name: locale === "ru" ? /Чистка зубов/ : /Ատամների մաքրում/ });
-  const dentist = page.getByRole("button", { name: /Անի Փորձարկում/ });
+  const dentist = page.getByRole("button", { name: locale === "ru" ? /Ани Тест/ : /Անի Փորձարկում/ });
   if (keyboard) {
     await service.focus();
     await page.keyboard.press("Enter");
@@ -91,7 +91,7 @@ test("booking entry points are live and locale switching preserves only safe pre
   await page.goto("/en/services/test-cleaning");
   await page.locator("main").getByRole("link", { name: "Book a visit" }).click();
   await expect(page).toHaveURL(/\/en\/book\?service=test-cleaning$/, { timeout: 30_000 });
-  await expect(page.getByRole("button", { name: /Ատամների մաքրում/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: /Tooth cleaning/ })).toHaveAttribute("aria-pressed", "true");
 
   await page.goto("/en/dentists/ani-test");
   await page.locator("main").getByRole("link", { name: "Book a visit" }).click();
@@ -185,8 +185,8 @@ test("a 409 clears and refreshes only the slot while preserving patient details"
 test("empty, validation, rate-limit, and service failures stay actionable and normalized", async ({ page, request }) => {
   await setScenario(request, "empty-availability");
   await page.goto("/en/book");
-  await page.getByRole("button", { name: /Ատամների մաքրում/ }).click();
-  await page.getByRole("button", { name: /Անի Փորձարկում/ }).click();
+  await page.getByRole("button", { name: /Tooth cleaning/ }).click();
+  await page.getByRole("button", { name: /Ani Test/ }).click();
   await page.getByLabel("Visit date").fill(bookingDate);
   await expect(page.getByText(/No times are available/)).toBeVisible();
 

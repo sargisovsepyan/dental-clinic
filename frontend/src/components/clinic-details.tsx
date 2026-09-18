@@ -1,6 +1,7 @@
 import { ExternalLink, Mail, MapPin, Phone } from "lucide-react";
 import type { Locale } from "@/i18n/locales";
 import { messages } from "@/i18n/messages";
+import { productMessages } from '@/i18n/product-messages';
 import { safeEmailHref, safeExternalUrl, safePhoneHref, safeSocialUrl, type SocialPlatform } from "@/lib/safe-urls";
 
 const socialPlatforms: SocialPlatform[] = ["instagram", "facebook", "whatsapp", "telegram"];
@@ -30,7 +31,7 @@ export function ClinicDetails({
   return (
     <div className="grid gap-12 lg:grid-cols-2 lg:gap-20">
       <div>
-        <h2 className="display-type text-3xl">{copy.contactClinic}</h2>
+        <h2 className="display-type text-3xl">{productMessages[locale].contacts}</h2>
         <div className="mt-7 grid gap-2">
           {clinic.address.text && (
             <p lang={clinic.address.lang} className="flex gap-3 py-3 leading-7">

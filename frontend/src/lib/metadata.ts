@@ -25,7 +25,7 @@ export function publicMetadata(options: {
   clearImageWhenMissing?: boolean;
 }): Metadata {
   const description = options.description || undefined;
-  const image = options.image || (options.clearImageWhenMissing ? undefined : "/og.png");
+  const image = options.image || (options.clearImageWhenMissing ? undefined : "/arelis-social.svg");
   const images = image ? [{ url: image }] : [];
   return {
     title: options.title,

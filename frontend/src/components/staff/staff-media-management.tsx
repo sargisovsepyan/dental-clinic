@@ -37,6 +37,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type { Locale } from "@/i18n/locales";
+import { localizedPersonName } from "@/i18n/localized-content";
+import { productMessages } from "@/i18n/product-messages";
 
 type MediaTab = "gallery" | "dentists" | "services" | "cleanup";
 
@@ -71,12 +73,12 @@ function cleanupSourceLabel(source: string, copy: ReturnType<typeof useMediaCopy
 }
 type ImageTarget = { kind: "dentist" | "service"; id: string; label: string; asset: StaffDentist["photo"] };
 
-function dentistName(dentist: StaffDentist) {
-  return `${dentist.firstName} ${dentist.lastName}`.trim();
+function dentistName(dentist: StaffDentist, locale: Locale) {
+  return localizedPersonName(dentist, locale) || productMessages[locale].untranslated;
 }
 
 function serviceName(service: StaffService, locale: Locale) {
-  return service.translations[locale]?.name || service.translations.hy?.name || service.name;
+  return service.translations[locale]?.name || (locale === 'hy' ? service.name : productMessages[locale].untranslated);
 }
 
 function GalleryEditor({
@@ -195,8 +197,8 @@ function GalleryGrid({ items, locale, pending, onEdit, onArchive, onRestore }: {
   if (items.length === 0) return <p className="mt-7 rounded-xl border bg-card p-6 text-muted-foreground">{copy.noGallery}</p>;
   const priorityIndex = firstRenderableMediaIndex(items.map((item) => item.image));
   return <div className="mt-7 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">{items.map((item, index) => {
-    const alt = item.translations[locale]?.altText || item.translations.hy?.altText || item.altText;
-    const caption = item.translations[locale]?.caption || item.translations.hy?.caption || item.caption;
+    const alt = item.translations[locale]?.altText || (locale === 'hy' ? item.altText : '');
+    const caption = item.translations[locale]?.caption || (locale === 'hy' ? item.caption : '');
     return <article key={item.id} className="min-w-0 overflow-hidden rounded-xl border bg-card shadow-sm">
       <ManagedMediaPreview asset={item.image} alt={alt} className="aspect-[4/3]" priority={index === priorityIndex} />
       <div className="p-4">
@@ -222,7 +224,7 @@ function EntityMediaGrid({ kind, items, locale, pending, onEdit, onRemove }: {
   const priorityIndex = firstRenderableMediaIndex(items.map((item) => kind === "dentist" ? (item as StaffDentist).photo : (item as StaffService).image));
   return <div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{items.map((item, index) => {
     const isDentist = kind === "dentist";
-    const label = isDentist ? dentistName(item as StaffDentist) : serviceName(item as StaffService, locale);
+    const label = isDentist ? dentistName(item as StaffDentist, locale) : serviceName(item as StaffService, locale);
     const asset = isDentist ? (item as StaffDentist).photo : (item as StaffService).image;
     const target: ImageTarget = { kind, id: item._id, label, asset };
     return <article key={item._id} className="min-w-0 rounded-xl border bg-card p-4 shadow-sm">

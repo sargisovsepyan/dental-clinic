@@ -27,7 +27,7 @@ export function DentistCard({
   const Heading = headingLevel === 2 ? "h2" : "h3";
   return (
     <article className="group">
-      <PublicImage image={dentist.photo} alt={dentist.fullName} lang={dentist.fullNameLang} className="aspect-[4/5] min-h-0 rounded-md" imageClassName="h-full object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
+      {dentist.photo ? <PublicImage image={dentist.photo} alt={dentist.fullName} lang={dentist.fullNameLang} className="aspect-[4/5] min-h-0 rounded-md" imageClassName="h-full object-cover" sizes="(max-width: 768px) 100vw, 33vw" /> : <div aria-hidden="true" className="grid aspect-[4/3] place-items-center rounded-xl border bg-gradient-to-br from-secondary to-background"><span className="display-type grid size-28 place-items-center rounded-full border border-primary/20 text-4xl text-primary/70">{dentist.fullName.split(/\s+/).map((part) => part[0]).join('')}</span></div>}
       <div className="border-b pb-6 pt-5">
         <Heading lang={dentist.fullNameLang} className="display-type text-2xl">{dentist.fullName}</Heading>
         {dentist.title.text && <p lang={dentist.title.lang} className="mt-2 text-sm text-muted-foreground">{dentist.title.text}</p>}

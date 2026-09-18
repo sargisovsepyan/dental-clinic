@@ -5,6 +5,9 @@ import { StaffAuditManagement, AuditMetadataView } from "@/components/staff/staf
 import { StaffApiError } from "@/api/staff-client";
 import type { GovernedStaff } from "@/api/staff-governance";
 import { staffMessages } from "@/i18n/staff-messages";
+import { buildCatalog } from './preview/arelis-catalog.mjs';
+import { buildTeam } from './preview/arelis-team.mjs';
+import type { StaffDentist } from '@/api/staff-management';
 const time = "2026-09-15T08:00:00.000Z";
 const admin = { id: "64b000000000000000000091", name: "Admin", email: "admin@example.test", role: "admin" };
 const member = (id: string, name: string, extra = {}): GovernedStaff => ({ id, name, email: `${name}@example.test`, role: "dentist", isActive: true, isSetupComplete: true, deactivatedAt: null, createdAt: time, updatedAt: time, ...extra });
@@ -15,7 +18,7 @@ const self = member(admin.id, admin.name, { role: "admin", email: admin.email })
 const page = (staff = [self, other, inactive, pending]) => ({ staff, pagination: { page: 1, limit: 12, total: staff.length, pages: 1 } });
 const log = (action: string) => ({ id: "64b000000000000000000001", requestId: "safe-reference", actor: null, action, entityType: "future-entity", entityId: "ref", method: "POST", path: "/safe", metadata: { reason: "<img src=x onerror=alert(1)>" }, createdAt: time });
 const auditPage = (action: string) => ({ logs: [log(action)], pagination: { page: 1, limit: 10, total: 1, pages: 1 } });
-const api = { listStaff: vi.fn(), getStaff: vi.fn(), mutateStaff: vi.fn(), inviteStaff: vi.fn(), listAuditLogs: vi.fn() };
+const api = { listStaff: vi.fn(), getStaff: vi.fn(), mutateStaff: vi.fn(), inviteStaff: vi.fn(), listAuditLogs: vi.fn(), listDentists: vi.fn(), getDentistProfile: vi.fn(), setDentistProfile: vi.fn() };
 const replace = vi.fn();
 const state = { api, locale: "en", copy: staffMessages.en, user: { ...admin }, handleApiError: vi.fn(), endRevokedSession: vi.fn() };
 vi.mock("@/components/staff/staff-auth-provider", () => ({ useStaffAuth: () => state }));
@@ -23,10 +26,44 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }), usePathname:
 beforeEach(() => {
   vi.resetAllMocks(); state.user = { ...admin }; state.locale = "en"; state.copy = staffMessages.en;
   api.listStaff.mockResolvedValue(page()); api.getStaff.mockResolvedValue(other); api.mutateStaff.mockResolvedValue(other); api.inviteStaff.mockResolvedValue(pending); api.listAuditLogs.mockResolvedValue(auditPage("future.unknown"));
+  api.listDentists.mockResolvedValue([]); api.getDentistProfile.mockResolvedValue(null);
 });
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; }
 
 describe("admin-only team governance", () => {
+  it("requires an explicit doctor-profile choice, saves the verified binding, and explains session revocation", async () => {
+    const doctors = buildTeam(buildCatalog().services) as unknown as StaffDentist[];
+    api.listDentists.mockResolvedValue(doctors);
+    api.setDentistProfile.mockResolvedValue(doctors[3]._id);
+    render(<StaffTeamManagement />); await screen.findByText('Other');
+    fireEvent.click(within(screen.getByTestId(`staff-${other.id}`)).getByRole('button', { name: 'View' }));
+    const dialog = within(screen.getByRole('dialog'));
+    await waitFor(() => expect(dialog.getByLabelText('Doctor profile')).toBeEnabled());
+    expect(dialog.getByLabelText('Doctor profile')).toHaveValue('');
+    expect(api.setDentistProfile).not.toHaveBeenCalled();
+    expect(dialog.getByText(/Saving signs this employee out of all sessions/)).toBeVisible();
+    fireEvent.change(dialog.getByLabelText('Doctor profile'), { target: { value: doctors[3]._id } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(api.setDentistProfile).toHaveBeenCalledExactlyOnceWith(other.id, doctors[3]._id));
+    expect(await dialog.findByText('Doctor profile saved. The employee must sign in again.')).toBeVisible();
+    expect(dialog.getByLabelText('Doctor profile')).toHaveValue(doctors[3]._id);
+    expect(dialog.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+  });
+  it("does not replay an uncertain profile change or claim it succeeded", async () => {
+    const doctors = buildTeam(buildCatalog().services) as unknown as StaffDentist[];
+    api.listDentists.mockResolvedValue(doctors);
+    api.setDentistProfile.mockRejectedValue(new StaffApiError({ kind: 'network' }));
+    render(<StaffTeamManagement />); await screen.findByText('Other');
+    fireEvent.click(within(screen.getByTestId(`staff-${other.id}`)).getByRole('button', { name: 'View' }));
+    const dialog = within(screen.getByRole('dialog'));
+    await waitFor(() => expect(dialog.getByLabelText('Doctor profile')).toBeEnabled());
+    fireEvent.change(dialog.getByLabelText('Doctor profile'), { target: { value: doctors[3]._id } });
+    fireEvent.click(dialog.getByRole('button', { name: 'Save changes' }));
+    expect(await dialog.findByText(staffMessages.en.networkError)).toBeVisible();
+    expect(api.setDentistProfile).toHaveBeenCalledExactlyOnceWith(other.id, doctors[3]._id);
+    expect(dialog.queryByText('Doctor profile saved. The employee must sign in again.')).toBeNull();
+    expect(state.endRevokedSession).not.toHaveBeenCalled();
+  });
   it.each(["receptionist", "dentist"])("denies %s with zero staff/audit reads and preserves the signed-in principal", async (role) => {
     state.user.role = role;
     render(<><StaffTeamManagement /><StaffAuditManagement /></>);
@@ -102,7 +139,8 @@ describe("admin-only team governance", () => {
     api.mutateStaff.mockRejectedValueOnce(new StaffApiError({ kind: "http", status: 403 }));
     fireEvent.click(within(screen.getByTestId(`staff-${other.id}`)).getByRole("button", { name: "Revoke all sessions" }));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirm change" }));
-    expect(await screen.findByText(/signed-in session is preserved/)).toBeVisible(); expect(state.endRevokedSession).not.toHaveBeenCalled();
+    expect(await screen.findByText('You do not have permission for this action.')).toBeVisible(); expect(state.endRevokedSession).not.toHaveBeenCalled();
+    expect(state.user.id).toBe(admin.id);
   });
   it("correlates overlapping selected staff detail loads", async () => {
     const old = deferred<typeof other>(); const latest = deferred<typeof other>();
@@ -119,7 +157,7 @@ describe("admin-only team governance", () => {
 describe("read-only audit administration", () => {
   it("uses UTC server filters and validates reversed ranges without a new read", async () => {
     render(<StaffAuditManagement />); await screen.findAllByText("future.unknown");
-    fireEvent.change(screen.getByLabelText("Action code"), { target: { value: "staff.invited" } });
+    fireEvent.change(screen.getByLabelText("Action"), { target: { value: "staff.invited" } });
     fireEvent.change(screen.getByLabelText("From (UTC)"), { target: { value: "2026-09-15T08:00" } });
     fireEvent.change(screen.getByLabelText("To (UTC)"), { target: { value: "2026-09-15T09:00" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
@@ -132,8 +170,8 @@ describe("read-only audit administration", () => {
     const old = deferred<ReturnType<typeof auditPage>>(); const latest = deferred<ReturnType<typeof auditPage>>();
     render(<StaffAuditManagement />); await screen.findAllByText("future.unknown");
     api.listAuditLogs.mockReturnValueOnce(old.promise).mockReturnValueOnce(latest.promise);
-    fireEvent.change(screen.getByLabelText("Action code"), { target: { value: "old" } }); fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
-    fireEvent.change(screen.getByLabelText("Action code"), { target: { value: "new" } }); fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
+    fireEvent.change(screen.getByLabelText("Action"), { target: { value: "old" } }); fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
+    fireEvent.change(screen.getByLabelText("Action"), { target: { value: "new" } }); fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
     await act(async () => latest.resolve(auditPage("future.new"))); await act(async () => old.resolve(auditPage("future.stale")));
     expect(screen.queryByText("future.stale")).toBeNull(); expect(screen.getAllByText("System or unavailable staff").length).toBeGreaterThan(0);
     fireEvent.click(screen.getAllByRole("button", { name: "View" })[0]);

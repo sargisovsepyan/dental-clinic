@@ -30,8 +30,8 @@ const appointment = {
   startTime: "09:00",
   endTime: "10:00",
   status: "pending",
-  dentist: { id: payload.dentistId, firstName: "Ani", lastName: "Test" },
-  service: { id: payload.serviceId, name: "Cleaning", durationMinutes: 60 },
+  dentist: { id: payload.dentistId, firstName: "Անի", lastName: "Փորձարկում", translations: { en: { firstName: "Ani", lastName: "Test" } } },
+  service: { id: payload.serviceId, name: "Մաքրում", durationMinutes: 60, translations: { en: { name: "Cleaning" } } },
   price: { priceType: "from", priceFrom: 20_000, priceTo: null, currency: "AMD" },
 };
 
@@ -130,9 +130,9 @@ describe("booking API client", () => {
     const key = "0f459e5d-dbf8-4d92-b512-c329d39a610e";
     const result = await createPublicAppointment(payload, key);
     expect(result).not.toHaveProperty("id");
-    expect(result.dentist).toEqual({ firstName: "Ani", lastName: "Test" });
+    expect(result.dentist).toEqual({ firstName: "Ani Test", lastName: "", nameLang: "en" });
     expect(result.dentist).not.toHaveProperty("id");
-    expect(result.service).toEqual({ name: "Cleaning", durationMinutes: 60 });
+    expect(result.service).toEqual({ name: "Cleaning", nameLang: "en", durationMinutes: 60 });
     expect(result.service).not.toHaveProperty("id");
     expect(result.confirmationCode).toBe(appointment.confirmationCode);
     const [, options] = fetchMock.mock.calls[0] as [URL, RequestInit];
@@ -200,10 +200,10 @@ describe("booking API client", () => {
     )).rejects.toMatchObject({ kind: "protocol" });
   });
 
-  it("uses the authoritative localized service summary and annotates Armenian dentist names", async () => {
+  it("uses the authoritative localized service and doctor summaries without Armenian leakage", async () => {
     const localized = {
       ...appointment,
-      dentist: { id: payload.dentistId, firstName: "Անի", lastName: "Փորձարկում" },
+      dentist: { id: payload.dentistId, firstName: "Անի", lastName: "Փորձարկում", translations: { ru: { firstName: "Ани", lastName: "Тест" } } },
       service: {
         ...appointment.service,
         translations: { hy: { name: "Մաքրում" }, ru: { name: "Чистка" } },
@@ -211,7 +211,7 @@ describe("booking API client", () => {
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: true, data: { appointment: localized } }), { status: 201 })));
     await expect(createPublicAppointment({ ...payload, locale: "ru" }, "0f459e5d-dbf8-4d92-b512-c329d39a610e")).resolves.toMatchObject({
-      dentist: { nameLang: "hy" },
+      dentist: { firstName: "Ани Тест", lastName: "", nameLang: "ru" },
       service: { name: "Чистка", nameLang: "ru" },
     });
   });

@@ -9,6 +9,7 @@ import { PublicImage } from "@/components/public-media";
 import { bookingPath, isLocale, localizedPath } from "@/i18n/locales";
 import { bookingMessages } from "@/i18n/booking-messages";
 import { messages } from "@/i18n/messages";
+import { productMessages } from '@/i18n/product-messages';
 import { getFrontendEnvironment } from "@/lib/env";
 import { formatPrice } from "@/lib/format";
 import { publicMetadata } from "@/lib/metadata";
@@ -37,6 +38,7 @@ export default async function ServiceDetailPage({ params }: Props) {
   const { locale, slug } = await params;
   if (!isLocale(locale)) return null;
   const copy = messages[locale];
+  const text = productMessages[locale];
   const cloudName = getFrontendEnvironment().cloudinaryCloudName;
   let service;
   try {
@@ -49,7 +51,7 @@ export default async function ServiceDetailPage({ params }: Props) {
 
   let dentists: ReturnType<typeof dentistView>[] = [];
   try {
-    dentists = (await getDentists({ service: service.id })).map((item) => dentistView(item, locale, cloudName));
+    dentists = (await getDentists({ service: service.id })).map((item) => dentistView(item, locale, cloudName)).filter((item) => item.fullName);
   } catch {
     dentists = [];
   }
@@ -59,9 +61,9 @@ export default async function ServiceDetailPage({ params }: Props) {
       <article className="site-container py-12 sm:py-20">
         <Link href={localizedPath(locale, "services")} className="inline-flex min-h-11 items-center gap-2 text-sm font-bold text-primary"><ArrowLeft aria-hidden="true" className="size-4" />{copy.back}</Link>
         <div className="mt-9 grid gap-12 lg:grid-cols-12 lg:gap-16">
-          <div className="lg:col-span-7">
+          <div className="min-w-0 lg:col-span-7">
             <p lang={service.category.name.lang} className="eyebrow">{service.category.name.text}</p>
-            <h1 lang={service.name.lang} className="display-type mt-4 text-balance text-5xl leading-[1.1] sm:text-7xl">{service.name.text}</h1>
+            <h1 lang={service.name.lang} className="display-type mt-4 text-balance text-3xl leading-[1.1] [overflow-wrap:anywhere] sm:text-5xl lg:text-7xl">{service.name.text}</h1>
             {service.shortDescription.text && <p lang={service.shortDescription.lang} className="mt-7 text-lg leading-8 text-muted-foreground">{service.shortDescription.text}</p>}
             <div className="mt-9 flex flex-wrap gap-x-8 gap-y-3 border-y py-5 text-sm">
               <span className="font-bold">{formatPrice(locale, copy, service)}</span>
@@ -77,10 +79,15 @@ export default async function ServiceDetailPage({ params }: Props) {
         </div>
         {service.description.text && (
           <div className="grid gap-8 border-b py-16 lg:grid-cols-12">
-            <h2 className="display-type text-3xl lg:col-span-4">{copy.learnMore}</h2>
-            <p lang={service.description.lang} className="whitespace-pre-line text-base leading-8 text-muted-foreground lg:col-span-7">{service.description.text}</p>
+            <h2 className="display-type text-3xl lg:col-span-4">{text.aboutService}</h2>
+            <div className="lg:col-span-7"><h3 className="mb-3 font-semibold">{productMessages[locale].includes}</h3><p lang={service.description.lang} className="whitespace-pre-line text-base leading-8 text-muted-foreground">{service.description.text}</p></div>
           </div>
         )}
+        <section className="grid gap-8 pb-12 md:grid-cols-3">
+          <div><h2 className="display-type text-2xl">{text.procedure}</h2><p className="mt-4 leading-7 text-muted-foreground">{text.procedureBody}</p></div>
+          <div><h2 className="display-type text-2xl">{copy.duration}</h2><p className="mt-4 font-medium">{service.durationMinutes} {copy.minutes}</p><p className="mt-3 leading-7 text-muted-foreground">{text.timingBody}</p></div>
+          <div><h2 className="display-type text-2xl">{text.when}</h2><p className="mt-4 leading-7 text-muted-foreground">{text.whenBody}</p></div>
+        </section>
       </article>
       {dentists.length > 0 && (
         <section className="section-space bg-muted/55">

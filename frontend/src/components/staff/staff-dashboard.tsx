@@ -2,20 +2,22 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { Building2, CalendarClock, CalendarDays, ShieldCheck, Stethoscope, UserRound, UsersRound } from "lucide-react";
+import { Building2, CalendarClock, CalendarDays, Stethoscope, UserRound, UsersRound } from "lucide-react";
 import { useStaffAuth } from "@/components/staff/staff-auth-provider";
 import { staffManagementMessages } from "@/i18n/staff-management-messages";
+import { StaffMyAppointments } from './staff-my-appointments';
 
 export function StaffDashboard() {
   const { locale, copy, user } = useStaffAuth();
   const managementCopy = staffManagementMessages[locale];
   if (!user) return null;
+  if (user.role === 'dentist') return <StaffMyAppointments />;
   return (
     <section className="max-w-4xl">
       <p className="text-xs font-bold tracking-[0.14em] text-primary uppercase">{copy.workspace}</p>
       <h1 className="display-type mt-3 text-4xl sm:text-5xl">{copy.dashboardTitle}</h1>
       <p className="mt-4 max-w-2xl leading-7 text-muted-foreground">{copy.dashboardIntro}</p>
-      {user.role === "dentist" ? <div className="mt-8 flex gap-4 rounded-xl border bg-card p-6"><ShieldCheck aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-primary" /><p className="leading-7">{copy.dentistDashboard}</p></div> : <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <DashboardLink href={`/${locale}/staff/appointments`} icon={CalendarDays} title={copy.appointmentShortcut} body={copy.appointmentsIntro} />
         {user.role === "admin" && <>
           <DashboardLink href={`/${locale}/staff/services`} icon={Stethoscope} title={managementCopy.catalogNav} body={managementCopy.catalogIntro} />
@@ -24,7 +26,7 @@ export function StaffDashboard() {
           <DashboardLink href={`/${locale}/staff/clinic`} icon={Building2} title={managementCopy.clinicNav} body={managementCopy.clinicIntro} />
         </>}
         <DashboardLink href={`/${locale}/staff/account`} icon={UserRound} title={copy.account} body={copy.accountIntro} />
-      </div>}
+      </div>
     </section>
   );
 }

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { StaffApiError } from "@/api/staff-client";
 import { StaffCatalogManagement } from "@/components/staff/staff-catalog-management";
+import { LocalizedFields } from "@/components/staff/staff-management-shared";
 import { staffMessages } from "@/i18n/staff-messages";
 
 const category = {
@@ -43,6 +44,14 @@ beforeEach(() => {
 });
 
 describe("staff category and service management", () => {
+  it("warns about incomplete publication translations and clears only when every locale is complete", () => {
+    const props = { fields: [{ name: 'name', label: 'Service name', maxLength: 100 }], primaryRequired: ['name'], onChange: vi.fn() };
+    const view = render(<LocalizedFields {...props} value={{ hy: { name: 'Մաքրում' }, ru: {}, en: {} }} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Some languages are incomplete');
+    expect(screen.getByRole('status')).toHaveTextContent('(RU, EN)');
+    view.rerender(<LocalizedFields {...props} value={{ hy: { name: 'Մաքրում' }, ru: { name: 'Гигиена' }, en: { name: 'Hygiene' } }} />);
+    expect(screen.queryByRole('status')).toBeNull();
+  });
   it("denies a non-admin direct route without issuing management requests", async () => {
     authState.user.role = "receptionist" as "admin";
     render(<StaffCatalogManagement />);
@@ -54,12 +63,16 @@ describe("staff category and service management", () => {
 
   it("loads authoritative admin lists and creates a localized category without a client slug", async () => {
     render(<StaffCatalogManagement />);
-    expect(await screen.findByText("Treatment")).toBeVisible();
+    expect(await screen.findByText("Cleaning")).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Services' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: 'Add service' })).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', { name: 'Service sections' }));
+    expect(await screen.findByText('Treatment')).toBeVisible();
     expect(api.listCategories).toHaveBeenCalledTimes(1);
     expect(api.listServices).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Add category" }));
-    fireEvent.change(screen.getByLabelText("Category name *"), { target: { value: "Վիրաբուժություն" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add section" }));
+    fireEvent.change(screen.getByLabelText("Section name *"), { target: { value: "Վիրաբուժություն" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() => expect(api.createCategory).toHaveBeenCalledWith({
@@ -68,13 +81,13 @@ describe("staff category and service management", () => {
       isActive: true,
     }));
     expect(api.createCategory.mock.calls[0][0]).not.toHaveProperty("slug");
-    await screen.findByText("The server confirmed the change.");
+    await screen.findByText("Changes saved.");
     expect(api.listCategories).toHaveBeenCalledTimes(2);
   });
 
   it("does not resend an unchanged category relation when editing a service", async () => {
     render(<StaffCatalogManagement />);
-    await screen.findByText("Treatment");
+    await screen.findByText("Cleaning");
     fireEvent.click(screen.getByRole("tab", { name: "Services" }));
     expect(await screen.findByText("Cleaning")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
@@ -91,10 +104,12 @@ describe("staff category and service management", () => {
   it("surfaces category referential conflicts without optimistic removal", async () => {
     api.disableCategory.mockRejectedValue(new StaffApiError({ kind: "http", status: 409 }));
     render(<StaffCatalogManagement />);
-    await screen.findByText("Treatment");
-    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Confirm archive" }));
-    expect(await screen.findByText("Archive the active services in this category first.")).toBeVisible();
+    await screen.findByText("Cleaning");
+    fireEvent.click(screen.getByRole('tab', { name: 'Service sections' }));
+    await screen.findByText('Treatment');
+    fireEvent.click(screen.getByRole('button', { name: 'Hide from site' }));
+    fireEvent.click(await screen.findByRole("button", { name: "Hide from site" }));
+    expect(await screen.findByText("Hide the active services in this section first.")).toBeVisible();
     expect(screen.getByText("Treatment")).toBeVisible();
     expect(api.listCategories).toHaveBeenCalledTimes(1);
   });

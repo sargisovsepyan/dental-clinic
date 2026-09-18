@@ -89,7 +89,8 @@ test("role/lifecycle controls, detail, last-admin conflict, and 403 preserve aut
   await request.get(`${apiUrl}/__test__/scenario/governance-forbidden`);
   await card(page, previewAccounts.dentist.id).getByRole("button", { name: "Revoke all sessions" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Confirm change" }).click();
-  await expect(page.getByText(/signed-in session is preserved/).first()).toBeVisible();
+  await expect(page.getByText("You do not have permission for this action.").first()).toBeVisible();
+  await expect(page.getByText("Preview Admin").first()).toBeVisible();
   await page.goto("/en/staff/account"); await expect(page.getByRole("heading", { name: "Account security" })).toBeVisible();
 });
 
@@ -111,7 +112,7 @@ test("audit uses server filtering, deterministic pages, UTC boundaries, null act
   await expect(page.getByText(/Total records: 36/)).toBeVisible();
   await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.getByText(/Page 2 of 4/)).toBeVisible();
-  await page.getByLabel("Action code", { exact: true }).fill("staff.invited");
+  await page.getByLabel("Action", { exact: true }).fill("staff.invited");
   await page.getByLabel("From (UTC)").fill("2026-09-15T08:00");
   await page.getByLabel("To (UTC)").fill("2026-09-15T08:00");
   await page.getByRole("button", { name: "Apply filters" }).click();

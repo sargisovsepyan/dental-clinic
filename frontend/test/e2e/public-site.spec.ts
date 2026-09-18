@@ -81,10 +81,10 @@ test("all public collections and details are reachable", async ({ page }) => {
   await expect(page.getByRole("img", { name: "Фотография тестовой клиники" })).toBeVisible();
 
   await page.goto("/en/dentists/ani-test");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveAttribute("lang", "hy");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveAttribute("lang", "en");
 
   await page.goto("/en/dentists");
-  await expect(page.getByRole("heading", { level: 2, name: "Անի Փորձարկում" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Ani Test" })).toBeVisible();
 
   await page.goto("/hy/before-after/64b000000000000000000051");
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Փորձնական դեպք");
@@ -95,15 +95,16 @@ test("all public collections and details are reachable", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Next page" })).toHaveCount(0);
 
   await page.goto("/en/clinic");
-  await expect(page.locator("header.site-container > p").last()).toHaveAttribute("lang", "hy");
+  await expect(page.locator("main")).toContainText("Published test clinic description");
+  expect(await page.locator("main").innerText()).not.toMatch(/\p{Script=Armenian}/u);
 });
 
-test("locale switching preserves a detail route and Armenian fallback carries lang", async ({ page }) => {
+test("locale switching preserves a detail route and malicious translated content remains escaped", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/ru/services/test-cleaning");
   await page.getByRole("link", { name: "EN" }).click();
   await expect(page).toHaveURL(/\/en\/services\/test-cleaning$/);
-  await expect(page.locator("h1")).toHaveAttribute("lang", "hy");
+  await expect(page.locator("h1")).toHaveAttribute("lang", "en");
   await expect(page.locator("main > article")).toContainText('<img src=x onerror="alert(1)">');
   await expect(page.locator('main > article img[src="x"]')).toHaveCount(0);
 });
@@ -134,7 +135,7 @@ test("SEO endpoints, metadata, and response hardening are present", async ({ pag
   expect(response?.headers()["content-security-policy"]).toContain("default-src 'self'");
   expect(response?.headers()["x-content-type-options"]).toBe("nosniff");
   expect(response?.headers()["cross-origin-opener-policy"]).toBe("same-origin");
-  await expect(page).toHaveTitle(/Ատամների մաքրում/);
+  await expect(page).toHaveTitle(/Tooth cleaning/);
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", "http://127.0.0.1:3100/en/services/test-cleaning");
   await expect(page.locator('link[rel="alternate"][hreflang]')).toHaveCount(3);
   await expect(page.locator('meta[property="og:image"]')).toHaveAttribute("content", "http://127.0.0.1:3100/og.png");

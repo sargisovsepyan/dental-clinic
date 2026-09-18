@@ -50,7 +50,7 @@ export default async function BookingPage({ params, searchParams }: Props) {
     const bookingServiceIds = new Set(services.map((item) => item.id));
     const dentists = dentistRecords
       .map((item) => dentistView(item, locale, environment.cloudinaryCloudName))
-      .filter((item) => item.bookingEnabled)
+      .filter((item) => item.bookingEnabled && item.fullName)
       .map((item) => ({
         id: item.id,
         slug: item.slug,
