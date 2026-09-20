@@ -24,7 +24,20 @@ Commit ledger:
 Infrastructure provisioning, real provider credentials and real provider smoke
 remain outside this phase. This report is not a deployment certification.
 
-## Final frozen verification matrix — 2026-09-18
+## Manual-QA corrective update — 2026-09-20
+
+The owner review that followed the original phase identified additional public,
+booking, administration and staff-workflow defects. Those corrections are now
+part of this phase: public Arelis bookings remain `pending`, staff-created
+bookings remain `confirmed`, booking fields use aligned browser/API validation,
+the flow progressively focuses newly opened steps, clean preview management
+records satisfy the strict production-shaped parsers, staff invitation/lifecycle
+language is explicit, staff locale switching preserves only the path, and the
+dentist workspace correlates requests so rapid interactions cannot erase or
+replace the current result. The detailed current evidence and verdicts are in
+`docs/ARELIS_MANUAL_QA_CORRECTIVE_REPORT.md`.
+
+## Prior phase frozen verification matrix — 2026-09-18
 
 Product source was frozen after the two responsive presentation fixes. The only
 subsequent test changes were bounded budgets for the expanded locale crawls and
@@ -165,9 +178,10 @@ clinic spaces → three before/after cases → contacts → booking call to acti
 
 Waiting, treatment, diagnostic and consultation rooms use four distinct
 project-local vector illustrations. Hygiene, front-tooth restoration and
-whitening each have a distinct before/after schematic pair. Every schematic
-is explicitly labeled as an illustration, not a patient photograph or actual
-treatment outcome. There are no downloaded photographs, real patients or
+whitening each have a distinct before/after schematic pair. The assets remain
+explicitly scoped as preview illustrations in fixture data and alt text, while
+the owner-requested visible disclaimer overlay has been removed. They are not
+represented as patient photographs or actual treatment outcomes. There are no downloaded photographs, real patients or
 invented consent evidence for real people. Synthetic mock governance records
 do not constitute real consent. Existing production Cloudinary and consent
 administration remains the path for replacing these assets with governed media.
@@ -218,7 +232,8 @@ to the request, not the user DTO. Tests simulate revocation in both intervals.
 
 Staff-created bookings default to confirmed inside the existing transaction.
 Public booking still obeys configurable `autoConfirmAppointments` (production
-default false). The clean preview explicitly sets it true. No reservation locks,
+default false). The clean preview explicitly sets it false so website requests
+remain pending for staff confirmation. No reservation locks,
 atomic phone quotas, refresh rotation, origin/cookie policy, CAS, idempotency,
 outbox, consent, media rollback, startup/index or shutdown guarantees were removed.
 The password minimum remains exactly six characters with bcrypt byte protection.
@@ -468,7 +483,7 @@ illustrations require owner approval/replacement before public release.
 | DENTIST PRIVACY BOUNDARY SAFE | YES |
 | STAFF-CREATED APPOINTMENTS DEFAULT CONFIRMED | YES |
 | PUBLIC AUTO-CONFIRM REMAINS CONFIGURABLE | YES |
-| ARELIS PREVIEW AUTO-CONFIRM ENABLED | YES |
+| ARELIS PREVIEW PUBLIC BOOKINGS PENDING | YES |
 | ADMIN SERVICES UX SIMPLIFIED | YES |
 | ADMIN TERMINOLOGY HUMAN-READABLE | YES |
 | NO PATIENT ACCOUNTS ADDED | YES |
