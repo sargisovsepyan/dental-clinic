@@ -194,7 +194,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Admin only; no-store. Stable name/identifier ordering; default limit 50. */
+        /** @description Admin only; no-store. Stable name/identifier ordering; default limit 50. The lifecycle filter is mutually exclusive with the legacy isActive and setupComplete filters. Current includes active established accounts and pending invitations, but excludes deactivated/cancelled accounts. */
         get: operations["listStaff"];
         put?: never;
         post?: never;
@@ -703,6 +703,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/staff/{id}/resend-invitation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Admin only; no-store. Available only for an uncancelled, setup-incomplete invitation. Invalidates every prior setup link, preserves the originally invited identity and role, sends one new link through mail, and never returns the raw setup token. An uncertain response must not be replayed automatically; an explicit later resend supersedes the earlier link. */
+        post: operations["resendStaffInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/appointments/admin": {
         parameters: {
             query?: never;
@@ -792,7 +811,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** @description Admin or receptionist; validated state transitions only. */
+        /** @description Admin or receptionist; compare-and-set mutationVersion required. Allowed forward transitions are pending to confirmed or no_show; confirmed to checked_in, in_progress, completed, or no_show; checked_in to in_progress or completed; and in_progress to completed. Backward and terminal-state transitions are rejected. Cancellation uses its dedicated route. */
         patch: operations["updateAppointmentStatus"];
         trace?: never;
     };
@@ -1128,7 +1147,10 @@ export interface components {
         ObjectId: string;
         Slug: string;
         ScheduleAcknowledgementToken: string;
-        /** @example 2026-08-20 */
+        /**
+         * @description A real Gregorian calendar date in years 0001-9999; operation-specific booking windows still apply.
+         * @example 2026-08-20
+         */
         LocalDate: string;
         /** @example 09:30 */
         LocalTime: string;
@@ -1246,7 +1268,9 @@ export interface components {
             /** @description Maximum is enforced in UTF-8 bytes. */
             password: string;
         };
+        /** @description The invited name must follow the same Unicode human-name policy as patient names. Re-sending uses the dedicated endpoint and cannot replace these frozen identity fields. */
         StaffInviteRequest: {
+            /** @description Unicode letters and combining marks, with internal spaces, apostrophes, or hyphens; at least two letters and no control/format characters. */
             name: string;
             /** Format: email */
             email: string;
@@ -1965,7 +1989,9 @@ export interface components {
             };
         };
         PatientBookingFields: {
+            /** @description Unicode letters and combining marks, with internal spaces, apostrophes, or hyphens; at least two letters and no control/format characters. */
             patientName: string;
+            /** @description Raw input may contain digits, one optional leading plus, spaces, parentheses, and hyphens only; it must normalize to 8-15 digits. Armenian local 8-digit and leading-zero 9-digit forms normalize to +374. */
             patientPhone: string;
             patientEmail?: string | "";
             dentistId: components["schemas"]["ObjectId"];
@@ -2652,7 +2678,11 @@ export interface operations {
                 page?: components["parameters"]["Page"];
                 limit?: components["parameters"]["Limit"];
                 role?: components["schemas"]["Role"];
+                /** @description Preferred staff workflow filter; mutually exclusive with isActive and setupComplete. */
+                lifecycle?: "current" | "active" | "pending" | "deactivated" | "all";
+                /** @description Legacy filter; mutually exclusive with lifecycle. */
                 isActive?: boolean;
+                /** @description Legacy filter; mutually exclusive with lifecycle. */
                 setupComplete?: boolean;
             };
             header?: never;
@@ -3387,6 +3417,25 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+        };
+    };
+    resendStaffInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["StaffDetailSuccess"];
+            400: components["responses"]["NoStoreError"];
+            401: components["responses"]["NoStoreError"];
+            403: components["responses"]["NoStoreError"];
+            404: components["responses"]["NoStoreError"];
+            409: components["responses"]["NoStoreError"];
         };
     };
     createAdminAppointment: {

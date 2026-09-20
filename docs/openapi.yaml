@@ -166,7 +166,11 @@ paths:
     get:
       tags: [Staff]
       operationId: listStaff
-      description: Admin only; no-store. Stable name/identifier ordering; default limit 50.
+      description: >-
+        Admin only; no-store. Stable name/identifier ordering; default limit 50.
+        The lifecycle filter is mutually exclusive with the legacy isActive and
+        setupComplete filters. Current includes active established accounts and
+        pending invitations, but excludes deactivated/cancelled accounts.
       security: [{ bearerAuth: [] }]
       parameters:
         - { $ref: '#/components/parameters/Page' }
@@ -174,11 +178,19 @@ paths:
         - name: role
           in: query
           schema: { $ref: '#/components/schemas/Role' }
+        - name: lifecycle
+          in: query
+          description: Preferred staff workflow filter; mutually exclusive with isActive and setupComplete.
+          schema:
+            type: string
+            enum: [current, active, pending, deactivated, all]
         - name: isActive
           in: query
+          description: Legacy filter; mutually exclusive with lifecycle.
           schema: { type: boolean }
         - name: setupComplete
           in: query
+          description: Legacy filter; mutually exclusive with lifecycle.
           schema: { type: boolean }
       responses:
         '200': { $ref: '#/components/responses/StaffListSuccess' }
@@ -644,6 +656,25 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+  /staff/{id}/resend-invitation:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Staff]
+      operationId: resendStaffInvitation
+      description: >-
+        Admin only; no-store. Available only for an uncancelled, setup-incomplete
+        invitation. Invalidates every prior setup link, preserves the originally
+        invited identity and role, sends one new link through mail, and never
+        returns the raw setup token. An uncertain response must not be replayed
+        automatically; an explicit later resend supersedes the earlier link.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/StaffDetailSuccess' }
+        '400': { $ref: '#/components/responses/NoStoreError' }
+        '401': { $ref: '#/components/responses/NoStoreError' }
+        '403': { $ref: '#/components/responses/NoStoreError' }
+        '404': { $ref: '#/components/responses/NoStoreError' }
+        '409': { $ref: '#/components/responses/NoStoreError' }
   /appointments/admin:
     post:
       tags: [Appointments]
@@ -730,7 +761,12 @@ paths:
     patch:
       tags: [Appointments]
       operationId: updateAppointmentStatus
-      description: Admin or receptionist; validated state transitions only.
+      description: >-
+        Admin or receptionist; compare-and-set mutationVersion required. Allowed
+        forward transitions are pending to confirmed or no_show; confirmed to
+        checked_in, in_progress, completed, or no_show; checked_in to in_progress
+        or completed; and in_progress to completed. Backward and terminal-state
+        transitions are rejected. Cancellation uses its dedicated route.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -1485,6 +1521,7 @@ components:
       type: string
       pattern: '^\d{4}-\d{2}-\d{2}$'
       examples: ['2026-08-20']
+      description: A real Gregorian calendar date in years 0001-9999; operation-specific booking windows still apply.
     LocalTime:
       type: string
       pattern: '^([01]\d|2[0-3]):[0-5]\d$'
@@ -1668,8 +1705,13 @@ components:
       type: object
       additionalProperties: false
       required: [name, email, role]
+      description: The invited name must follow the same Unicode human-name policy as patient names. Re-sending uses the dedicated endpoint and cannot replace these frozen identity fields.
       properties:
-        name: { type: string, minLength: 2, maxLength: 100 }
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+          description: Unicode letters and combining marks, with internal spaces, apostrophes, or hyphens; at least two letters and no control/format characters.
         email: { type: string, format: email, maxLength: 254 }
         role: { $ref: '#/components/schemas/Role' }
     TranslationText:
@@ -2890,8 +2932,16 @@ components:
       type: object
       required: [patientName, patientPhone, dentistId, serviceId, date, startTime, privacyAccepted]
       properties:
-        patientName: { type: string, minLength: 2, maxLength: 120 }
-        patientPhone: { type: string, minLength: 8, maxLength: 30 }
+        patientName:
+          type: string
+          minLength: 2
+          maxLength: 120
+          description: Unicode letters and combining marks, with internal spaces, apostrophes, or hyphens; at least two letters and no control/format characters.
+        patientPhone:
+          type: string
+          minLength: 8
+          maxLength: 30
+          description: Raw input may contain digits, one optional leading plus, spaces, parentheses, and hyphens only; it must normalize to 8-15 digits. Armenian local 8-digit and leading-zero 9-digit forms normalize to +374.
         patientEmail:
           anyOf:
             - { type: string, format: email, maxLength: 254 }

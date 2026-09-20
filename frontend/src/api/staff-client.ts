@@ -350,7 +350,7 @@ export class StaffApiClient {
     catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
   }
 
-  async mutateStaff(id: string, action: "role" | "deactivate" | "reactivate" | "revoke-sessions", role?: StaffRole) {
+  async mutateStaff(id: string, action: "role" | "deactivate" | "reactivate" | "revoke-sessions" | "resend-invitation", role?: StaffRole) {
     if (!objectId.test(id) || (action === "role" && !roles.has(role))) throw new StaffApiError({ kind: "configuration" });
     const data = dataRecord(await this.#protected({ path: `staff/${id}/${action}`, method: action === "role" ? "PATCH" : "POST",
       ...(action === "role" ? { body: { role } } : {}) }));

@@ -66,17 +66,21 @@ describe("governed staff client", () => {
   const auth = () => json({ accessToken: "preview-access-long-enough", user });
   it("sends exact invitation/role bodies and server-side staff/audit queries without persisting tokens", async () => {
     const storage = vi.spyOn(Storage.prototype, "setItem");
-    const mock = vi.fn().mockResolvedValueOnce(auth()).mockResolvedValueOnce(json({ staff: [member], pagination })).mockResolvedValueOnce(json({ staff: member, token: "must-drop" }, 201)).mockResolvedValueOnce(json({ staff: member })).mockResolvedValueOnce(json({ staff: member })).mockResolvedValueOnce(json({ logs: [log], pagination }));
+    const mock = vi.fn().mockResolvedValueOnce(auth()).mockResolvedValueOnce(json({ staff: [member], pagination })).mockResolvedValueOnce(json({ staff: member, token: "must-drop" }, 201)).mockResolvedValueOnce(json({ staff: member })).mockResolvedValueOnce(json({ staff: member })).mockResolvedValueOnce(json({ staff: member })).mockResolvedValueOnce(json({ logs: [log], pagination }));
     const api = await client(mock);
-    await api.listStaff({ ...pagination, isActive: false, setupComplete: false, role: "dentist" });
+    await api.listStaff({ ...pagination, lifecycle: "current", role: "dentist" });
     const invited = await api.inviteStaff({ name: "Staff", email: "staff@example.test", role: "dentist", token: "must-not-send" } as never);
     await api.getStaff(user.id);
     await api.mutateStaff(user.id, "role", "receptionist");
+    await api.mutateStaff(user.id, "resend-invitation");
     await api.listAuditLogs({ page: 1, limit: 10, action: "staff.invited", actorId: user.id, from: time, to: time, entityType: "user", entityId: user.id });
     expect(JSON.parse(mock.mock.calls[2][1].body)).toEqual({ name: "Staff", email: "staff@example.test", role: "dentist" });
     expect(JSON.parse(mock.mock.calls[4][1].body)).toEqual({ role: "receptionist" });
-    expect(new URL(mock.mock.calls[1][0]).searchParams.get("isActive")).toBe("false");
-    expect(new URL(mock.mock.calls[5][0]).searchParams.get("from")).toBe(time);
+    expect(new URL(mock.mock.calls[1][0]).searchParams.get("lifecycle")).toBe("current");
+    expect(String(mock.mock.calls[5][0])).toBe(`http://localhost:5000/api/v1/staff/${user.id}/resend-invitation`);
+    expect(mock.mock.calls[5][1]).toMatchObject({ method: "POST" });
+    expect(mock.mock.calls[5][1]).not.toHaveProperty("body");
+    expect(new URL(mock.mock.calls[6][0]).searchParams.get("from")).toBe(time);
     expect(invited).not.toHaveProperty("token"); expect(storage).not.toHaveBeenCalled();
     for (const [, options] of mock.mock.calls.slice(1)) { expect(options.cache).toBe("no-store"); expect(options.credentials).toBe("omit"); }
   });

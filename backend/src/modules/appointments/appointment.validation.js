@@ -1,6 +1,8 @@
 ﻿import Joi from 'joi';
 
 
+import { isHumanName, canonicalPhone, isCalendarDate } from '../../../../shared/booking-input.mjs';
+
 const mongoId = Joi.string()
   .hex()
   .length(24);
@@ -14,6 +16,7 @@ const expectedMutationVersion = Joi.number()
 const patientFields = {
   patientName:
     Joi.string()
+      .custom((value, helpers) => isHumanName(helpers.original) ? value : helpers.error('any.invalid'))
       .trim()
       .min(2)
       .max(120)
@@ -21,6 +24,7 @@ const patientFields = {
 
   patientPhone:
     Joi.string()
+      .custom((value, helpers) => canonicalPhone(helpers.original) ? value : helpers.error('any.invalid'))
       .trim()
       .min(8)
       .max(30)
@@ -43,6 +47,7 @@ const patientFields = {
 
   date:
     Joi.string()
+      .custom((value, helpers) => isCalendarDate(value) ? value : helpers.error('any.invalid'))
       .pattern(
         /^\d{4}-\d{2}-\d{2}$/
       )

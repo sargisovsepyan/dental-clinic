@@ -355,6 +355,7 @@ const issueOneTimeToken = async ({
   createdBy = null,
   ttlMinutes,
   beforePersist = null,
+  requirePendingInvitation = false,
 }) => {
   const token = generateOneTimeToken();
 
@@ -363,6 +364,12 @@ const issueOneTimeToken = async ({
   }
 
   await runTransaction(async (session) => {
+    if (requirePendingInvitation) {
+      // Setup/cancellation writes the same user, making those races serialize.
+      const pending = await User.findOneAndUpdate({ _id: user._id, isSetupComplete: false,
+        deactivatedAt: null }, { $inc: { authVersion: 1 } }, { session, returnDocument: 'after' });
+      if (!pending) throw new ApiError(409, 'Invitation is no longer pending');
+    }
     await OneTimeToken.updateMany(
       {
         user: user._id,

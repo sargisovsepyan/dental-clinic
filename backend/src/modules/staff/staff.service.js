@@ -34,6 +34,13 @@ const safeStaff = (user) => ({
 
 const listStaff = async (query) => {
   const filter = {};
+  const lifecycleFilters = {
+    current: { deactivatedAt: null, $or: [{ isActive: true }, { isSetupComplete: false }] },
+    active: { isActive: true, isSetupComplete: true, deactivatedAt: null },
+    pending: { isSetupComplete: false, deactivatedAt: null },
+    deactivated: { $or: [{ deactivatedAt: { $ne: null } }, { isActive: false, isSetupComplete: true }] }, all: {},
+  };
+  if (query.lifecycle) Object.assign(filter, lifecycleFilters[query.lifecycle]);
 
   if (query.role) {
     filter.role = query.role;
@@ -130,6 +137,7 @@ const inviteStaff = async (data, actorId) => {
     purpose: 'invite',
     createdBy: actorId,
     ttlMinutes: env.INVITE_TOKEN_TTL_MINUTES,
+    requirePendingInvitation: true,
   });
 
   await sendStaffInvitation({
@@ -138,6 +146,17 @@ const inviteStaff = async (data, actorId) => {
   });
 
   return getStaffById(user._id);
+};
+
+// Deliberate identity-bound action. Never replay after an uncertain mail result.
+export const resendStaffInvitation = async (id, actorId) => {
+  const user = await User.findById(id).select(publicFields);
+  if (!user) throw new ApiError(404, 'Staff member not found');
+  if (user.isSetupComplete || user.deactivatedAt) throw new ApiError(409, 'Invitation is no longer pending');
+  const token = await issueOneTimeToken({ user, purpose: 'invite', createdBy: actorId,
+    ttlMinutes: env.INVITE_TOKEN_TTL_MINUTES, requirePendingInvitation: true });
+  await sendStaffInvitation({ email: user.email, token });
+  return getStaffById(id);
 };
 
 const touchAdminInvariant = (session) => (

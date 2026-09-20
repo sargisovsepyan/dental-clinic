@@ -748,11 +748,14 @@ const allowedTransitions = {
 
   confirmed: [
     'checked_in',
+    'in_progress',
+    'completed',
     'no_show',
   ],
 
   checked_in: [
     'in_progress',
+    'completed',
   ],
 
   in_progress: [

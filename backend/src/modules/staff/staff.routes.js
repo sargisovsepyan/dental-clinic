@@ -6,6 +6,7 @@ import {
   listStaff,
   getStaff,
   inviteStaff,
+  resendInvitation,
   updateRole,
   deactivate,
   reactivate,
@@ -15,6 +16,7 @@ import {
   dentistProfileSchema,
   inviteStaffSchema,
   staffIdSchema,
+  resendInvitationSchema,
   updateRoleSchema,
   listStaffSchema,
 } from './staff.validation.js';
@@ -58,6 +60,10 @@ router.get(
   validate(staffIdSchema),
   asyncHandler(getStaff)
 );
+
+router.post('/:id/resend-invitation', validate(resendInvitationSchema), auditAction({
+  action: 'staff.invitation.resent', entityType: 'user',
+}, resendInvitation));
 
 router.patch(
   '/:id/role',

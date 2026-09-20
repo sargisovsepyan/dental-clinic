@@ -158,6 +158,38 @@ test('state machine accepts the valid path and rejects transitions from terminal
   assert.equal(reschedule.status, 409);
 });
 
+test('safe forward status shortcuts retain CAS and reject backward movement', async () => {
+  const direct = await createDirect('12:00', '952');
+  const confirmed = await request(app)
+    .patch(`/api/v1/appointments/${direct._id}/status`)
+    .set(auth(staff.adminToken))
+    .send({ status: 'confirmed', expectedMutationVersion: 0 });
+  assert.equal(confirmed.status, 200);
+  assert.equal((await request(app)
+    .patch(`/api/v1/appointments/${direct._id}/status`)
+    .set(auth(staff.adminToken))
+    .send({ status: 'completed', expectedMutationVersion: 0 })).status, 409);
+  const completed = await request(app)
+    .patch(`/api/v1/appointments/${direct._id}/status`)
+    .set(auth(staff.adminToken))
+    .send({ status: 'completed', expectedMutationVersion: 1 });
+  assert.equal(completed.status, 200);
+  assert.equal(completed.body.data.appointment.status, 'completed');
+  assert.equal((await request(app)
+    .patch(`/api/v1/appointments/${direct._id}/status`)
+    .set(auth(staff.adminToken))
+    .send({ status: 'checked_in', expectedMutationVersion: 2 })).status, 409);
+
+  const checkedIn = await createDirect('14:00', '953');
+  for (const [version, status] of ['confirmed', 'checked_in', 'completed'].entries()) {
+    const response = await request(app)
+      .patch(`/api/v1/appointments/${checkedIn._id}/status`)
+      .set(auth(staff.adminToken))
+      .send({ status, expectedMutationVersion: version });
+    assert.equal(response.status, 200);
+  }
+});
+
 test('concurrent duplicate transitions from one state have exactly one winner', async () => {
   const appointment = await createDirect('13:00', '961');
   const responses = await Promise.all([

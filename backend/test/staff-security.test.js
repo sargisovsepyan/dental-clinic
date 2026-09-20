@@ -90,16 +90,25 @@ const tokenFromMail = (mail) => {
 
 test('admin staff listing uses validated defaults, booleans, and deterministic pages', async () => {
   await User.create({ name: 'Pending Staff', email: 'pending@example.test', role: 'dentist', isActive: false, isSetupComplete: false });
+  await User.create({ name: 'Archived Staff', email: 'archived@example.test', password: '123456', role: 'receptionist', isActive: false, isSetupComplete: true, deactivatedAt: new Date() });
   const defaults = await request(app).get('/api/v1/staff').set(bearer(staff.adminToken));
   assert.equal(defaults.status, 200);
-  assert.deepEqual(defaults.body.data.pagination, { page: 1, limit: 50, total: 4, pages: 1 });
+  assert.deepEqual(defaults.body.data.pagination, { page: 1, limit: 50, total: 5, pages: 1 });
   const pending = await request(app).get('/api/v1/staff?isActive=false&setupComplete=false&role=dentist').set(bearer(staff.adminToken));
   assert.equal(pending.status, 200);
   assert.equal(pending.body.data.staff.length, 1);
   assert.equal(pending.body.data.staff[0].name, 'Pending Staff');
+  const current = await request(app).get('/api/v1/staff?lifecycle=current').set(bearer(staff.adminToken));
+  assert.equal(current.status, 200);
+  assert.equal(current.body.data.pagination.total, 4);
+  assert.equal(current.body.data.staff.some(({ name }) => name === 'Archived Staff'), false);
+  const deactivated = await request(app).get('/api/v1/staff?lifecycle=deactivated').set(bearer(staff.adminToken));
+  assert.equal(deactivated.status, 200);
+  assert.deepEqual(deactivated.body.data.staff.map(({ name }) => name), ['Archived Staff']);
+  assert.equal((await request(app).get('/api/v1/staff?lifecycle=current&isActive=true').set(bearer(staff.adminToken))).status, 400);
   const secondPage = await request(app).get('/api/v1/staff?page=2&limit=2').set(bearer(staff.adminToken));
   assert.equal(secondPage.status, 200);
-  assert.deepEqual(secondPage.body.data.staff.map(({ name }) => name), ['Pending Staff', 'Reception User']);
+  assert.deepEqual(secondPage.body.data.staff.map(({ name }) => name), ['Dentist User', 'Pending Staff']);
 });
 
 test('password policy accepts six, rejects five and bcrypt-truncating UTF-8 inputs, and never trims', async () => {
@@ -313,6 +322,40 @@ test('admin invitation is hashed at rest, uses trusted frontend URL, and setup i
     (await login('invited@example.com', '123456')).status,
     200
   );
+});
+
+test('explicit invitation resend preserves identity, supersedes the prior token, and returns no secret', async () => {
+  const invited = await request(app)
+    .post('/api/v1/staff/invite')
+    .set(bearer(staff.adminToken))
+    .send({ name: 'Frozen Invitee', email: 'frozen@example.com', role: 'dentist' });
+  assert.equal(invited.status, 201);
+  const id = invited.body.data.staff._id;
+  const original = tokenFromMail(sentMail[0]);
+
+  const denied = await request(app)
+    .post(`/api/v1/staff/${id}/resend-invitation`)
+    .set(bearer(staff.receptionistToken))
+    .send({});
+  assert.equal(denied.status, 403);
+
+  const resent = await request(app)
+    .post(`/api/v1/staff/${id}/resend-invitation`)
+    .set(bearer(staff.adminToken))
+    .send({});
+  assert.equal(resent.status, 200);
+  assert.equal(sentMail.length, 2);
+  assert.equal(JSON.stringify(resent.body).includes('token'), false);
+  assert.deepEqual(
+    (({ _id, name, email, role }) => ({ _id, name, email, role }))(resent.body.data.staff),
+    (({ _id, name, email, role }) => ({ _id, name, email, role }))(invited.body.data.staff)
+  );
+  const replacement = tokenFromMail(sentMail[1]);
+  assert.notEqual(replacement, original);
+  assert.equal(await OneTimeToken.countDocuments({ user: id, purpose: 'invite', consumedAt: null }), 1);
+  assert.equal((await request(app).post('/api/v1/auth/setup-password').send({ token: original, password: '123456' })).status, 400);
+  assert.equal((await request(app).post('/api/v1/auth/setup-password').send({ token: replacement, password: '123456' })).status, 200);
+  assert.equal((await request(app).post(`/api/v1/staff/${id}/resend-invitation`).set(bearer(staff.adminToken)).send({})).status, 409);
 });
 
 test('forgot/reset is enumeration-safe, atomic, single-use, and invalidates all prior authorization', async () => {

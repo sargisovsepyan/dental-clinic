@@ -1,5 +1,7 @@
 import Joi from 'joi';
 
+import { isHumanName } from '../../../../shared/booking-input.mjs';
+
 const mongoId = Joi.string()
   .hex()
   .length(24);
@@ -13,6 +15,7 @@ const role = Joi.string().valid(
 const inviteStaffSchema = {
   body: Joi.object({
     name: Joi.string()
+      .custom((value, helpers) => isHumanName(helpers.original, 100) ? value : helpers.error('any.invalid'))
       .trim()
       .min(2)
       .max(100)
@@ -41,6 +44,7 @@ const updateRoleSchema = {
 const listStaffSchema = {
   query: Joi.object({
     role,
+    lifecycle: Joi.string().valid('current', 'active', 'pending', 'deactivated', 'all'),
     isActive: Joi.boolean(),
     setupComplete: Joi.boolean(),
     page: Joi.number()
@@ -52,7 +56,7 @@ const listStaffSchema = {
       .min(1)
       .max(100)
       .default(50),
-  }),
+  }).oxor('lifecycle', 'isActive').oxor('lifecycle', 'setupComplete'),
 };
 
 export {
@@ -61,6 +65,11 @@ export {
   staffIdSchema,
   updateRoleSchema,
   listStaffSchema,
+};
+
+export const resendInvitationSchema = {
+  params: staffIdSchema.params,
+  body: Joi.object({}).default({}).prefs({ stripUnknown: false }),
 };
 
 const dentistProfileSchema = {

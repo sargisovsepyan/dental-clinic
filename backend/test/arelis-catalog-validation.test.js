@@ -60,7 +60,7 @@ test('clean local preview books the catalog and preserves durations, scope, fail
   const selected = services[6]; const doctor = doctors[3];
   const body = { patientName: 'Local Sample', patientPhone: '+37499000009', dentistId: doctor._id, serviceId: selected._id, date, startTime: '09:00', privacyAccepted: true, locale: 'en' };
   const booked = await call('/appointments', 'POST', body, { 'idempotency-key': 'local-catalog-booking' });
-  assert.equal(booked.status, 201); assert.equal(booked.json.data.appointment.status, 'confirmed');
+  assert.equal(booked.status, 201); assert.equal(booked.json.data.appointment.status, 'pending');
   assert.equal(booked.json.data.appointment.endTime, '10:30');
   const repeated = await call('/appointments', 'POST', body, { 'idempotency-key': 'local-catalog-booking' });
   assert.deepEqual(repeated.json.data.appointment, booked.json.data.appointment);
@@ -86,7 +86,7 @@ test('clean local preview books the catalog and preserves durations, scope, fail
   const retained = await call('/appointments', 'POST', body, { 'idempotency-key': 'retained-status-lock' });
   assert.equal(retained.status, 201);
   const retainedId = retained.json.data.appointment.id;
-  for (const [version, status] of ['checked_in', 'in_progress', 'completed'].entries()) {
+  for (const [version, status] of ['confirmed', 'checked_in', 'in_progress', 'completed'].entries()) {
     const changed = await call(`/appointments/${retainedId}/status`, 'PATCH', { status, expectedMutationVersion: version }, headers);
     assert.equal(changed.status, 200); assert.equal(changed.json.data.appointment.status, status);
     const slots = await call(`/availability?date=${date}&dentistId=${doctor._id}&serviceId=${selected._id}`);

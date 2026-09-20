@@ -8,7 +8,7 @@ export type GovernedStaff = {
   deactivatedAt: string | null; createdAt: string; updatedAt: string;
 };
 export type GovernancePagination = { page: number; limit: number; total: number; pages: number };
-export type StaffFilters = { role?: StaffRole; isActive?: boolean; setupComplete?: boolean; page: number; limit: number };
+export type StaffFilters = { role?: StaffRole; lifecycle?: 'current' | 'active' | 'pending' | 'deactivated' | 'all'; isActive?: boolean; setupComplete?: boolean; page: number; limit: number };
 export type AuditFilters = { action?: string; entityType?: string; entityId?: string; actorId?: string; from?: string; to?: string; page: number; limit: number };
 export type AuditMetadata = null | string | number | boolean | AuditMetadata[] | { [key: string]: AuditMetadata };
 export type AuditActor = { id: string; name: string; email: string; role: StaffRole };

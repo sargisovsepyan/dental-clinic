@@ -73,6 +73,11 @@ export {
   revokeSessions,
 };
 
+export const resendInvitation = async (req, res) => {
+  const staff = await staffService.resendStaffInvitation(req.params.id, req.user.id);
+  res.status(200).json({ success: true, data: { staff } });
+};
+
 const getDentistProfile = async (req, res) => {
   res.status(200).json({ success: true, data: await staffService.getDentistProfile(req.params.id) });
 };
