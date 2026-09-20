@@ -34,6 +34,8 @@ import type { Locale } from "@/i18n/locales";
 import { localizedPersonName } from '@/i18n/localized-content';
 import { productMessages } from '@/i18n/product-messages';
 
+import { correctiveMessages } from '@/i18n/corrective-messages';
+
 const languageValues: DentistLanguage[] = ["hy", "ru", "en", "fr", "de", "other"];
 
 function dentistName(dentist: StaffDentist, locale: Locale) {
@@ -219,7 +221,7 @@ function DentistAdminContent() {
           return <article key={dentist._id} className="rounded-xl border bg-card p-5 shadow-sm">
             <div className="flex items-start gap-4"><span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-secondary"><UserRound aria-hidden="true" className="size-5" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">{dentistName(dentist, locale)}</h2><p className="mt-1 text-sm text-muted-foreground">{title || "—"}</p></div><StatusBadge active={dentist.isActive} copy={copy} /></div></div></div>
             <p className="mt-4 text-sm text-muted-foreground">{dentist.services.map((service) => serviceName(service, locale)).join(" · ") || "—"}</p>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-muted px-2.5 py-1">{dentist.bookingEnabled ? copy.bookingEnabled : `¬ ${copy.bookingEnabled}`}</span>{dentist.isFeatured && <span className="rounded-full bg-secondary px-2.5 py-1">{copy.featured}</span>}</div><details className="mt-3 text-xs text-muted-foreground"><summary className="min-h-8 cursor-pointer">{productMessages[locale].advanced}</summary><p className="py-2">{copy.scheduleRevision}: {dentist.scheduleRevision}</p></details>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-muted px-2.5 py-1">{dentist.bookingEnabled ? copy.bookingEnabled : correctiveMessages[locale].bookingUnavailable}</span>{dentist.isFeatured && <span className="rounded-full bg-secondary px-2.5 py-1">{copy.featured}</span>}</div>
             <div className="mt-5 flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => setEditor({ open: true, value: dentist })}><Pencil aria-hidden="true" />{copy.edit}</Button>{dentist.isActive ? <Button variant="destructive" size="sm" onClick={() => setArchiveTarget(dentist)}><Archive aria-hidden="true" />{copy.archive}</Button> : <Button variant="secondary" size="sm" disabled={pending} onClick={() => void mutate(() => api.restoreDentist(dentist._id), () => undefined)}><RotateCcw aria-hidden="true" />{copy.restore}</Button>}</div>
           </article>;
         })}

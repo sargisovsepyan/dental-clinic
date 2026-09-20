@@ -4,6 +4,8 @@ import { previewAccounts } from './e2e/mock-api.mjs';
 import { serviceView, dentistView, clinicView, beforeAfterView } from '@/api/public-view-models';
 import { safeManagedImage, safeExternalUrl } from '@/lib/safe-urls';
 import type { ServiceRecord, DentistRecord, ClinicRecord, BeforeAfterRecord } from '@/api/public-client';
+import { parseClinic, parseDentist } from '@/api/staff-management';
+import { parseGalleryImage } from '@/api/staff-media';
 
 const content = buildArelisContent(previewAccounts);
 afterEach(() => vi.unstubAllEnvs());
@@ -57,18 +59,24 @@ describe('Arelis manual content profile', () => {
       }
     });
   }
-  it('contains no test/security/developer copy in ordinary display values and keeps online auto-confirm explicit', () => {
+  it('contains no test/security/developer copy in ordinary display values and keeps public requests pending', () => {
     const ordinary = [content.clinic.translations, ...content.categories.map((item) => item.translations),
       ...content.services.map((item) => item.translations), ...content.dentists.map((item) => item.translations),
       ...content.gallery.map((item) => item.translations), ...content.cases.map((item) => item.translations),
       ...Object.values(content.staff).map((item) => item.nameTranslations)];
     expect(JSON.stringify(ordinary)).not.toMatch(/test|preview|example\.test|<img|onerror|XSS|тест|թեստ|փորձնական/iu);
-    expect(content.clinic.bookingSettings.autoConfirmAppointments).toBe(true);
+    expect(content.clinic.bookingSettings.autoConfirmAppointments).toBe(false);
     expect(content.staff.dentist.dentistProfile).toBe(content.dentists[3]._id);
     expect(safeExternalUrl(content.clinic.mapUrl)).toBe(content.clinic.mapUrl);
     const map = new URL(content.clinic.mapUrl);
     expect(map.protocol).toBe('https:'); expect(map.hostname).toBe('www.google.com');
     expect(map.searchParams.get('query')).toBe('Republic Square, Yerevan');
+  });
+  it('satisfies strict production-compatible staff management parsers without weakening them', () => {
+    expect(parseClinic(content.clinic)).toMatchObject({ key: 'main', timezone: 'Asia/Yerevan', scheduleRevision: 0 });
+    for (const doctor of content.dentists) expect(parseDentist(doctor)).toMatchObject({ _id: doctor._id, scheduleRevision: 0 });
+    for (const media of content.gallery) expect(parseGalleryImage(media)).toMatchObject({ id: media._id, active: true });
+    expect(() => parseGalleryImage({ ...content.gallery[0], type: 'gallery' })).toThrow();
   });
   it('uses ten distinct strictly scoped local illustrations, never accepted as production media', () => {
     const assets = [...content.gallery.map((item) => item.image), ...content.cases.flatMap((item) => [item.beforeImage, item.afterImage])];

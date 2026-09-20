@@ -74,12 +74,14 @@ async function fillForm(user: ReturnType<typeof userEvent.setup>) {
 }
 
 beforeEach(() => {
+  vi.setSystemTime(new Date('2026-09-01T08:00:00.000Z'));
   api.getAvailability.mockReset().mockResolvedValue(availability());
   api.createPublicAppointment.mockReset().mockResolvedValue(result);
   api.createIdempotencyKey.mockClear();
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   Object.defineProperty(document, "modelContext", { configurable: true, value: undefined });
   vi.unstubAllGlobals();
 });
@@ -106,6 +108,80 @@ describe("booking flow", () => {
     });
     expect((await axe.run(container, { rules: { "color-contrast": { enabled: false } } })).violations.filter((item) => item.impact === "serious" || item.impact === "critical")).toEqual([]);
   }, 15_000);
+
+  it("moves focus and scroll only after deliberate progressive selections", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
+    render(<BookingFlow locale="en" services={services} dentists={dentists} clinic={clinic} challenge={challenge} />);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: /Cleaning/ }));
+    expect(screen.getByRole("heading", { name: /Choose a dentist$/ })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: /Ani Test/ }));
+    expect(screen.getByRole("heading", { name: /Choose a date and time$/ })).toHaveFocus();
+    fireEvent.change(screen.getByLabelText("Visit date"), { target: { value: "2026-09-10" } });
+    await user.click(await screen.findByRole("button", { name: "Choose 09:00" }));
+    expect(screen.getByRole("heading", { name: /Your details$/ })).toHaveFocus();
+    expect(scrollIntoView).toHaveBeenCalledTimes(3);
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "start", behavior: "smooth" });
+  });
+
+  it("uses the reduced-motion path for progressive navigation", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+    render(<BookingFlow locale="en" services={services} dentists={dentists} clinic={clinic} challenge={challenge} />);
+    await user.click(screen.getByRole("button", { name: /Cleaning/ }));
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "auto" });
+  });
+
+  it("clears stale availability and refuses impossible or out-of-window dates", async () => {
+    const user = userEvent.setup();
+    render(<BookingFlow locale="en" services={services} dentists={dentists} clinic={clinic} challenge={challenge} />);
+    await reachForm(user);
+    expect(screen.getByLabelText(/Full name/)).toBeVisible();
+    for (const value of ["0001-01-01", "2026-08-31", "2026-11-01"]) {
+      fireEvent.change(screen.getByLabelText("Visit date"), { target: { value } });
+      expect(screen.getByText(/valid date within the available booking period/i)).toBeVisible();
+      expect(screen.queryByLabelText(/Full name/)).not.toBeInTheDocument();
+    }
+    expect(api.getAvailability).toHaveBeenCalledTimes(1);
+    expect(api.createPublicAppointment).not.toHaveBeenCalled();
+  });
+
+  it("shows localized field errors and blocks malformed name, phone, email, and oversized comment", async () => {
+    const user = userEvent.setup();
+    render(<BookingFlow locale="en" services={services} dentists={dentists} clinic={{ ...clinic, requireEmail: true }} challenge={challenge} />);
+    await reachForm(user);
+    fireEvent.change(screen.getByLabelText(/Full name/), { target: { value: "1111`" } });
+    fireEvent.change(screen.getByLabelText(/Phone number/), { target: { value: "call-me-099123456" } });
+    fireEvent.change(screen.getByLabelText(/Email address/), { target: { value: "not-an-email" } });
+    fireEvent.change(screen.getByLabelText(/Comment/), { target: { value: "x".repeat(1001) } });
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "Send booking request" }));
+    expect(screen.getByText(/at least two letters/i)).toBeVisible();
+    expect(screen.getByText(/digits, an optional leading \+/i)).toBeVisible();
+    expect(screen.getByText(/valid email address/i)).toBeVisible();
+    expect(screen.getByText(/no more than 1000 characters/i)).toBeVisible();
+    expect(api.createPublicAppointment).not.toHaveBeenCalled();
+  });
+
+  it.each(["Մարիամ Հակոբյան", "Анна-Мария Иванова", "Jean-Luc O'Neill"])(
+    "accepts a real Unicode patient name: %s",
+    async (name) => {
+      const user = userEvent.setup();
+      render(<BookingFlow locale="en" services={services} dentists={dentists} clinic={clinic} challenge={challenge} />);
+      await reachForm(user);
+      await user.type(screen.getByLabelText(/Full name/), name);
+      await user.type(screen.getByLabelText(/Phone number/), "(099) 123-456");
+      await user.click(screen.getByRole("checkbox"));
+      await user.click(screen.getByRole("button", { name: "Send booking request" }));
+      await screen.findByRole("heading", { name: "Request received" });
+      expect(api.createPublicAppointment).toHaveBeenCalledWith(expect.objectContaining({ patientName: name, patientPhone: "(099) 123-456" }), expect.any(String));
+    },
+  );
 
   it("reuses one idempotency key after a network-uncertain failure", async () => {
     const user = userEvent.setup();

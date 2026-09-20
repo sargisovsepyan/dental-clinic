@@ -1,5 +1,8 @@
 import type { Locale } from "@/i18n/locales";
 
+import { isCalendarDate } from '../../../shared/booking-input.mjs';
+export { isCalendarDate, isBookingDate } from '../../../shared/booking-input.mjs';
+
 const calendarLabels: Record<Locale, { weekdays: string[]; months: string[] }> = {
   hy: {
     weekdays: ["կիրակի", "երկուշաբթի", "երեքշաբթի", "չորեքշաբթի", "հինգշաբթի", "ուրբաթ", "շաբաթ"],
@@ -32,8 +35,9 @@ export function clinicLocalDate(timezone: string, now = new Date()) {
 }
 
 export function addCalendarDays(date: string, days: number) {
-  const [year, month, day] = date.split("-").map(Number);
-  const value = new Date(Date.UTC(year, month - 1, day + days));
+  if (!isCalendarDate(date) || !Number.isInteger(days)) throw new Error('Invalid calendar date');
+  const value = new Date(`${date}T12:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
 }
 
@@ -52,8 +56,9 @@ export function bookingDateRange(options: {
 
 export function formatBookingDate(date: string, locale: Locale, timezone: string) {
   void timezone;
+  if (!isCalendarDate(date)) return '—';
   const [year, month, day] = date.split("-").map(Number);
-  const weekday = new Date(Date.UTC(year, month - 1, day, 12)).getUTCDay();
+  const weekday = new Date(`${date}T12:00:00.000Z`).getUTCDay();
   const labels = calendarLabels[locale];
   if (locale === "hy") return `${labels.weekdays[weekday]}, ${day} ${labels.months[month - 1]} ${year} թ.`;
   if (locale === "ru") return `${labels.weekdays[weekday]}, ${day} ${labels.months[month - 1]} ${year} г.`;

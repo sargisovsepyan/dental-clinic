@@ -2,6 +2,8 @@ import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { buildArelisContent } from '../preview/arelis-content.mjs';
 
+import { isHumanName, canonicalPhone, isEmail, isBookingDate } from '../../../shared/booking-input.mjs';
+
 const timestamp = "2026-01-01T00:00:00.000Z";
 const image = (name) => ({
   publicId: `tests/${name}`,
@@ -400,6 +402,17 @@ const testFixtures = { category, service, dentist, clinic, galleryImage, beforeA
 const idForPreview = (number) => `66a${number.toString(16).padStart(21, '0')}`;
 
 export function createMockApiServer(port = 5100, initialScenario = "success", options = {}) {
+  const now = options.now ?? (() => new Date());
+  const clock = () => new Date(now());
+  const stamp = () => clock().toISOString();
+  const timestamp = new Date(clock().getTime() - 7 * 86_400_000).toISOString();
+  const clinicDate = (daysAhead = 0) => {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Yerevan', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(clock());
+    const part = (type) => parts.find((item) => item.type === type).value;
+    const date = new Date(`${part('year')}-${part('month')}-${part('day')}T12:00:00.000Z`);
+    date.setUTCDate(date.getUTCDate() + daysAhead);
+    return date.toISOString().slice(0, 10);
+  };
   const content = options.profile === 'arelis' ? buildArelisContent(testFixtures.previewAccounts) : null;
   const category = content?.categories[0] ?? testFixtures.category;
   const service = content?.services[2] ?? testFixtures.service;
@@ -411,7 +424,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
   const previewAccounts = content?.staff ?? testFixtures.previewAccounts;
   const previewUsersByEmail = new Map(Object.values(previewAccounts).map((user) => [user.email, user]));
   const makeAppointment = (values) => {
-    const row = testFixtures.makeAppointment(values);
+    const row = { ...testFixtures.makeAppointment(values), createdAt: stamp(), updatedAt: stamp(), privacyAcceptedAt: stamp() };
     if (!content) return row;
     const selectedDoctor = managedDentists.find((item) => item._id === values.dentistId) ?? content.dentists.find((item) => item._id === values.dentistId) ?? dentist;
     const selectedService = managedServices.find((item) => item._id === values.serviceId) ?? content.services.find((item) => item._id === values.serviceId) ?? service;
@@ -428,7 +441,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
     const date = clinicDate(ahead);
     return new Date(`${date}T12:00:00+04:00`).getUTCDay() === 0 ? clinicDate(ahead + 1) : date;
   };
-  const initialAppointments = () => !content ? testFixtures.initialAppointments() : [
+  const initialAppointments = () => !content ? testFixtures.initialAppointments().map((item, index) => ({ ...item, date: clinicDate(5 + index), ...appointmentTimes(clinicDate(5 + index), item.startTime, item.endTime), createdAt: timestamp, updatedAt: timestamp })) : [
     makeAppointment({ id: idForPreview(701), code: 'DC-1234567890ABCDEF', status: 'confirmed', date: workingDate(0), startTime: '09:00', endTime: '10:00', patientName: 'Alex Martin', patientPhone: '+37499000001' }),
     makeAppointment({ id: idForPreview(702), code: 'DC-1234567890ABCDE0', status: 'confirmed', date: workingDate(2), startTime: '10:30', endTime: '11:30', patientName: 'Sofia David', patientPhone: '+37499000002' }),
     makeAppointment({ id: idForPreview(703), code: 'DC-1234567890ABCDE1', status: 'confirmed', date: workingDate(4), startTime: '14:30', endTime: '15:15', patientName: 'Levon Adam', patientPhone: '+37499000003', dentistId: content.dentists[1]._id, serviceId: content.services[8]._id }),
@@ -480,17 +493,24 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
     const end = hours * 60 + minutes + (managedServices.find((item) => item._id === serviceId) ?? service).durationMinutes;
     return `${String(Math.floor(end / 60)).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}`;
   };
+  const cleanDateAllowed = (date) => isBookingDate(date, { min: clinicDate(managedClinic.bookingSettings.allowSameDayBooking ? 0 : 1), max: clinicDate(managedClinic.bookingSettings.maxBookingDaysAhead) });
+  const validPatient = (body) => body && isHumanName(body.patientName) && canonicalPhone(body.patientPhone) &&
+    isEmail(body.patientEmail ?? '', managedClinic.bookingSettings.requireEmail) && typeof (body.patientComment ?? '') === 'string' &&
+    (body.patientComment ?? '').length <= 1000 && body.privacyAccepted === true && cleanDateAllowed(body.date) &&
+    /^([01]\d|2[0-3]):[0-5]\d$/.test(body.startTime);
   const cleanRelationship = (dentistId, serviceId) => {
     const doctor = managedDentists.find((item) => item._id === dentistId && item.isActive && item.bookingEnabled);
     const selected = managedServices.find((item) => item._id === serviceId && item.isActive && item.bookingEnabled);
-    return doctor && selected && doctor.services.some((item) => item._id === serviceId) ? { doctor, selected } : null;
+    return doctor && selected && managedCategories.some((item) => item._id === selected.category._id && item.isActive) && doctor.services.some((item) => item._id === serviceId) ? { doctor, selected } : null;
   };
   const cleanSlotAvailable = (date, start, end, dentistId, excludeId) => {
     const parsed = new Date(`${date}T12:00:00+04:00`);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) return false;
     const day = parsed.getUTCDay() || 7;
-    const clinicDay = managedClinic.weeklySchedule.find((item) => item.dayOfWeek === day);
-    const doctorDay = managedDentists.find((item) => item._id === dentistId)?.weeklySchedule.find((item) => item.dayOfWeek === day);
+    if (!cleanDateAllowed(date) || !managedClinic.bookingSettings.isBookingEnabled || !/^([01]\d|2[0-3]):[0-5]\d$/.test(start) || start >= end) return false;
+    if (new Date(`${date}T${start}:00+04:00`).getTime() < clock().getTime() + managedClinic.bookingSettings.minBookingNoticeMinutes * 60_000) return false;
+    const clinicDay = clinicClosures.find((item) => item.date === date) ?? managedClinic.weeklySchedule.find((item) => item.dayOfWeek === day);
+    const doctorDay = scheduleExceptions.find((item) => item.dentist === dentistId && item.date === date) ?? managedDentists.find((item) => item._id === dentistId)?.weeklySchedule.find((item) => item.dayOfWeek === day);
     const fits = (shifts) => shifts?.some((shift) => start >= shift.start && end <= shift.end);
     return Boolean(clinicDay?.isOpen && doctorDay?.isWorking && fits(clinicDay.shifts) && fits(doctorDay.shifts) &&
       !appointments.some((item) => item._id !== excludeId && item.dentist === dentistId && item.date === date && item.status !== 'cancelled' && item.startTime < end && item.endTime > start));
@@ -745,7 +765,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
       response.setHeader("set-cookie", "preview_refresh=; HttpOnly; SameSite=Strict; Path=/api/v1/auth; Max-Age=0");
       return send(response, 200, { success: true, message: "Password changed" });
     }
-    const governanceStaffRoute = url.pathname.match(/^\/api\/v1\/staff\/([a-f\d]{24})(?:\/(role|deactivate|reactivate|revoke-sessions|dentist-profile))?$/iu);
+    const governanceStaffRoute = url.pathname.match(/^\/api\/v1\/staff\/([a-f\d]{24})(?:\/(role|deactivate|reactivate|revoke-sessions|resend-invitation|dentist-profile))?$/iu);
     if (url.pathname === "/api/v1/staff" || url.pathname === "/api/v1/staff/invite" || governanceStaffRoute || url.pathname === "/api/v1/audit-logs") {
       response.setHeader("cache-control", "no-store");
       const user = authenticatedUser(request);
@@ -760,7 +780,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
         for (const [key, value] of accessSessions) if (value.id === id) accessSessions.delete(key);
       };
       const recordAudit = (action, member) => {
-        auditHistory.push({ _id: (0x2000 + ++governanceSequence).toString(16).padStart(24, "0"), requestId: `preview-change-${governanceSequence}`, actor: { _id: user.id, name: user.name, email: user.email, role: user.role }, action, entityType: "user", entityId: member._id, method: request.method, path: url.pathname, metadata: { outcome: "confirmed" }, createdAt: "2026-09-15T12:00:00.000Z" });
+        auditHistory.push({ _id: (0x2000 + ++governanceSequence).toString(16).padStart(24, "0"), requestId: `preview-change-${governanceSequence}`, actor: { _id: user.id, name: user.name, email: user.email, role: user.role }, action, entityType: "user", entityId: member._id, method: request.method, path: url.pathname, metadata: { outcome: "confirmed" }, createdAt: stamp() });
       };
       if (governanceStaffRoute?.[2] === 'dentist-profile') {
         const member = managedStaff.find((item) => item._id === governanceStaffRoute[1]);
@@ -769,25 +789,31 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
         if (request.method !== 'PUT' || member.role !== 'dentist') return send(response, 409, { success: false });
         const body = await readJson(request).catch(() => null);
         if (!body || Object.keys(body).join(',') !== 'dentistId' || (body.dentistId !== null && !managedDentists.some((item) => item._id === body.dentistId && item.isActive))) return send(response, 400, { success: false });
-        member.dentistProfile = body.dentistId;
+        member.dentistProfile = body.dentistId; member.updatedAt = stamp();
         invalidate(member._id); recordAudit('staff.dentist_profile.updated', member);
         return send(response, 200, { success: true, data: { dentistId: member.dentistProfile } });
       }
       if (request.method === "GET" && url.pathname === "/api/v1/staff") {
-        const items = managedStaff.filter((member) => (!url.searchParams.has("role") || member.role === url.searchParams.get("role")) && (!url.searchParams.has("isActive") || member.isActive === (url.searchParams.get("isActive") === "true")) && (!url.searchParams.has("setupComplete") || member.isSetupComplete === (url.searchParams.get("setupComplete") === "true"))).sort((a, b) => a.name.localeCompare(b.name) || a._id.localeCompare(b._id));
+        const lifecycle = url.searchParams.get('lifecycle') ?? 'all';
+        if (!['current', 'active', 'pending', 'deactivated', 'all'].includes(lifecycle) || (url.searchParams.has('lifecycle') && (url.searchParams.has('isActive') || url.searchParams.has('setupComplete')))) return send(response, 400, { success: false });
+        const matchesLifecycle = (member) => lifecycle === 'all' || lifecycle === 'current' && !member.deactivatedAt && (member.isActive || !member.isSetupComplete) ||
+          lifecycle === 'active' && member.isActive && member.isSetupComplete && !member.deactivatedAt ||
+          lifecycle === 'pending' && !member.isSetupComplete && !member.deactivatedAt ||
+          lifecycle === 'deactivated' && (Boolean(member.deactivatedAt) || !member.isActive && member.isSetupComplete);
+        const items = managedStaff.filter((member) => matchesLifecycle(member) && (!url.searchParams.has("role") || member.role === url.searchParams.get("role")) && (!url.searchParams.has("isActive") || member.isActive === (url.searchParams.get("isActive") === "true")) && (!url.searchParams.has("setupComplete") || member.isSetupComplete === (url.searchParams.get("setupComplete") === "true"))).sort((a, b) => a.name.localeCompare(b.name) || a._id.localeCompare(b._id));
         return paginated(items, "staff");
       }
       if (request.method === "POST" && url.pathname === "/api/v1/staff/invite") {
         const body = await readJson(request).catch(() => null);
-        if (!body || Object.keys(body).sort().join(",") !== "email,name,role" || typeof body.name !== "string" || body.name.trim().length < 2 || body.name.length > 100 || typeof body.email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(body.email) || !["admin", "receptionist", "dentist"].includes(body.role)) return send(response, 400, { success: false });
+        if (!body || Object.keys(body).sort().join(",") !== "email,name,role" || !isHumanName(body.name, 100) || typeof body.email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(body.email) || !["admin", "receptionist", "dentist"].includes(body.role)) return send(response, 400, { success: false });
         const email = body.email.trim().toLowerCase();
         let member = managedStaff.find((item) => item.email === email);
         if (member?.isSetupComplete) return send(response, 409, { success: false });
         if (!member) {
-          member = { _id: (0x3000 + ++governanceSequence).toString(16).padStart(24, "0"), name: body.name.trim(), email, role: body.role, isActive: false, isSetupComplete: false, invitedBy: user.id, deactivatedAt: null, deactivatedBy: null, createdAt: timestamp, updatedAt: timestamp };
+          member = { _id: (0x3000 + ++governanceSequence).toString(16).padStart(24, "0"), name: body.name.trim(), email, role: body.role, isActive: false, isSetupComplete: false, invitedBy: user.id, deactivatedAt: null, deactivatedBy: null, createdAt: stamp(), updatedAt: stamp() };
           managedStaff.push(member);
         }
-        member.deactivatedAt = null; member.deactivatedBy = null;
+        member.deactivatedAt = null; member.deactivatedBy = null; member.updatedAt = stamp();
         recordAudit("staff.invited", member);
         if (scenario === "staff-invite-uncertain") return send(response, 503, { success: false });
         return send(response, 201, { success: true, data: { staff: member } });
@@ -802,11 +828,17 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
         if (action === "role" && (!body || Object.keys(body).join(",") !== "role" || !["admin", "receptionist", "dentist"].includes(body.role))) return send(response, 400, { success: false });
         if (["role", "deactivate"].includes(action) && user.id === id) return send(response, 409, { success: false });
         if ((action === "deactivate" || (action === "role" && body.role !== "admin")) && member.role === "admin" && member.isActive && member.isSetupComplete && (scenario === "staff-last-admin-conflict" || managedStaff.filter((item) => item.role === "admin" && item.isActive && item.isSetupComplete).length <= 1)) return send(response, 409, { success: false });
+        if (action === 'resend-invitation') {
+          if (member.isSetupComplete || member.deactivatedAt) return send(response, 409, { success: false });
+          member.updatedAt = stamp(); recordAudit('staff.invitation.resent', member);
+          if (scenario === 'staff-invite-uncertain') return send(response, 503, { success: false });
+          return send(response, 200, { success: true, data: { staff: member } });
+        }
         if (action === "reactivate" && !member.isSetupComplete) return send(response, 409, { success: false });
         if (action === "role") member.role = body.role;
-        if (action === "deactivate") { member.isActive = false; member.deactivatedAt = timestamp; member.deactivatedBy = user.id; }
+        if (action === "deactivate") { member.isActive = false; member.deactivatedAt = stamp(); member.deactivatedBy = user.id; }
         if (action === "reactivate") { member.isActive = true; member.deactivatedAt = null; member.deactivatedBy = null; }
-        invalidate(id);
+        member.updatedAt = stamp(); invalidate(id);
         recordAudit(action === "role" ? "staff.role.updated" : action === "revoke-sessions" ? "staff.sessions.revoked" : `staff.${action === "deactivate" ? "deactivated" : "reactivated"}`, member);
         return send(response, 200, { success: true, data: { staff: member } });
       }
@@ -862,7 +894,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
           imageUrl: "",
           sortOrder: body.sortOrder,
           isActive: body.isActive,
-          updatedAt: new Date().toISOString(),
+          createdAt: stamp(), updatedAt: stamp(),
         };
         managedCategories.push(created);
         return send(response, 201, { success: true, data: { category: created } });
@@ -872,7 +904,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
         if (!item) return send(response, 404, { success: false, code: "NOT_FOUND", message: "Category not found" });
         if (request.method === "PATCH" && categoryRoute[2] === "restore") {
           item.isActive = true;
-          item.updatedAt = new Date().toISOString();
+          item.updatedAt = stamp();
           return send(response, 200, { success: true, data: { category: item } });
         }
         if (request.method === "PATCH") {
@@ -883,7 +915,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
               name: body.translations.hy?.name || item.name,
               description: body.translations.hy?.description || "",
             } : {}),
-            updatedAt: new Date().toISOString(),
+            updatedAt: stamp(),
           });
           return send(response, 200, { success: true, data: { category: item } });
         }
@@ -892,7 +924,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
             return send(response, 409, { success: false, code: "CATEGORY_HAS_ACTIVE_SERVICES", message: "Active services still reference this category" });
           }
           item.isActive = false;
-          item.updatedAt = new Date().toISOString();
+          item.updatedAt = stamp();
           return send(response, 200, { success: true, data: { category: item } });
         }
       }
@@ -923,7 +955,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
           bookingEnabled: body.bookingEnabled,
           isActive: body.isActive,
           sortOrder: body.sortOrder,
-          updatedAt: new Date().toISOString(),
+          createdAt: stamp(), updatedAt: stamp(),
         };
         managedServices.push(created);
         return send(response, 201, { success: true, data: { service: created } });
@@ -933,7 +965,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
         if (!item) return send(response, 404, { success: false, code: "NOT_FOUND", message: "Service not found" });
         if (request.method === "PATCH" && serviceRoute[2] === "restore") {
           item.isActive = true;
-          item.updatedAt = new Date().toISOString();
+          item.updatedAt = stamp();
           return send(response, 200, { success: true, data: { service: item } });
         }
         if (request.method === "PATCH") {
@@ -947,14 +979,14 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
               description: body.translations.hy?.description || "",
             } : {}),
             ...(linkedCategory ? { category: categorySummary(linkedCategory) } : {}),
-            updatedAt: new Date().toISOString(),
+            updatedAt: stamp(),
           });
           return send(response, 200, { success: true, data: { service: item } });
         }
         if (request.method === "DELETE") {
           item.isActive = false;
           item.bookingEnabled = false;
-          item.updatedAt = new Date().toISOString();
+          item.updatedAt = stamp();
           return send(response, 200, { success: true, data: { service: item } });
         }
       }
@@ -986,7 +1018,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
           bookingEnabled: body.bookingEnabled,
           isActive: body.isActive,
           sortOrder: body.sortOrder,
-          updatedAt: new Date().toISOString(),
+          createdAt: stamp(), updatedAt: stamp(),
         };
         managedDentists.push(created);
         return send(response, 201, { success: true, data: { dentist: created } });
@@ -996,7 +1028,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
         if (!item) return send(response, 404, { success: false, code: "NOT_FOUND", message: "Dentist not found" });
         if (request.method === "PATCH" && dentistRoute[2] === "restore") {
           item.isActive = true;
-          item.updatedAt = new Date().toISOString();
+          item.updatedAt = stamp();
           return send(response, 200, { success: true, data: { dentist: item } });
         }
         if (request.method === "PATCH") {
@@ -1024,13 +1056,13 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
               ...(services ? { services: services.map(serviceSummary) } : {}),
             });
           }
-          item.updatedAt = new Date().toISOString();
+          item.updatedAt = stamp();
           return send(response, 200, { success: true, data: { dentist: item } });
         }
         if (request.method === "DELETE") {
           item.isActive = false;
           item.bookingEnabled = false;
-          item.updatedAt = new Date().toISOString();
+          item.updatedAt = stamp();
           return send(response, 200, { success: true, data: { dentist: item } });
         }
       }
@@ -1054,8 +1086,8 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
             isWorking: body.isWorking,
             shifts: body.shifts,
             note: body.note,
-            createdAt: timestamp,
-            updatedAt: new Date().toISOString(),
+            createdAt: scheduleExceptions.find((item) => item.dentist === parent._id && item.date === date)?.createdAt ?? stamp(),
+            updatedAt: stamp(),
           };
           scheduleExceptions = [...scheduleExceptions.filter((item) => item.dentist !== parent._id || item.date !== date), value];
           parent.scheduleRevision += 1;
@@ -1087,8 +1119,8 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
             isOpen: body.isOpen,
             shifts: body.shifts,
             note: body.note,
-            createdAt: timestamp,
-            updatedAt: new Date().toISOString(),
+            createdAt: clinicClosures.find((item) => item.date === date)?.createdAt ?? stamp(),
+            updatedAt: stamp(),
           };
           clinicClosures = [...clinicClosures.filter((item) => item.date !== date), value];
           managedClinic.scheduleRevision += 1;
@@ -1129,7 +1161,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
             ...(body.bookingSettings ? { bookingSettings: { ...managedClinic.bookingSettings, ...body.bookingSettings } } : {}),
           });
         }
-        managedClinic.updatedAt = new Date().toISOString();
+        managedClinic.updatedAt = stamp();
         return send(response, 200, { success: true, data: { clinic: managedClinic } });
       }
 
@@ -1172,7 +1204,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
           _id: nextMediaId(), type: "clinic_gallery", image: image(`gallery-upload-${mediaSequence}`),
           altText: translations.hy.altText, caption: translations.hy.caption || "", translations,
           sortOrder: Number(form.fields.sortOrder || 0), isActive: form.fields.isActive !== "false",
-          createdBy: user, createdAt: timestamp, updatedAt: new Date().toISOString(),
+          createdBy: user, createdAt: stamp(), updatedAt: stamp(),
         };
         managedGallery = [created, ...managedGallery];
         return send(response, 201, { success: true, data: { image: created } });
@@ -1181,7 +1213,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
         const item = managedGallery.find((entry) => entry._id === galleryItemRoute[1]);
         if (!item) return send(response, 404, { success: false, code: "NOT_FOUND" });
         if (request.method === "PATCH" && galleryItemRoute[2] === "restore") {
-          item.isActive = true; item.updatedAt = new Date().toISOString();
+          item.isActive = true; item.updatedAt = stamp();
           return send(response, 200, { success: true, data: { image: item } });
         }
         if (request.method === "PATCH") {
@@ -1195,11 +1227,11 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
             item.caption = item.translations.hy?.caption || "";
           }
           if (Number.isInteger(body.sortOrder)) item.sortOrder = body.sortOrder;
-          item.updatedAt = new Date().toISOString();
+          item.updatedAt = stamp();
           return send(response, 200, { success: true, data: { image: item } });
         }
         if (request.method === "DELETE") {
-          item.isActive = false; item.updatedAt = new Date().toISOString();
+          item.isActive = false; item.updatedAt = stamp();
           return send(response, 200, { success: true, message: "Gallery image archived" });
         }
       }
@@ -1216,11 +1248,11 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
           if (scenario === "media-replacement-failure") return send(response, 503, { success: false, code: "SYNTHETIC_REPLACEMENT_FAILURE" });
           if (!form?.files?.image) return send(response, 400, { success: false, code: "VALIDATION_ERROR" });
           item[field] = image(`${isDentist ? "dentist" : "service"}-replacement-${++mediaSequence}`);
-          item.updatedAt = new Date().toISOString();
+          item.updatedAt = stamp();
           return send(response, 200, { success: true, data: { [isDentist ? "dentist" : "service"]: item } });
         }
         if (request.method === "DELETE") {
-          item[field] = null; item.updatedAt = new Date().toISOString();
+          item[field] = null; item.updatedAt = stamp();
           return send(response, 200, { success: true, data: { [isDentist ? "dentist" : "service"]: item } });
         }
       }
@@ -1240,7 +1272,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
         if (request.method === "POST" && cleanupRoute[1]) {
           const job = mediaCleanupJobs.find((entry) => entry._id === cleanupRoute[1]);
           if (!job || !["failed", "pending"].includes(job.status)) return send(response, 404, { success: false, code: "NOT_FOUND" });
-          job.status = "pending"; job.attempts = 0; job.updatedAt = new Date().toISOString();
+          job.status = "pending"; job.attempts = 0; job.updatedAt = stamp();
           return send(response, 202, { success: true, data: { job } });
         }
       }
@@ -1273,12 +1305,12 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
           beforeImage: image(`before-upload-${mediaSequence}`), afterImage: image(`after-upload-${mediaSequence}`),
           publicationStatus: active ? "published" : "draft", consentStatus: "active",
           consentPolicyVersion: "preview-2026-01", consentMethod: form.fields.consentMethod,
-          consentConfirmedAt: new Date().toISOString(), consentRecordedBy: user.id,
+          consentConfirmedAt: stamp(), consentRecordedBy: user.id,
           externalConsentReference: form.fields.externalConsentReference || "", withdrawnAt: null,
           withdrawnBy: null, withdrawalReason: "", purgedAt: null, purgedBy: null,
-          consentHistory: [{ action: "confirmed", policyVersion: "preview-2026-01", method: form.fields.consentMethod, actor: user.id, occurredAt: new Date().toISOString(), reason: "" }],
+          consentHistory: [{ action: "confirmed", policyVersion: "preview-2026-01", method: form.fields.consentMethod, actor: user.id, occurredAt: stamp(), reason: "" }],
           isFeatured: form.fields.isFeatured === "true", isActive: active,
-          sortOrder: Number(form.fields.sortOrder || 0), createdBy: user, createdAt: timestamp, updatedAt: new Date().toISOString(),
+          sortOrder: Number(form.fields.sortOrder || 0), createdBy: user, createdAt: stamp(), updatedAt: stamp(),
         };
         managedBeforeAfter = [created, ...managedBeforeAfter];
         return send(response, 201, { success: true, data: { case: created } });
@@ -1299,17 +1331,17 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
           if (body.dentistId !== undefined) item.dentist = managedDentists.find((entry) => entry._id === body.dentistId) || null;
           if (typeof body.isFeatured === "boolean") item.isFeatured = body.isFeatured;
           if (Number.isInteger(body.sortOrder)) item.sortOrder = body.sortOrder;
-          item.updatedAt = new Date().toISOString();
+          item.updatedAt = stamp();
           return send(response, 200, { success: true, data: { case: item } });
         }
         if (request.method === "DELETE" && !action) {
           if (item.consentStatus !== "active") return send(response, 409, { success: false, code: "CONSENT_STATE_CHANGED" });
-          item.isActive = false; item.publicationStatus = "draft"; item.updatedAt = new Date().toISOString();
+          item.isActive = false; item.publicationStatus = "draft"; item.updatedAt = stamp();
           return send(response, 200, { success: true, message: "Case unpublished" });
         }
         if (request.method === "PATCH" && action === "restore") {
           if (item.consentStatus !== "active") return send(response, 409, { success: false, code: "CONSENT_STATE_CHANGED" });
-          item.isActive = true; item.publicationStatus = "published"; item.updatedAt = new Date().toISOString();
+          item.isActive = true; item.publicationStatus = "published"; item.updatedAt = stamp();
           return send(response, 200, { success: true, data: { case: item } });
         }
         if (request.method === "PUT" && ["before-image", "after-image"].includes(action)) {
@@ -1317,15 +1349,15 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
           if (scenario === "media-replacement-failure") return send(response, 503, { success: false, code: "SYNTHETIC_REPLACEMENT_FAILURE" });
           if (item.consentStatus !== "active" || !form?.files?.image) return send(response, 409, { success: false, code: "CONSENT_STATE_CHANGED" });
           item[action === "before-image" ? "beforeImage" : "afterImage"] = image(`${action}-${++mediaSequence}`);
-          item.updatedAt = new Date().toISOString();
+          item.updatedAt = stamp();
           return send(response, 200, { success: true, data: { case: item } });
         }
         if (request.method === "POST" && action === "consent/withdraw") {
           const body = await readJson(request).catch(() => null);
           if (!body?.reason || item.consentStatus !== "active") return send(response, 409, { success: false, code: "CONSENT_STATE_CHANGED" });
           item.consentStatus = "withdrawn"; item.publicationStatus = "withdrawn"; item.isActive = false;
-          item.isFeatured = false; item.withdrawnAt = new Date().toISOString(); item.withdrawnBy = user.id;
-          item.withdrawalReason = body.reason; item.updatedAt = new Date().toISOString();
+          item.isFeatured = false; item.withdrawnAt = stamp(); item.withdrawnBy = user.id;
+          item.withdrawalReason = body.reason; item.updatedAt = stamp();
           return send(response, 200, { success: true, data: { case: item } });
         }
         if (request.method === "POST" && action === "purge") {
@@ -1333,8 +1365,8 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
           if (!body || body.confirmation !== "PERMANENTLY PURGE BEFORE AFTER MEDIA") return send(response, 400, { success: false, code: "VALIDATION_ERROR" });
           if (item.consentStatus !== "withdrawn") return send(response, 409, { success: false, code: "CONSENT_STATE_CHANGED" });
           item.beforeImage = null; item.afterImage = null; item.consentStatus = "purged"; item.publicationStatus = "purged";
-          item.externalConsentReference = ""; item.purgedAt = new Date().toISOString(); item.purgedBy = user.id;
-          item.updatedAt = new Date().toISOString();
+          item.externalConsentReference = ""; item.purgedAt = stamp(); item.purgedBy = user.id;
+          item.updatedAt = stamp();
           return send(response, 202, { success: true, data: { case: item } });
         }
       }
@@ -1399,7 +1431,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
 
       if (request.method === "POST" && url.pathname === "/api/v1/appointments/admin") {
         const body = await readJson(request).catch(() => null);
-        if (!body || typeof body.patientName !== "string" || typeof body.patientPhone !== "string" || body.privacyAccepted !== true) {
+        if (!body || (content ? !validPatient(body) : typeof body.patientName !== "string" || typeof body.patientPhone !== "string" || body.privacyAccepted !== true)) {
           return send(response, 400, { success: false, code: "VALIDATION_ERROR", message: "Invalid appointment" });
         }
         const endTime = endTimeFor(body.startTime, body.serviceId);
@@ -1409,7 +1441,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
           ...makeAppointment({
             id: content ? idForPreview(900 + appointments.length) : "64b000000000000000000079", code: content ? `DC-${(900 + appointments.length).toString(16).padStart(16, '0').toUpperCase()}` : "DC-1234567890ABCDE9", status: "confirmed",
             date: body.date, startTime: body.startTime, endTime,
-            patientName: body.patientName, patientPhone: body.patientPhone, patientEmail: body.patientEmail || "",
+            patientName: body.patientName, patientPhone: content ? canonicalPhone(body.patientPhone) : body.patientPhone, patientEmail: body.patientEmail || "",
             dentistId: body.dentistId, serviceId: body.serviceId,
           }),
           patientComment: body.patientComment || "",
@@ -1434,10 +1466,11 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
         if (scenario === "staff-stale-availability" && !staffConflictReturned) {
           staffConflictReturned = true;
           appointment.mutationVersion += 1;
-          appointment.updatedAt = new Date().toISOString();
+          appointment.updatedAt = stamp();
           return versionConflict(response, appointment);
         }
         const date = url.searchParams.get("date") || appointment.date;
+        if (content && !cleanDateAllowed(date)) return send(response, 400, { success: false, code: 'VALIDATION_ERROR' });
         const dentistId = url.searchParams.get('dentistId') || appointment.dentist;
         const serviceId = url.searchParams.get('serviceId') || appointment.service;
         if (content && !cleanRelationship(dentistId, serviceId)) return send(response, 400, { success: false, code: 'VALIDATION_ERROR' });
@@ -1463,16 +1496,23 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
         if (scenario === "staff-conflict" && !staffConflictReturned) {
           staffConflictReturned = true;
           appointment.mutationVersion += 1;
-          appointment.updatedAt = new Date().toISOString();
+          appointment.updatedAt = stamp();
           return versionConflict(response, appointment);
         }
-        if (action === "status") appointment.status = body.status;
+        if (action === 'status') {
+          const transitions = { pending: ['confirmed', 'no_show'], confirmed: ['checked_in', 'in_progress', 'completed', 'no_show'], checked_in: ['in_progress', 'completed'], in_progress: ['completed'] };
+          if (!transitions[appointment.status]?.includes(body.status)) return send(response, 409, { success: false });
+          appointment.status = body.status;
+        }
         if (action === "cancel") {
+          if (!['pending', 'confirmed', 'checked_in', 'in_progress'].includes(appointment.status)) return send(response, 409, { success: false });
           appointment.status = "cancelled";
           appointment.cancellationReason = body.reason;
-          appointment.cancelledAt = new Date().toISOString();
+          appointment.cancelledAt = stamp();
         }
         if (action === "reschedule") {
+          if (!['pending', 'confirmed'].includes(appointment.status)) return send(response, 409, { success: false });
+          if (content && !cleanDateAllowed(body.date)) return send(response, 400, { success: false, code: 'VALIDATION_ERROR' });
           const dentistId = body.dentistId || appointment.dentist;
           const serviceId = body.serviceId || appointment.service;
           const nextEnd = endTimeFor(body.startTime, content ? serviceId : undefined);
@@ -1497,7 +1537,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
           appointment.rescheduleHistory = [...appointment.rescheduleHistory, previous];
         }
         appointment.mutationVersion += 1;
-        appointment.updatedAt = new Date().toISOString();
+        appointment.updatedAt = stamp();
         return send(response, 200, { success: true, data: { appointment } });
       }
       return send(response, 405, { success: false, code: "METHOD_NOT_ALLOWED", message: "Method not allowed" });
@@ -1523,6 +1563,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
       const selectedDentist = managedDentists.find((item) => item._id === body.dentistId) ?? dentist;
       const selectedService = managedServices.find((item) => item._id === body.serviceId) ?? service;
       if (content && !existing) {
+        if (!validPatient(body)) return send(response, 400, { success: false, code: 'VALIDATION_ERROR' });
         if (!cleanRelationship(body.dentistId, body.serviceId)) return send(response, 400, { success: false, code: 'VALIDATION_ERROR' });
         const end = endTimeFor(body.startTime, selectedService._id);
         if (!cleanSlotAvailable(body.date, body.startTime, end, body.dentistId)) return send(response, 409, { success: false, code: 'SLOT_UNAVAILABLE' });
@@ -1541,7 +1582,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
       };
       idempotentResults.set(key, { semantic, result });
       if (content && !existing) appointments.push({ ...makeAppointment({ id: result.id, code: result.confirmationCode,
-        patientName: body.patientName, patientPhone: body.patientPhone, dentistId: body.dentistId, serviceId: body.serviceId,
+        patientName: body.patientName, patientPhone: canonicalPhone(body.patientPhone), dentistId: body.dentistId, serviceId: body.serviceId,
         date: body.date, startTime: body.startTime, endTime: result.endTime, status: result.status }), source: 'website' });
       return send(response, 201, { success: true, message: "Appointment created successfully", data: { appointment: result } });
     }
@@ -1556,7 +1597,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
     }
     const publicService = managedServices.find((item) => url.pathname === `/api/v1/services/${item.slug}` && item.isActive);
     if (publicService) return send(response, 200, { success: true, data: { service: publicService } });
-    if (url.pathname === "/api/v1/dentists") return send(response, 200, { success: true, data: { dentists: managedDentists.filter((item) => item.isActive && (!content || !url.searchParams.has('service') || item.services.some((entry) => entry._id === url.searchParams.get('service')))) } });
+    if (url.pathname === "/api/v1/dentists") return send(response, 200, { success: true, data: { dentists: managedDentists.filter((item) => item.isActive && (!url.searchParams.has('bookingEnabled') || item.bookingEnabled === (url.searchParams.get('bookingEnabled') === 'true')) && (!content || !url.searchParams.has('service') || item.services.some((entry) => entry._id === url.searchParams.get('service')))) } });
     const publicDentist = managedDentists.find((item) => url.pathname === `/api/v1/dentists/${item.slug}` && item.isActive);
     if (publicDentist) return send(response, 200, { success: true, data: { dentist: publicDentist } });
     if (url.pathname === "/api/v1/clinic") return send(response, 200, { success: true, data: { clinic: managedClinic } });
@@ -1564,6 +1605,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
       const dentist = managedDentists.find((item) => item._id === url.searchParams.get('dentistId')) ?? testFixtures.dentist;
       const service = managedServices.find((item) => item._id === url.searchParams.get('serviceId')) ?? testFixtures.service;
       const date = url.searchParams.get("date") || "2026-09-10";
+      if (content && !cleanDateAllowed(date)) return send(response, 400, { success: false, code: 'VALIDATION_ERROR' });
       if (content && !cleanRelationship(dentist._id, service._id)) return send(response, 400, { success: false, code: 'VALIDATION_ERROR' });
       const empty = scenario === "empty-availability";
       const starts = scenario === "conflict" && conflictReturned ? ["10:30", "12:00"] : ["09:00", "10:30", "12:00", "14:30"];

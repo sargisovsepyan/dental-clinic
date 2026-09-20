@@ -15,6 +15,8 @@ import { staffMediaMessages } from "@/i18n/staff-media-messages";
 import { staffGovernanceMessages } from "@/i18n/staff-governance-messages";
 import { productMessages } from '@/i18n/product-messages';
 
+import { StaffLanguageSwitcher } from './staff-language-switcher';
+
 function roleLabel(role: "admin" | "receptionist" | "dentist", copy: ReturnType<typeof useStaffAuth>["copy"]) {
   return role === "admin" ? copy.roleAdmin : role === "receptionist" ? copy.roleReceptionist : copy.roleDentist;
 }
@@ -27,7 +29,7 @@ function StaffNavigation({ mobile = false, onNavigate }: { mobile?: boolean; onN
   const pathname = usePathname();
   if (!user) return null;
   const links = [
-    { href: `/${locale}/staff`, label: copy.dashboard, icon: LayoutDashboard, exact: true },
+    ...(user.role !== 'dentist' ? [{ href: `/${locale}/staff`, label: copy.dashboard, icon: LayoutDashboard, exact: true }] : []),
     ...(user.role === 'dentist' ? [{ href: `/${locale}/staff/my-appointments`, label: productMessages[locale].myAppointments, icon: CalendarDays, exact: false }] : []),
     ...(user.role !== "dentist" ? [{ href: `/${locale}/staff/appointments`, label: copy.appointments, icon: CalendarDays, exact: false }] : []),
     ...(user.role === "admin" ? [
@@ -92,7 +94,7 @@ export function StaffWorkspaceShell({ children }: { children: React.ReactNode })
     <div className="min-h-screen bg-muted/35 lg:grid lg:grid-cols-[17rem_1fr]">
       <aside className="hidden min-h-screen border-r bg-card lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col">
         <div className="shrink-0 border-b p-6">
-          <Link href={`/${locale}/staff` as Route} className="flex items-center gap-3 font-semibold">
+          <Link href={`/${locale}/staff${user.role === 'dentist' ? '/my-appointments' : ''}` as Route} className="flex items-center gap-3 font-semibold">
             <span className="flex size-10 items-center justify-center rounded-xl bg-secondary"><ShieldCheck aria-hidden="true" className="size-5" /></span>
             <span><span className="block">{copy.brand}</span><span className="block text-xs font-normal text-muted-foreground">{copy.workspace}</span></span>
           </Link>
@@ -111,13 +113,13 @@ export function StaffWorkspaceShell({ children }: { children: React.ReactNode })
               <SheetTrigger render={<Button variant="outline" size="icon" className="lg:hidden" />}><Menu aria-hidden="true" /><span className="sr-only">{copy.menu}</span></SheetTrigger>
               <SheetContent side="left" closeLabel={copy.closeMenu} className="w-[min(88vw,20rem)] bg-card">
                 <SheetHeader className="shrink-0"><SheetTitle>{copy.workspace}</SheetTitle><SheetDescription>{staffName} · {roleLabel(user.role, copy)}</SheetDescription></SheetHeader>
-                <div className="min-h-0 flex-1 overflow-y-auto"><StaffNavigation mobile onNavigate={() => setMenuOpen(false)} /></div>
+                <div className="min-h-0 flex-1 overflow-y-auto"><StaffNavigation mobile onNavigate={() => setMenuOpen(false)} /><div className="p-4"><StaffLanguageSwitcher locale={locale} onNavigate={() => setMenuOpen(false)} /></div></div>
                 <div className="mt-auto shrink-0 border-t p-4"><Button variant="outline" className="w-full justify-start" onClick={() => void signOut()} disabled={logoutPending}><LogOut aria-hidden="true" />{copy.logout}</Button></div>
               </SheetContent>
             </Sheet>
             <p className="text-sm font-semibold lg:hidden">{copy.workspace}</p>
           </div>
-          <div className="text-right"><p className="max-w-48 truncate text-sm font-medium">{staffName}</p><p className="text-xs text-muted-foreground">{roleLabel(user.role, copy)}</p></div>
+          <div className="hidden lg:block"><StaffLanguageSwitcher locale={locale} /></div><div className="text-right"><p className="max-w-48 truncate text-sm font-medium">{staffName}</p><p className="text-xs text-muted-foreground">{roleLabel(user.role, copy)}</p></div>
         </header>
         {notice && <div className="px-4 pt-4 lg:px-8"><Alert><AlertDescription>{notice}</AlertDescription></Alert></div>}
         <main id="main-content" tabIndex={-1} className="p-4 sm:p-6 lg:p-8">{children}</main>

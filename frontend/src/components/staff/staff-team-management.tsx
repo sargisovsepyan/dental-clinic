@@ -16,8 +16,11 @@ import { GovernanceFeedback, GovernancePaginationControls, governanceTimestamp, 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
-const initialFilters: StaffFilters = { page: 1, limit: 12 };
-type StaffAction = "role" | "deactivate" | "reactivate" | "revoke-sessions";
+import { correctiveMessages } from '@/i18n/corrective-messages';
+import { isHumanName, isEmail } from '../../../../shared/booking-input.mjs';
+
+const initialFilters: StaffFilters = { lifecycle: 'current', page: 1, limit: 12 };
+type StaffAction = "role" | "deactivate" | "reactivate" | "revoke-sessions" | "resend-invitation";
 type Review = { target: GovernedStaff; action: StaffAction; role: StaffRole };
 
 export function StaffTeamManagement() {
@@ -29,6 +32,14 @@ export function StaffTeamManagement() {
 function TeamWorkspace() {
   const { api, copy, locale, user, handleApiError, endRevokedSession } = useStaffAuth();
   const gov = useGovernanceCopy();
+  const text = correctiveMessages[locale];
+  const [timezone, setTimezone] = useState<string | null>(null);
+  const [inviteValidation, setInviteValidation] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void api.getClinic(controller.signal).then((clinic) => { if (!controller.signal.aborted) setTimezone(clinic.timezone); }, (error: unknown) => { if (!controller.signal.aborted) handleApiError(error); });
+    return () => controller.abort();
+  }, [api, handleApiError]);
   const roleLabel = useRoleLabel();
   const router = useRouter();
   const [draft, setDraft] = useState<StaffFilters>(initialFilters);
@@ -86,7 +97,7 @@ function TeamWorkspace() {
       if (frozen.action === "revoke-sessions" && frozen.target.id === user?.id) {
         endRevokedSession(); router.replace(`/${locale}/staff/login` as Route); return;
       }
-      setFeedback({ error: false, message: gov.changed });
+      setFeedback({ error: false, message: frozen.action === 'resend-invitation' ? gov.invited.replace('{email}', frozen.target.email) : gov.changed });
     } catch (error) {
       handleApiError(error);
       const conflict = error instanceof StaffApiError && error.status === 409;
@@ -98,9 +109,13 @@ function TeamWorkspace() {
   async function invite(event: React.FormEvent) {
     event.preventDefault();
     if (busy.current) return;
+    if (!isHumanName(invitation.name, 100) || !isEmail(invitation.email, true)) {
+      setInviteValidation(!isHumanName(invitation.name, 100) ? text.invalidName : text.invalidEmail); return;
+    }
+    setInviteValidation(null);
     busy.current = true; setPending(true);
     const exact = { name: invitation.name.trim(), email: invitation.email.trim(), role: invitation.role };
-    try { await api.inviteStaff(exact); setFeedback({ error: false, message: gov.invited }); }
+    try { await api.inviteStaff(exact); setFeedback({ error: false, message: gov.invited.replace('{email}', exact.email) }); }
     catch (error) {
       handleApiError(error);
       const uncertain = !(error instanceof StaffApiError) || ["network", "timeout", "cancelled", "protocol"].includes(error.kind) || error.status >= 500;
@@ -113,20 +128,20 @@ function TeamWorkspace() {
       <Button size="sm" variant="outline" onClick={() => openDetail(staff)}>{copy.view}</Button>
       <Button size="sm" variant="outline" disabled={self || pending} title={self ? gov.selfAction : undefined} onClick={() => openReview(staff, "role")}>{gov.changeRole}</Button>
       {(staff.isActive || (!staff.isSetupComplete && !staff.deactivatedAt))
-        ? <Button size="sm" variant="outline" disabled={self || pending} title={self ? gov.selfAction : undefined} onClick={() => openReview(staff, "deactivate")}>{gov.deactivate}</Button>
+        ? <Button size="sm" variant="outline" disabled={self || pending} title={self ? gov.selfAction : undefined} onClick={() => openReview(staff, "deactivate")}>{staff.isSetupComplete ? gov.deactivate : text.cancelInvitation}</Button>
         : staff.isSetupComplete ? <Button size="sm" variant="outline" disabled={pending} onClick={() => openReview(staff, "reactivate")}>{gov.reactivate}</Button> : null}
+      {!staff.isSetupComplete && !staff.deactivatedAt && <Button size="sm" variant="outline" disabled={pending} onClick={() => openReview(staff, 'resend-invitation')}>{text.resend}</Button>}
       {staff.isSetupComplete && <Button size="sm" variant="outline" disabled={pending} onClick={() => openReview(staff, "revoke-sessions")}>{gov.revoke}</Button>}
     </div>;
   }
-  const reviewLabel = review ? review.action === "role" ? gov.changeRole : review.action === "deactivate" ? gov.deactivate : review.action === "reactivate" ? gov.reactivate : gov.revoke : "";
-  const reviewBody = review ? review.action === "role" ? gov.roleHelp : review.action === "deactivate" ? gov.deactivateHelp : review.action === "reactivate" ? gov.reactivateHelp : gov.revokeHelp : "";
+  const reviewLabel = review ? review.action === "role" ? gov.changeRole : review.action === "deactivate" ? review.target.isSetupComplete ? gov.deactivate : text.cancelInvitation : review.action === 'resend-invitation' ? text.resend : review.action === "reactivate" ? gov.reactivate : gov.revoke : "";
+  const reviewBody = review ? review.action === "role" ? gov.roleHelp : review.action === "deactivate" ? gov.deactivateHelp : review.action === 'resend-invitation' ? text.resendHelp : review.action === "reactivate" ? gov.reactivateHelp : gov.revokeHelp : "";
   return <div className="min-w-0">
-    <ManagementHeader eyebrow={copy.secureArea} title={gov.teamTitle} intro={gov.teamIntro} action={<Button onClick={() => { setInvitation({ name: "", email: "", role: "receptionist" }); setInviteOpen(true); }} disabled={pending}><UserPlus aria-hidden="true" />{gov.invite}</Button>} />
+    <ManagementHeader eyebrow={copy.secureArea} title={gov.teamTitle} intro={gov.teamIntro} action={<Button onClick={() => { setInvitation({ name: "", email: "", role: "receptionist" }); setInviteValidation(null); setInviteOpen(true); }} disabled={pending}><UserPlus aria-hidden="true" />{gov.invite}</Button>} />
     <GovernanceFeedback value={feedback} />
     <form className="mt-8 grid gap-4 rounded-xl border bg-card p-5 sm:grid-cols-2 xl:grid-cols-4" onSubmit={(event) => { event.preventDefault(); setFilters({ ...draft, page: 1 }); }}>
       <label className={labelClass}>{copy.role}<select aria-label={copy.role} className={fieldClass} value={draft.role ?? ""} onChange={(event) => setDraft({ ...draft, role: event.target.value ? event.target.value as StaffRole : undefined })}><option value="">{gov.allRoles}</option>{(["admin", "receptionist", "dentist"] as const).map((value) => <option key={value} value={value}>{roleLabel(value)}</option>)}</select></label>
-      <label className={labelClass}>{copy.status}<select aria-label={copy.status} className={fieldClass} value={draft.isActive === undefined ? "" : String(draft.isActive)} onChange={(event) => setDraft({ ...draft, isActive: event.target.value ? event.target.value === "true" : undefined })}><option value="">{copy.allStatuses}</option><option value="true">{gov.active}</option><option value="false">{gov.inactive} / {gov.pending}</option></select></label>
-      <label className={labelClass}>{gov.setup}<select aria-label={gov.setup} className={fieldClass} value={draft.setupComplete === undefined ? "" : String(draft.setupComplete)} onChange={(event) => setDraft({ ...draft, setupComplete: event.target.value ? event.target.value === "true" : undefined })}><option value="">{gov.allSetup}</option><option value="true">{gov.setupComplete}</option><option value="false">{gov.setupPending}</option></select></label>
+      <label className={labelClass}>{copy.status}<select aria-label={copy.status} className={fieldClass} value={draft.lifecycle ?? 'current'} onChange={(event) => setDraft({ ...draft, lifecycle: event.target.value as StaffFilters['lifecycle'] })}>{(['current', 'active', 'pending', 'deactivated', 'all'] as const).map((value) => <option key={value} value={value}>{value === 'current' ? text.current : value === 'all' ? text.all : value === 'active' ? gov.active : value === 'pending' ? gov.pending : gov.inactive}</option>)}</select></label>
       <div className="flex flex-wrap items-end gap-2"><Button type="submit">{copy.applyFilters}</Button><Button type="button" variant="outline" onClick={() => { setDraft(initialFilters); setFilters(initialFilters); refresh(); }}>{copy.clearFilters}</Button></div>
     </form>
     <div className="mt-6 flex justify-end"><Button variant="outline" onClick={refresh} disabled={pending}>{copy.refresh}</Button></div>
@@ -146,11 +161,11 @@ function TeamWorkspace() {
     <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}><DialogContent closeLabel={copy.close}>
       <DialogTitle>{gov.details}</DialogTitle><DialogDescription className="mt-3 break-words">{selected && localizedStaffName(selected, locale)} · {selected?.email}</DialogDescription>
       {detailError ? <GovernanceFeedback value={{ error: true, message: gov.loadError }} /> : detail && detail.id === selected?.id ? <dl className="mt-5 space-y-3 break-words">
-        <div><dt className="text-sm text-muted-foreground">{gov.staffId}</dt><dd className="break-all">{detail.id}</dd></div>
+        <div><dt className="text-sm text-muted-foreground">{productMessages[locale].advanced}</dt><dd><details><summary className="min-h-11 cursor-pointer">{gov.staffId}</summary><p className="break-all">{detail.id}</p></details></dd></div>
         <div><dt className="text-sm text-muted-foreground">{copy.role}</dt><dd>{roleLabel(detail.role)}</dd></div>
         <div><dt className="text-sm text-muted-foreground">{copy.status}</dt><dd>{lifecycle(detail)}</dd></div>
-        <div><dt className="text-sm text-muted-foreground">{copy.created}</dt><dd>{governanceTimestamp(detail.createdAt, locale)}</dd></div>
-        {detail.deactivatedAt && <div><dt className="text-sm text-muted-foreground">{gov.deactivatedAt}</dt><dd>{governanceTimestamp(detail.deactivatedAt, locale)}</dd></div>}
+        <div><dt className="text-sm text-muted-foreground">{copy.created}</dt><dd>{timezone ? governanceTimestamp(detail.createdAt, locale, timezone) : gov.loadingTeam}</dd></div>
+        {detail.deactivatedAt && <div><dt className="text-sm text-muted-foreground">{gov.deactivatedAt}</dt><dd>{timezone ? governanceTimestamp(detail.deactivatedAt, locale, timezone) : gov.loadingTeam}</dd></div>}
       </dl> : <p role="status" className="mt-5">{gov.loadingTeam}</p>}
       {detail?.role === 'dentist' && detail.id === selected?.id && <DentistAssignment key={detail.id} staffId={detail.id} />}
     </DialogContent></Dialog>
@@ -163,11 +178,12 @@ function TeamWorkspace() {
     </DialogContent></Dialog>
     <Dialog open={inviteOpen} onOpenChange={(open) => !busy.current && setInviteOpen(open)}><DialogContent closeLabel={copy.close}>
       <DialogTitle>{gov.inviteTitle}</DialogTitle><DialogDescription className="mt-3">{gov.inviteHelp}</DialogDescription>
-      <form className="mt-5 space-y-4" onSubmit={(event) => void invite(event)}>
+      <form className="mt-5 space-y-4" onSubmit={(event) => void invite(event)} noValidate>
+        {inviteValidation && <p role="alert" className="text-sm text-destructive">{inviteValidation}</p>}
         <label className={labelClass}>{gov.staffName}<input className={fieldClass} required minLength={2} maxLength={100} autoComplete="name" value={invitation.name} disabled={pending} onChange={(event) => setInvitation({ ...invitation, name: event.target.value })} /></label>
         <label className={labelClass}>{copy.email}<input className={fieldClass} type="email" required maxLength={254} autoComplete="email" value={invitation.email} disabled={pending} onChange={(event) => setInvitation({ ...invitation, email: event.target.value })} /></label>
         <label className={labelClass}>{copy.role}<select aria-label={copy.role} className={fieldClass} value={invitation.role} disabled={pending} onChange={(event) => setInvitation({ ...invitation, role: event.target.value as StaffRole })}>{(["admin", "receptionist", "dentist"] as const).map((value) => <option key={value} value={value}>{roleLabel(value)}</option>)}</select></label>
-        <div className="flex flex-wrap justify-end gap-3"><Button type="button" variant="outline" disabled={pending} onClick={() => setInviteOpen(false)}>{copy.close}</Button><Button type="submit" disabled={pending || invitation.name.trim().length < 2}>{pending ? copy.sending : gov.invite}</Button></div>
+        <div className="flex flex-wrap justify-end gap-3"><Button type="button" variant="outline" disabled={pending} onClick={() => setInviteOpen(false)}>{copy.close}</Button><Button type="submit" disabled={pending}>{pending ? copy.sending : gov.invite}</Button></div>
       </form>
     </DialogContent></Dialog>
   </div>;

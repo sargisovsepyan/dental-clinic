@@ -45,7 +45,10 @@ async function login(page: Page, role: keyof typeof previewAccounts = "admin", l
   await page.getByLabel(locale === "en" ? "Email address" : locale === "ru" ? "Электронная почта" : "Էլ․ հասցե").fill(previewAccounts[role].email);
   await page.getByLabel(locale === "en" ? "Password" : locale === "ru" ? "Пароль" : "Գաղտնաբառ").fill(previewPassword);
   await page.locator('button[type="submit"]').click();
-  await expect(page).toHaveURL(new RegExp(`/${locale}/staff/?$`), { timeout: 20_000 });
+  await expect(page).toHaveURL(
+    new RegExp(`/${locale}/staff${role === "dentist" ? "/my-appointments" : ""}/?$`),
+    { timeout: 20_000 },
+  );
 }
 
 async function openFirstAppointment(page: Page) {
@@ -218,7 +221,8 @@ test("appointment creation and non-PII filtering use confirmed server state", as
 test("status, reschedule, and cancellation mutations refetch authoritative versions", async ({ page }) => {
   await login(page);
   await openFirstAppointment(page);
-  await page.getByRole("button", { name: "Mark as Confirmed" }).click();
+  await page.getByRole("combobox", { name: "Visit status" }).selectOption("confirmed");
+  await page.getByRole("button", { name: "Apply status" }).click();
   await expect(page.getByText("Confirmed").first()).toBeVisible();
 
   await page.getByRole("button", { name: "Check availability" }).click();
@@ -238,10 +242,12 @@ test("stale CAS writes and stale availability are refused without automatic muta
   await login(page);
   await openFirstAppointment(page);
   await setScenario(request, "staff-conflict");
-  await page.getByRole("button", { name: "Mark as Confirmed" }).click();
+  await page.getByRole("combobox", { name: "Visit status" }).selectOption("confirmed");
+  await page.getByRole("button", { name: "Apply status" }).click();
   await expect(page.getByText(/changed after you opened it/i)).toBeVisible();
   await expect(page.getByText("Awaiting confirmation").first()).toBeVisible();
-  await page.getByRole("button", { name: "Mark as Confirmed" }).click();
+  await page.getByRole("combobox", { name: "Visit status" }).selectOption("confirmed");
+  await page.getByRole("button", { name: "Apply status" }).click();
   await expect(page.getByText("Confirmed").first()).toBeVisible();
 
   await setScenario(request, "staff-stale-availability");

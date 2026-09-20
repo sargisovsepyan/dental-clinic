@@ -1,16 +1,21 @@
 import axe from "axe-core";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocalizedText } from "@/components/localized-text";
 import { LocaleSwitcher } from "@/components/locale-switcher";
 import { EmptyState, ErrorState, PageIntro } from "@/components/page-shell";
 import { PublicImage } from "@/components/public-media";
 import Loading from "@/app/[locale]/loading";
 import { BeforeAfterCard } from "@/components/before-after-card";
+import { DentistCard } from "@/components/dentist-card";
+import { ClinicDetails } from "@/components/clinic-details";
+import { productMessages } from "@/i18n/product-messages";
+import { StaffLanguageSwitcher } from "@/components/staff/staff-language-switcher";
 
+let pathname = "/ru/services/test-cleaning";
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/ru/services/test-cleaning",
+  usePathname: () => pathname,
   useSearchParams: () => new URLSearchParams("page=2&patientName=must-not-survive"),
 }));
 vi.mock("next/link", () => ({
@@ -20,6 +25,7 @@ vi.mock("next/link", () => ({
 const runAxe = (container: Element) => axe.run(container, {
   rules: { "color-contrast": { enabled: false } },
 });
+afterEach(() => { pathname = "/ru/services/test-cleaning"; });
 
 describe("public UI safety and accessibility", () => {
   it("renders backend text literally instead of interpreting HTML", () => {
@@ -62,6 +68,56 @@ describe("public UI safety and accessibility", () => {
     expect(src).toMatch(/\/og\.png$/);
     expect(src).not.toContain("/_next/image");
     expect(image).toHaveAttribute("loading", "eager");
+  });
+
+  it("switches staff language by pathname only and never forwards sensitive query state", () => {
+    pathname = "/ru/staff/dentists";
+    const { rerender } = render(<StaffLanguageSwitcher locale="ru" />);
+    expect(screen.getByRole("link", { name: "EN" })).toHaveAttribute("href", "/en/staff/dentists");
+    expect(screen.getByRole("link", { name: "RU" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "EN" }).getAttribute("href")).not.toContain("patientName");
+    pathname = "/ru/staff/setup-password";
+    rerender(<StaffLanguageSwitcher locale="ru" />);
+    expect(screen.queryByRole("navigation", { name: "Язык интерфейса" })).not.toBeInTheDocument();
+  });
+
+  it("never renders a visible illustration disclaimer overlay", () => {
+    const { container } = render(<PublicImage image={{ src: "/illustrations/waiting.svg", width: 1200, height: 800 }} alt="Waiting area" lang="ru" />);
+    expect(screen.getByRole("img", { name: "Waiting area" })).toBeVisible();
+    expect(container).not.toHaveTextContent(productMessages.ru.illustration);
+  });
+
+  it("deduplicates normalized dentist titles and specializations", () => {
+    render(<DentistCard locale="en" dentist={{
+      slug: "ani-petrosyan", fullName: "Ani Petrosyan", fullNameLang: "en",
+      title: { text: "General Dentist", lang: "en" },
+      specializations: { values: [" general  dentist ", "GENERAL DENTIST", "Restorative dentistry", "restorative dentistry"], lang: "en" },
+      photo: null,
+    }} />);
+    expect(screen.getByText("General Dentist")).toBeVisible();
+    expect(screen.getByText("Restorative dentistry")).toBeVisible();
+    expect(screen.queryByText(/general dentist ·/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/General Dentist/i)).toHaveLength(1);
+  });
+
+  it("groups identical clinic hours and keeps the lunch break and closed day explicit", () => {
+    const schedule = Array.from({ length: 7 }, (_, index) => ({
+      dayOfWeek: index + 1,
+      isOpen: index < 6,
+      shifts: index < 6 ? [{ start: "09:00", end: "13:00" }, { start: "14:00", end: "18:00" }] : [],
+    }));
+    render(<ClinicDetails locale="en" clinic={{ address: { text: "Yerevan", lang: "en" }, phone: "+37410000000", secondaryPhone: "", email: "", mapUrl: "", socialLinks: {}, weeklySchedule: schedule }} />);
+    expect(screen.getByText("Monday–Saturday")).toBeVisible();
+    expect(screen.getByText("09:00–18:00")).toBeVisible();
+    expect(screen.getByText("Break: 13:00–14:00")).toBeVisible();
+    expect(screen.getByText("Sunday")).toBeVisible();
+    expect(screen.getByText("Closed")).toBeVisible();
+  });
+
+  it("does not invent a break between adjacent shifts", () => {
+    render(<ClinicDetails locale="en" clinic={{ address: { text: "Yerevan", lang: "en" }, phone: "+37410000000", secondaryPhone: "", email: "", mapUrl: "", socialLinks: {}, weeklySchedule: [{ dayOfWeek: 1, isOpen: true, shifts: [{ start: "09:00", end: "13:00" }, { start: "13:00", end: "18:00" }] }] }} />);
+    expect(screen.getByText("09:00–18:00")).toBeVisible();
+    expect(screen.queryByText(/Break:/)).not.toBeInTheDocument();
   });
 
   it("marks the leading before-and-after pair as high priority when requested", () => {

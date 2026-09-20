@@ -11,17 +11,19 @@ import { useStaffAuth } from "@/components/staff/staff-auth-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
+import { StaffLanguageSwitcher } from './staff-language-switcher';
+
 const fieldClass = "mt-2 min-h-11 w-full rounded-md border bg-background px-3 py-2 text-base shadow-sm";
 
 export function StaffLoginForm() {
-  const { locale, copy, status, notice, login, clearNotice } = useStaffAuth();
+  const { locale, copy, status, user, notice, login, clearNotice } = useStaffAuth();
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<{ message: string; requestId?: string } | null>(null);
 
   useEffect(() => {
-    if (status === "authenticated") router.replace(`/${locale}/staff` as Route);
-  }, [locale, router, status]);
+    if (status === "authenticated" && user) router.replace(`/${locale}/staff${user.role === 'dentist' ? '/my-appointments' : ''}` as Route);
+  }, [locale, router, status, user]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -32,7 +34,6 @@ export function StaffLoginForm() {
     const data = new FormData(event.currentTarget);
     try {
       await login(String(data.get("email") || "").trim().toLowerCase(), String(data.get("password") || ""));
-      router.replace(`/${locale}/staff` as Route);
     } catch (caught) {
       setError({
         message: staffErrorMessage(caught, copy),
@@ -45,6 +46,7 @@ export function StaffLoginForm() {
 
   return (
     <StaffAuthCard locale={locale} title={copy.loginTitle} intro={copy.loginIntro}>
+      <div className="mb-5"><StaffLanguageSwitcher locale={locale} /></div>
       {(notice || error) && (
         <Alert variant={error ? "destructive" : "default"} className="mb-5" role={error ? "alert" : "status"}>
           <AlertDescription>

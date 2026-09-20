@@ -22,7 +22,10 @@ async function login(page: Page, locale: 'hy' | 'ru' | 'en', role: string) {
   await page.getByLabel(copy.email).fill(`${role}@preview.local`);
   await page.getByLabel(copy.password, { exact: true }).fill(previewPassword);
   await page.getByRole('button', { name: copy.signIn, exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/${locale}/staff$`), { timeout: 20_000 });
+  await expect(page).toHaveURL(
+    new RegExp(`/${locale}/staff${role === 'dentist' ? '/my-appointments' : ''}/?$`),
+    { timeout: 20_000 },
+  );
 }
 for (const locale of ['hy', 'ru', 'en'] as const) {
   test(`Arelis ${locale} public content is complete, locale-correct and responsive`, async ({ page }) => {
@@ -32,7 +35,7 @@ for (const locale of ['hy', 'ru', 'en'] as const) {
     const browserErrors: string[] = [];
     page.on('pageerror', (error) => browserErrors.push(error.message));
     page.on('console', (message) => { if (message.type() === 'error') browserErrors.push(message.text()); });
-    for (const width of [320, 375, 768, 1440]) {
+    for (const width of [320, 375, 430, 768, 1024, 1440]) {
       await page.setViewportSize({ width, height: 900 }); await page.goto(`/${locale}`);
       await expect(page.getByRole('heading', { level: 1 })).toHaveText(productMessages[locale].hero);
       await expectHeroTextWithinViewport(page);

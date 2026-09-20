@@ -29,6 +29,13 @@ describe('dentist read-only workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Today' }));
     await waitFor(() => expect(api.listMyAppointments).toHaveBeenLastCalledWith({ page: 1, limit: 12, date: result.today }, expect.any(AbortSignal)));
   });
+  it('keeps the loaded list when the active period is clicked again', async () => {
+    render(<StaffMyAppointments />);
+    expect(await screen.findByText('Own patient')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Upcoming' }));
+    expect(screen.getByText('Own patient')).toBeVisible();
+    expect(api.listMyAppointments).toHaveBeenCalledTimes(1);
+  });
   it('denies other roles without any protected reads', async () => {
     auth.user.role = 'receptionist'; render(<StaffMyAppointments />);
     expect(screen.getByText('Access denied')).toBeVisible(); await Promise.resolve();

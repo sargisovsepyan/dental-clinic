@@ -141,9 +141,10 @@ describe("staff appointment workspace", () => {
     api.updateStatus.mockResolvedValue({ ...appointment, status: "confirmed", mutationVersion: 1 });
     render(<StaffAppointmentDetail appointmentId={appointment._id} catalog={catalog} />);
     await screen.findByText("Preview Patient");
-    fireEvent.click(screen.getByRole("button", { name: "Mark as Confirmed" }));
+    fireEvent.change(screen.getByLabelText('Visit status'), { target: { value: 'confirmed' } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply status" }));
     await waitFor(() => expect(api.updateStatus).toHaveBeenCalledWith(appointment._id, 0, "confirmed"));
-    expect(await screen.findByText("Confirmed")).toBeVisible();
+    expect(await screen.findByText("Confirmed", { selector: 'span' })).toBeVisible();
     expect(api.getAppointment).toHaveBeenCalledTimes(2);
   });
 
@@ -153,12 +154,13 @@ describe("staff appointment workspace", () => {
     api.getAppointment.mockResolvedValueOnce(appointment).mockResolvedValueOnce({ ...appointment, status: "confirmed", mutationVersion: 1 });
     render(<StaffAppointmentDetail appointmentId={appointment._id} catalog={catalog} />);
     await screen.findByText("Preview Patient");
-    const action = screen.getByRole("button", { name: "Mark as Confirmed" });
+    fireEvent.change(screen.getByLabelText('Visit status'), { target: { value: 'confirmed' } });
+    const action = screen.getByRole("button", { name: "Apply status" });
     fireEvent.click(action);
     fireEvent.click(action);
     expect(api.updateStatus).toHaveBeenCalledTimes(1);
     resolveMutation({ ...appointment, status: "confirmed", mutationVersion: 1 });
-    expect(await screen.findByText("Confirmed")).toBeVisible();
+    expect(await screen.findByText("Confirmed", { selector: 'span' })).toBeVisible();
   });
 
   it("does not retry a stale write and refetches before another action", async () => {
@@ -166,7 +168,8 @@ describe("staff appointment workspace", () => {
     api.updateStatus.mockRejectedValue(new StaffApiError({ kind: "http", status: 409, code: "APPOINTMENT_VERSION_CONFLICT", currentMutationVersion: 2 }));
     render(<StaffAppointmentDetail appointmentId={appointment._id} catalog={catalog} />);
     await screen.findByText("Preview Patient");
-    fireEvent.click(screen.getByRole("button", { name: "Mark as Confirmed" }));
+    fireEvent.change(screen.getByLabelText('Visit status'), { target: { value: 'confirmed' } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply status" }));
     expect(await screen.findByText(/changed after you opened it/i)).toBeVisible();
     expect(api.updateStatus).toHaveBeenCalledTimes(1);
     expect(api.getAppointment).toHaveBeenCalledTimes(2);

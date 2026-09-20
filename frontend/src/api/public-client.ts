@@ -180,7 +180,7 @@ export async function getDentists(query: {
 } = {}) {
   const result = await publicGet<components["schemas"]["DentistListEnvelope"]>("/dentists", {
     query,
-    revalidate: 300,
+    cache: 'no-store',
   });
   return requiredArray<DentistRecord>(result.data.dentists);
 }
@@ -189,7 +189,7 @@ export async function getDentist(slug: string) {
   if (!isCanonicalSlug(slug)) throw new PublicApiError({ kind: "http", status: 404 });
   const result = await publicGet<components["schemas"]["DentistDetailEnvelope"]>(
     `/dentists/${encodeURIComponent(slug)}`,
-    { revalidate: 300 },
+    { cache: 'no-store' },
   );
   return requiredRecord<DentistRecord>(result.data.dentist);
 }

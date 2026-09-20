@@ -6,7 +6,6 @@ import { useState } from "react";
 import type { SafeImageView } from "@/api/public-view-models";
 import type { Locale } from "@/i18n/locales";
 import { cn } from "@/lib/utils";
-import { productMessages } from '@/i18n/product-messages';
 
 function Placeholder({ alt, lang, className }: { alt: string; lang?: Locale; className?: string }) {
   return (
@@ -50,7 +49,6 @@ function ManagedImage({ image, alt, lang, className, imageClassName, priority, s
         className={cn("h-auto w-full", imageClassName)}
         onError={() => setFailed(true)}
       />
-      {image.src.startsWith('/illustrations/') && <p className="absolute inset-x-0 bottom-0 bg-background/90 px-3 py-2 text-xs text-muted-foreground">{productMessages[lang || 'hy'].illustration}</p>}
     </div>
   );
 }

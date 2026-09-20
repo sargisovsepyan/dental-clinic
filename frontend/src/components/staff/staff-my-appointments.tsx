@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StaffApiError, type AssignedAppointment } from '@/api/staff-client';
 import { useStaffAuth } from './staff-auth-provider';
 import { StaffAccessDenied } from './staff-shell';
@@ -26,7 +26,10 @@ function MyAppointments() {
   const [selected, setSelected] = useState<AssignedAppointment | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const generation = useRef(0);
+  function invalidate() { generation.current += 1; setLoading(true); setResult(null); setSelected(null); }
   useEffect(() => {
+    const version = ++generation.current;
     const controller = new AbortController();
     queueMicrotask(async () => {
       if (controller.signal.aborted) return;
@@ -34,25 +37,26 @@ function MyAppointments() {
       try {
         // The server, not the browser clock, supplies the clinic-local day.
         const upcoming = await api.listMyAppointments({ page: period === 'today' ? 1 : page, limit: 12 }, controller.signal);
+        if (controller.signal.aborted || generation.current !== version) return;
         const data = period === 'today'
           ? await api.listMyAppointments({ page, limit: 12, date: upcoming.today }, controller.signal)
           : upcoming;
-        if (!controller.signal.aborted) setResult(data);
+        if (!controller.signal.aborted && generation.current === version) setResult(data);
       } catch (caught) {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || generation.current !== version) return;
         handleApiError(caught);
         setError(caught instanceof StaffApiError && caught.code === 'DENTIST_PROFILE_REQUIRED' ? text.profileRequired : copy.appointmentsError);
-      } finally { if (!controller.signal.aborted) setLoading(false); }
+      } finally { if (!controller.signal.aborted && generation.current === version) setLoading(false); }
     });
-    return () => controller.abort();
+    return () => { generation.current += 1; controller.abort(); };
   }, [api, copy.appointmentsError, handleApiError, page, period, refresh, text.profileRequired]);
 
   return <section className="max-w-5xl">
     <h1 className="display-type text-4xl sm:text-5xl">{text.myAppointments}</h1>
     <p className="mt-4 max-w-2xl leading-7 text-muted-foreground">{text.myIntro}</p>
     <div className="mt-7 flex flex-wrap gap-3">
-      {(['upcoming', 'today'] as const).map((value) => <Button key={value} variant={period === value ? 'secondary' : 'outline'} aria-pressed={period === value} onClick={() => { setResult(null); setSelected(null); setPeriod(value); setPage(1); }}>{text[value]}</Button>)}
-      <Button variant="outline" onClick={() => { setResult(null); setSelected(null); setRefresh((value) => value + 1); }}>{copy.refresh}</Button>
+      {(['upcoming', 'today'] as const).map((value) => <Button key={value} variant={period === value ? 'secondary' : 'outline'} aria-pressed={period === value} onClick={() => { if (period === value) return; invalidate(); setPeriod(value); setPage(1); }}>{text[value]}</Button>)}
+      <Button variant="outline" onClick={() => { invalidate(); setRefresh((value) => value + 1); }}>{copy.refresh}</Button>
     </div>
     {loading ? <p role="status" className="mt-8">{copy.loadingAppointments}</p> : error ? <Alert className="mt-8"><AlertDescription>{error}</AlertDescription></Alert> : result && <>
       <p className="mt-5 text-sm text-muted-foreground">{copy.clinicTime}: {result.timezone}</p>
@@ -65,7 +69,7 @@ function MyAppointments() {
           {selected?._id === item._id && <dl className="mt-4 border-t pt-4"><dt className="text-sm text-muted-foreground">{copy.phone}</dt><dd className="mt-1 break-words">{item.patientPhone}</dd></dl>}
         </article>)}
       </div>}
-      <div className="mt-6 flex flex-wrap items-center gap-3"><Button variant="outline" disabled={page <= 1} onClick={() => { setResult(null); setPage((value) => value - 1); }}>{copy.previous}</Button><span className="text-sm">{copy.page.replace('{page}', String(page)).replace('{pages}', String(Math.max(1, result.pagination.pages)))}</span><Button variant="outline" disabled={page >= result.pagination.pages} onClick={() => { setResult(null); setPage((value) => value + 1); }}>{copy.next}</Button></div>
+      <div className="mt-6 flex flex-wrap items-center gap-3"><Button variant="outline" disabled={page <= 1} onClick={() => { invalidate(); setPage((value) => value - 1); }}>{copy.previous}</Button><span className="text-sm">{copy.page.replace('{page}', String(page)).replace('{pages}', String(Math.max(1, result.pagination.pages)))}</span><Button variant="outline" disabled={page >= result.pagination.pages} onClick={() => { invalidate(); setPage((value) => value + 1); }}>{copy.next}</Button></div>
     </>}
   </section>;
 }

@@ -1,5 +1,8 @@
 import type { NextConfig } from "next";
+import path from "node:path";
 import { buildSecurityHeaders } from "./src/lib/security-headers";
+
+const repositoryRoot = path.join(__dirname, "..");
 
 const apiValue = process.env.NEXT_PUBLIC_API_URL;
 const siteValue = process.env.NEXT_PUBLIC_SITE_URL;
@@ -59,7 +62,13 @@ const nextConfig: NextConfig = {
   ...(process.env.NODE_ENV === 'development' && process.env.ARELIS_SUPERVISED_PREVIEW === '1'
     ? { devIndicators: false as const } : {}),
   distDir: process.env.NEXT_DIST_DIR || ".next",
+  experimental: {
+    externalDir: true,
+  },
   poweredByHeader: false,
+  turbopack: {
+    root: repositoryRoot,
+  },
   typedRoutes: true,
   images: {
     formats: ["image/avif", "image/webp"],

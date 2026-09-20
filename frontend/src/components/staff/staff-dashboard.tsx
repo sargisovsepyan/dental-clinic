@@ -5,13 +5,16 @@ import type { Route } from "next";
 import { Building2, CalendarClock, CalendarDays, Stethoscope, UserRound, UsersRound } from "lucide-react";
 import { useStaffAuth } from "@/components/staff/staff-auth-provider";
 import { staffManagementMessages } from "@/i18n/staff-management-messages";
-import { StaffMyAppointments } from './staff-my-appointments';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 export function StaffDashboard() {
   const { locale, copy, user } = useStaffAuth();
+  const router = useRouter();
+  useEffect(() => { if (user?.role === 'dentist') router.replace(`/${locale}/staff/my-appointments` as Route); }, [locale, router, user?.role]);
   const managementCopy = staffManagementMessages[locale];
   if (!user) return null;
-  if (user.role === 'dentist') return <StaffMyAppointments />;
+  if (user.role === 'dentist') return null;
   return (
     <section className="max-w-4xl">
       <p className="text-xs font-bold tracking-[0.14em] text-primary uppercase">{copy.workspace}</p>

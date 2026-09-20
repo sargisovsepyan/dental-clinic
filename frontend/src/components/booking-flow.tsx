@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, ArrowRight, CalendarDays, Check, Clock3, RefreshCw, ShieldCheck } from "lucide-react";
 import {
   BookingApiError,
@@ -20,7 +20,9 @@ import { Button } from "@/components/ui/button";
 import type { Locale } from "@/i18n/locales";
 import { bookingMessages, type BookingMessages } from "@/i18n/booking-messages";
 import { messages } from "@/i18n/messages";
-import { bookingDateRange, formatBookingDate } from "@/lib/booking-date";
+import { bookingDateRange, formatBookingDate, isBookingDate } from "@/lib/booking-date";
+import { isHumanName, canonicalPhone, isEmail } from '../../../shared/booking-input.mjs';
+import { correctiveMessages } from '@/i18n/corrective-messages';
 import { cn } from "@/lib/utils";
 
 export interface BookingServiceOption {
@@ -203,12 +205,27 @@ export function BookingFlow({
   const availabilityHeading = useRef<HTMLHeadingElement>(null);
   const serviceHeading = useRef<HTMLHeadingElement>(null);
   const submitErrorAlert = useRef<HTMLDivElement>(null);
+  const dentistHeading = useRef<HTMLHeadingElement>(null);
+  const patientHeading = useRef<HTMLHeadingElement>(null);
+  const nextFocus = useRef<'dentist' | 'date' | 'patient' | null>(null);
+  const validationCopy = correctiveMessages[locale];
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  const dateRange = useMemo(() => bookingDateRange({
+  const dateRange = bookingDateRange({
     timezone: clinic.timezone,
     allowSameDay: clinic.allowSameDayBooking,
     maxDaysAhead: clinic.maxBookingDaysAhead,
-  }), [clinic.allowSameDayBooking, clinic.maxBookingDaysAhead, clinic.timezone]);
+  });
+  const validDate = isBookingDate(date, dateRange);
+  useEffect(() => {
+    const target = nextFocus.current === 'dentist' ? dentistHeading.current
+      : nextFocus.current === 'date' ? availabilityHeading.current
+      : nextFocus.current === 'patient' ? patientHeading.current : null;
+    if (!target) return;
+    nextFocus.current = null;
+    target.focus({ preventScroll: true });
+    target.scrollIntoView?.({ block: 'start', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  });
   const selectedService = services.find((item) => item.id === serviceId);
   const selectedDentist = dentists.find((item) => item.id === dentistId);
   const compatibleDentists = serviceId
@@ -228,17 +245,17 @@ export function BookingFlow({
 
   useEffect(() => {
     const version = ++requestVersion.current;
-    if (!serviceId || !dentistId || !date) return;
+    if (!serviceId || !dentistId || !validDate) return;
     const controller = new AbortController();
     getAvailability({ dentistId, serviceId, date, signal: controller.signal })
       .then((value) => {
-        if (requestVersion.current !== version) return;
+        if (controller.signal.aborted || requestVersion.current !== version) return;
         setAvailability(value);
         setAvailabilityError(undefined);
         setAvailabilityStatus("idle");
       })
       .catch((error: unknown) => {
-        if (requestVersion.current !== version || (error instanceof BookingApiError && error.kind === "cancelled")) return;
+        if (controller.signal.aborted || requestVersion.current !== version || (error instanceof BookingApiError && error.kind === "cancelled")) return;
         setAvailability(undefined);
         setAvailabilityError(error instanceof BookingApiError
           ? error.status === 400 || error.status === 404
@@ -255,9 +272,10 @@ export function BookingFlow({
         setAvailabilityStatus("error");
       });
     return () => controller.abort();
-  }, [date, dentistId, refreshVersion, serviceId]);
+  }, [date, dentistId, refreshVersion, serviceId, validDate]);
 
   const chooseService = useCallback((id: string) => {
+    nextFocus.current = 'dentist';
     requestVersion.current += 1;
     setServiceId(id);
     if (!dentists.find((item) => item.id === dentistId)?.serviceIds.includes(id)) setDentistId("");
@@ -266,10 +284,12 @@ export function BookingFlow({
     setAvailability(undefined);
     setAvailabilityError(undefined);
     setAvailabilityStatus("idle");
+    setFieldErrors({});
     setSubmitError(undefined);
     setRetryAfterSeconds(undefined);
   }, [dentistId, dentists]);
   const chooseDentist = useCallback((id: string) => {
+    nextFocus.current = 'date';
     requestVersion.current += 1;
     setDentistId(id);
     setDate("");
@@ -277,6 +297,7 @@ export function BookingFlow({
     setAvailability(undefined);
     setAvailabilityError(undefined);
     setAvailabilityStatus("idle");
+    setFieldErrors({});
     setSubmitError(undefined);
     setRetryAfterSeconds(undefined);
   }, []);
@@ -286,10 +307,11 @@ export function BookingFlow({
     setSlot(undefined);
     setAvailability(undefined);
     setAvailabilityError(undefined);
-    setAvailabilityStatus(value ? "loading" : "idle");
+    setAvailabilityStatus(value && isBookingDate(value, bookingDateRange({ timezone: clinic.timezone, allowSameDay: clinic.allowSameDayBooking, maxDaysAhead: clinic.maxBookingDaysAhead })) ? "loading" : "idle");
+    setFieldErrors({});
     setSubmitError(undefined);
     setRetryAfterSeconds(undefined);
-  }, []);
+  }, [clinic]);
   const stageBooking = useCallback((nextServiceId: string, nextDentistId: string, nextDate?: string) => {
     requestVersion.current += 1;
     setServiceId(nextServiceId);
@@ -298,14 +320,27 @@ export function BookingFlow({
     setSlot(undefined);
     setAvailability(undefined);
     setAvailabilityError(undefined);
-    setAvailabilityStatus(nextDate ? "loading" : "idle");
+    setAvailabilityStatus(nextDate && isBookingDate(nextDate, bookingDateRange({ timezone: clinic.timezone, allowSameDay: clinic.allowSameDayBooking, maxDaysAhead: clinic.maxBookingDaysAhead })) ? "loading" : "idle");
     setSubmitError(undefined);
     setRetryAfterSeconds(undefined);
-  }, []);
+  }, [clinic]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (activeSubmit.current || !selectedService || !selectedDentist || !date || !slot || !privacyAccepted) return;
+    if (activeSubmit.current || !selectedService || !selectedDentist || !slot) return;
+    if (!isBookingDate(date, bookingDateRange({ timezone: clinic.timezone, allowSameDay: clinic.allowSameDayBooking, maxDaysAhead: clinic.maxBookingDaysAhead }))) {
+      setSlot(undefined); setAvailability(undefined); setAvailabilityStatus('idle'); return;
+    }
+    const errors: Record<string, string> = {};
+    if (!privacyAccepted) errors.privacyAccepted = copy.privacyMissing;
+    if (!isHumanName(patientName)) errors.patientName = validationCopy.invalidName;
+    if (!canonicalPhone(patientPhone)) errors.patientPhone = validationCopy.invalidPhone;
+    if (!isEmail(patientEmail, clinic.requireEmail)) errors.patientEmail = validationCopy.invalidEmail;
+    if (patientComment.length > 1000) errors.patientComment = validationCopy.invalidComment;
+    setFieldErrors(errors);
+    if (Object.keys(errors).length) {
+      event.currentTarget.querySelector<HTMLInputElement>(`[name="${Object.keys(errors)[0]}"]`)?.focus(); return;
+    }
     if (challenge.provider === "turnstile" && !challengeToken) {
       setChallengeFailed(true);
       return;
@@ -387,12 +422,13 @@ export function BookingFlow({
     setAvailability(undefined);
     setAvailabilityError(undefined);
     setAvailabilityStatus("idle");
+    setFieldErrors({});
     setSubmitError(undefined);
     setRetryAfterSeconds(undefined);
     setResult(undefined);
     attempt.current = undefined;
     resetChallenge();
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   };
 
   if (result) {
@@ -415,7 +451,7 @@ export function BookingFlow({
 
         {serviceId && (
           <section className="rounded-2xl border bg-card p-5 sm:p-7" aria-labelledby="dentist-heading">
-            <h2 id="dentist-heading" className="display-type text-2xl sm:text-3xl">{copy.chooseDentist}</h2>
+            <h2 ref={dentistHeading} tabIndex={-1} id="dentist-heading" className="display-type scroll-mt-28 text-2xl sm:text-3xl">{copy.chooseDentist}</h2>
             {compatibleDentists.length ? (
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
                 {compatibleDentists.map((dentist) => <ChoiceButton key={dentist.id} selected={dentist.id === dentistId} title={dentist.fullName} description={dentist.title.text} lang={dentist.fullNameLang} onClick={() => chooseDentist(dentist.id)} />)}
@@ -427,22 +463,23 @@ export function BookingFlow({
         {dentistId && (
           <section className="rounded-2xl border bg-card p-5 sm:p-7" aria-labelledby="availability-heading">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 ref={availabilityHeading} tabIndex={-1} id="availability-heading" className="display-type text-2xl sm:text-3xl">{copy.chooseDate}</h2>
-              {date && <Button type="button" variant="ghost" size="sm" onClick={() => { requestVersion.current += 1; setAvailability(undefined); setAvailabilityError(undefined); setRetryAfterSeconds(undefined); setAvailabilityStatus("loading"); setRefreshVersion((value) => value + 1); }}><RefreshCw aria-hidden="true" />{copy.refreshSlots}</Button>}
+              <h2 ref={availabilityHeading} tabIndex={-1} id="availability-heading" className="display-type scroll-mt-28 text-2xl sm:text-3xl">{copy.chooseDate}</h2>
+              {validDate && <Button type="button" variant="ghost" size="sm" onClick={() => { requestVersion.current += 1; setSlot(undefined); setAvailability(undefined); setAvailabilityError(undefined); setRetryAfterSeconds(undefined); setAvailabilityStatus("loading"); setRefreshVersion((value) => value + 1); }}><RefreshCw aria-hidden="true" />{copy.refreshSlots}</Button>}
             </div>
             <label htmlFor="booking-date" className="mt-6 block text-sm font-bold">{copy.date}</label>
             <input id="booking-date" name="date" type="date" min={dateRange.min} max={dateRange.max} value={date} onChange={(event) => chooseDate(event.target.value)} className={cn(fieldClass, "mt-2 max-w-sm")} />
+            {date && !validDate && <p role="alert" className="mt-3 text-sm text-destructive">{validationCopy.invalidDate}</p>}
             <div className="mt-6" aria-live="polite" aria-busy={availabilityStatus === "loading"}>
               {submitError === "conflict" && <Alert variant="destructive" className="mb-5"><AlertCircle aria-hidden="true" /><AlertTitle>{copy.conflict}</AlertTitle></Alert>}
               {availabilityStatus === "loading" && <p className="inline-flex min-h-12 items-center gap-3 text-sm text-muted-foreground"><RefreshCw aria-hidden="true" className="size-4 animate-spin" />{copy.loadingSlots}</p>}
-              {availabilityStatus === "error" && availabilityError && <Alert variant="destructive"><AlertCircle aria-hidden="true" /><AlertTitle>{availabilityErrorMessage(availabilityError, copy)}</AlertTitle><AlertDescription>{availabilityError === "rate" && retryAfterSeconds !== undefined && <span className="mt-1 block">{copy.waitSeconds.replace("{seconds}", String(retryAfterSeconds))}</span>}<Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => { requestVersion.current += 1; setAvailability(undefined); setAvailabilityError(undefined); setRetryAfterSeconds(undefined); setAvailabilityStatus("loading"); setRefreshVersion((value) => value + 1); }}>{copy.retrySame}</Button></AlertDescription></Alert>}
+              {availabilityStatus === "error" && availabilityError && <Alert variant="destructive"><AlertCircle aria-hidden="true" /><AlertTitle>{availabilityErrorMessage(availabilityError, copy)}</AlertTitle><AlertDescription>{availabilityError === "rate" && retryAfterSeconds !== undefined && <span className="mt-1 block">{copy.waitSeconds.replace("{seconds}", String(retryAfterSeconds))}</span>}<Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => { requestVersion.current += 1; setSlot(undefined); setAvailability(undefined); setAvailabilityError(undefined); setRetryAfterSeconds(undefined); setAvailabilityStatus("loading"); setRefreshVersion((value) => value + 1); }}>{copy.retrySame}</Button></AlertDescription></Alert>}
               {availabilityStatus === "idle" && availability && availability.slots.length === 0 && <Alert><CalendarDays aria-hidden="true" /><AlertDescription>{reasonMessage(availability.reason, copy)}</AlertDescription></Alert>}
               {availabilityStatus === "idle" && availability && availability.slots.length > 0 && (
                 <fieldset>
                   <legend className="text-sm font-bold">{copy.availableTimes}</legend>
                   <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
                     {availability.slots.map((item) => (
-                      <button key={item.startAt} type="button" aria-pressed={slot === item.start} aria-label={copy.selectTime.replace("{time}", item.start)} onClick={() => { setSlot(item.start); setSubmitError(undefined); }} className={cn("min-h-12 rounded-lg border px-3 font-semibold transition-colors hover:border-primary hover:bg-secondary", slot === item.start && "border-primary bg-primary text-primary-foreground hover:bg-primary")}>{item.start}</button>
+                      <button key={item.startAt} type="button" aria-pressed={slot === item.start} aria-label={copy.selectTime.replace("{time}", item.start)} onClick={() => { nextFocus.current = 'patient'; setSlot(item.start); setSubmitError(undefined); }} className={cn("min-h-12 rounded-lg border px-3 font-semibold transition-colors hover:border-primary hover:bg-secondary", slot === item.start && "border-primary bg-primary text-primary-foreground hover:bg-primary")}>{item.start}</button>
                     ))}
                   </div>
                 </fieldset>
@@ -451,17 +488,18 @@ export function BookingFlow({
           </section>
         )}
 
-        {slot && (
+        {slot && validDate && (
           <section className="rounded-2xl border bg-card p-5 sm:p-7" aria-labelledby="patient-heading">
-            <h2 id="patient-heading" className="display-type text-2xl sm:text-3xl">{copy.patientDetails}</h2>
-            <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
+            <h2 ref={patientHeading} tabIndex={-1} id="patient-heading" className="display-type scroll-mt-28 text-2xl sm:text-3xl">{copy.patientDetails}</h2>
+            <form className="mt-6 space-y-5" onSubmit={handleSubmit} noValidate>
+              {Object.entries(fieldErrors).map(([field, message]) => <p key={field} id={`${field}-error`} role="alert" className="text-sm text-destructive">{message}</p>)}
               <div className="grid gap-5 sm:grid-cols-2">
-                <label className="text-sm font-bold">{copy.name}<span aria-hidden="true"> *</span><input className={cn(fieldClass, "mt-2")} name="patientName" autoComplete="name" minLength={2} maxLength={120} required value={patientName} onChange={(event) => setPatientName(event.target.value)} /></label>
-                <label className="text-sm font-bold">{copy.phone}<span aria-hidden="true"> *</span><input className={cn(fieldClass, "mt-2")} name="patientPhone" type="tel" autoComplete="tel" inputMode="tel" minLength={8} maxLength={30} required value={patientPhone} onChange={(event) => setPatientPhone(event.target.value)} /></label>
+                <label className="text-sm font-bold">{copy.name}<span aria-hidden="true"> *</span><input className={cn(fieldClass, "mt-2")} name="patientName" aria-invalid={Boolean(fieldErrors.patientName)} aria-describedby={fieldErrors.patientName ? 'patientName-error' : undefined} autoComplete="name" minLength={2} maxLength={120} required value={patientName} onChange={(event) => setPatientName(event.target.value)} /></label>
+                <label className="text-sm font-bold">{copy.phone}<span aria-hidden="true"> *</span><input className={cn(fieldClass, "mt-2")} name="patientPhone" aria-invalid={Boolean(fieldErrors.patientPhone)} aria-describedby={fieldErrors.patientPhone ? 'patientPhone-error' : undefined} type="tel" autoComplete="tel" inputMode="tel" minLength={8} maxLength={30} required value={patientPhone} onChange={(event) => setPatientPhone(event.target.value)} /></label>
               </div>
-              <label className="block text-sm font-bold">{clinic.requireEmail ? copy.email : copy.emailOptional}{clinic.requireEmail && <span aria-hidden="true"> *</span>}<input className={cn(fieldClass, "mt-2")} name="patientEmail" type="email" autoComplete="email" maxLength={254} required={clinic.requireEmail} value={patientEmail} onChange={(event) => setPatientEmail(event.target.value)} /></label>
-              <label className="block text-sm font-bold">{copy.comment}<textarea className={cn(fieldClass, "mt-2 min-h-28 py-3")} name="patientComment" maxLength={1000} value={patientComment} onChange={(event) => setPatientComment(event.target.value)} aria-describedby="comment-hint" /><span id="comment-hint" className="mt-2 flex justify-between gap-4 text-xs font-normal text-muted-foreground"><span>{copy.commentHint}</span><span>{copy.charactersLeft.replace("{count}", String(1000 - patientComment.length))}</span></span></label>
-              <label className="flex cursor-pointer items-start gap-3 rounded-xl border p-4 text-sm leading-6"><input type="checkbox" className="mt-1 size-5 shrink-0 accent-primary" required checked={privacyAccepted} onChange={(event) => setPrivacyAccepted(event.target.checked)} /><span>{copy.privacy}</span></label>
+              <label className="block text-sm font-bold">{clinic.requireEmail ? copy.email : copy.emailOptional}{clinic.requireEmail && <span aria-hidden="true"> *</span>}<input className={cn(fieldClass, "mt-2")} name="patientEmail" aria-invalid={Boolean(fieldErrors.patientEmail)} aria-describedby={fieldErrors.patientEmail ? 'patientEmail-error' : undefined} type="email" autoComplete="email" maxLength={254} required={clinic.requireEmail} value={patientEmail} onChange={(event) => setPatientEmail(event.target.value)} /></label>
+              <label className="block text-sm font-bold">{copy.comment}<textarea className={cn(fieldClass, "mt-2 min-h-28 py-3")} name="patientComment" aria-invalid={Boolean(fieldErrors.patientComment)} maxLength={1000} value={patientComment} onChange={(event) => setPatientComment(event.target.value)} aria-describedby={fieldErrors.patientComment ? 'comment-hint patientComment-error' : 'comment-hint'} /><span id="comment-hint" className="mt-2 flex justify-between gap-4 text-xs font-normal text-muted-foreground"><span>{copy.commentHint}</span><span>{copy.charactersLeft.replace("{count}", String(1000 - patientComment.length))}</span></span></label>
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border p-4 text-sm leading-6"><input name="privacyAccepted" aria-invalid={Boolean(fieldErrors.privacyAccepted)} aria-describedby={fieldErrors.privacyAccepted ? 'privacyAccepted-error' : undefined} type="checkbox" className="mt-1 size-5 shrink-0 accent-primary" required checked={privacyAccepted} onChange={(event) => setPrivacyAccepted(event.target.checked)} /><span>{copy.privacy}</span></label>
               <BookingChallenge provider={challenge.provider} siteKey={challenge.siteKey} locale={locale} label={copy.challenge} loadingLabel={copy.challengeLoading} errorLabel={copy.challengeError} resetVersion={challengeVersion} onToken={handleChallengeToken} onError={handleChallengeError} />
               {challengeFailed && <Alert variant="destructive"><ShieldCheck aria-hidden="true" /><AlertDescription>{copy.challengeError}</AlertDescription></Alert>}
               {submitError && submitError !== "conflict" && submitError !== "not-found" && <Alert ref={submitErrorAlert} tabIndex={-1} variant="destructive"><AlertCircle aria-hidden="true" /><AlertTitle>{submitErrorMessage(submitError, copy)}</AlertTitle>{(submitError === "uncertain" || (submitError === "rate" && retryAfterSeconds !== undefined)) && <AlertDescription><span className="mt-2 block">{submitError === "rate" ? copy.waitSeconds.replace("{seconds}", String(retryAfterSeconds)) : copy.retrySame}</span></AlertDescription>}</Alert>}
@@ -479,7 +517,7 @@ export function BookingFlow({
           {[
             [copy.stepService, selectedService?.name.text],
             [copy.stepDentist, selectedDentist?.fullName],
-            [copy.stepTime, date && slot ? `${formatBookingDate(date, locale, clinic.timezone)} · ${slot}` : undefined],
+            [copy.stepTime, validDate && slot ? `${formatBookingDate(date, locale, clinic.timezone)} · ${slot}` : undefined],
             [copy.stepDetails, completedSteps >= 3 ? copy.required : undefined],
           ].map(([label, value], index) => (
             <li key={label} className="grid grid-cols-[2rem_1fr] gap-3">

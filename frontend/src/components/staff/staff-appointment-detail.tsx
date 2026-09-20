@@ -15,6 +15,7 @@ import { StaffAccessDenied } from "@/components/staff/staff-shell";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { correctiveMessages } from "@/i18n/corrective-messages";
 import { bookingDateRange } from "@/lib/booking-date";
 
 const fieldClass = "mt-2 min-h-11 w-full rounded-md border bg-background px-3 py-2 text-base shadow-sm";
@@ -26,6 +27,8 @@ export function StaffAppointmentDetail({ appointmentId, catalog }: { appointment
   const [mutating, setMutating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [statusChoice, setStatusChoice] = useState<StaffAppointmentStatus | ''>('');
+  const statusCopy = correctiveMessages[locale];
   const [cancelOpen, setCancelOpen] = useState(false);
   const [serviceId, setServiceId] = useState("");
   const [dentistId, setDentistId] = useState("");
@@ -45,7 +48,9 @@ export function StaffAppointmentDetail({ appointmentId, catalog }: { appointment
     setError(null);
     try {
       const current = await api.getAppointment(appointmentId, signal);
+      if (signal?.aborted) return;
       setAppointment(current);
+      setStatusChoice('');
       setServiceId(referenceId(current.service));
       setDentistId(referenceId(current.dentist));
       setDate(current.date);
@@ -204,7 +209,7 @@ export function StaffAppointmentDetail({ appointmentId, catalog }: { appointment
         </div>
         <aside className="rounded-xl border bg-card p-5 sm:p-7">
           <h2 className="text-lg font-semibold">{copy.actions}</h2>
-          <div className="mt-5 flex flex-col gap-3">{availableTransitions.map((nextStatus) => <Button key={nextStatus} variant="outline" disabled={mutating} onClick={() => void updateStatus(nextStatus)}>{copy.transitionTo.replace("{status}", statusLabel(nextStatus, copy))}</Button>)}</div>
+          <div className="mt-5 flex flex-col gap-3">{availableTransitions.length > 0 && <><label className="text-sm font-medium">{statusCopy.visitStatus}<select className={fieldClass} value={statusChoice} disabled={mutating} onChange={(event) => setStatusChoice(event.target.value as StaffAppointmentStatus)}><option value="">{statusCopy.chooseStatus}</option>{availableTransitions.map((value) => <option key={value} value={value}>{statusLabel(value, copy)}</option>)}</select></label><Button variant="outline" disabled={mutating || !statusChoice || !availableTransitions.includes(statusChoice)} onClick={() => { if (statusChoice && availableTransitions.includes(statusChoice)) void updateStatus(statusChoice); }}>{statusCopy.applyStatus}</Button></>}</div>
           {cancellable.has(appointment.status) && <Dialog open={cancelOpen} onOpenChange={setCancelOpen}><DialogTrigger render={<Button className="mt-3 w-full" variant="destructive" disabled={mutating} />}><span>{copy.cancel}</span></DialogTrigger><DialogContent closeLabel={copy.close} className="max-w-lg"><DialogTitle>{copy.cancelTitle}</DialogTitle><DialogDescription>{copy.cancelBody}</DialogDescription><form className="mt-6 space-y-5" onSubmit={cancel}><label className="block text-sm font-medium">{copy.cancellationReason}<textarea className={fieldClass} name="reason" minLength={2} maxLength={500} rows={4} required disabled={mutating} /></label><div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><DialogClose render={<Button type="button" variant="outline" disabled={mutating} />}><span>{copy.keepAppointment}</span></DialogClose><Button type="submit" variant="destructive" disabled={mutating}>{mutating ? copy.updating : copy.confirmCancellation}</Button></div></form></DialogContent></Dialog>}
         </aside>
       </div>

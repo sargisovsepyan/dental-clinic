@@ -53,7 +53,7 @@ export default async function BeforeAfterPage({ params, searchParams }: Props) {
     .replace("{pages}", String(pageCount));
   return (
     <>
-      <PageIntro eyebrow={copy.clinic} title={copy.results} description={copy.resultsIntro} />
+      <PageIntro eyebrow={copy.clinic} title={copy.results} />
       <div className="site-container pb-24">
         {failed ? <ErrorState locale={locale} requestId={requestId} /> : cases.length === 0 ? <EmptyState>{copy.noResults}</EmptyState> : (
           <div className="grid gap-14 lg:grid-cols-2">

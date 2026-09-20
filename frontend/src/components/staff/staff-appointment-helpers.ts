@@ -3,6 +3,7 @@ import type { Locale } from "@/i18n/locales";
 import type { StaffMessages } from "@/i18n/staff-messages";
 import { productMessages } from '@/i18n/product-messages';
 import { localizedPersonName } from '@/i18n/localized-content';
+import { isCalendarDate } from '@/lib/booking-date';
 
 export function snapshotServiceName(item: Pick<StaffAppointment, 'serviceSnapshot'>, locale: Locale) {
   const name = item.serviceSnapshot.translations?.[locale]?.name;
@@ -14,8 +15,8 @@ export function snapshotDentistName(item: Pick<StaffAppointment, 'dentistSnapsho
 
 export const transitions: Record<StaffAppointmentStatus, StaffAppointmentStatus[]> = {
   pending: ["confirmed", "no_show"],
-  confirmed: ["checked_in", "no_show"],
-  checked_in: ["in_progress"],
+  confirmed: ["checked_in", "in_progress", "completed", "no_show"],
+  checked_in: ["in_progress", "completed"],
   in_progress: ["completed"],
   completed: [],
   cancelled: [],
@@ -51,10 +52,10 @@ export function referenceId(value: StaffAppointment["dentist"] | StaffAppointmen
 }
 
 export function formatClinicDate(date: string, locale: Locale) {
-  const [year, month, day] = date.split("-").map(Number);
+  if (!isCalendarDate(date)) return '—';
   return new Intl.DateTimeFormat(locale === "hy" ? "hy-AM" : locale === "ru" ? "ru-RU" : "en-US", {
     year: "numeric", month: "short", day: "numeric", timeZone: "UTC",
-  }).format(new Date(Date.UTC(year, month - 1, day, 12)));
+  }).format(new Date(`${date}T12:00:00.000Z`));
 }
 
 export function formatClinicTimestamp(value: string, locale: Locale, timezone: string) {

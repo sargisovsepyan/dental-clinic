@@ -4,6 +4,8 @@ import { messages } from "@/i18n/messages";
 import { productMessages } from '@/i18n/product-messages';
 import { safeEmailHref, safeExternalUrl, safePhoneHref, safeSocialUrl, type SocialPlatform } from "@/lib/safe-urls";
 
+import { correctiveMessages } from '@/i18n/corrective-messages';
+
 const socialPlatforms: SocialPlatform[] = ["instagram", "facebook", "whatsapp", "telegram"];
 
 export function ClinicDetails({
@@ -23,6 +25,15 @@ export function ClinicDetails({
 }) {
   const copy = messages[locale];
   const weekdayKeys = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
+  const days = [...clinic.weeklySchedule].sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+  const groups: Array<{ first: number; last: number; isOpen: boolean; shifts: Array<{ start: string; end: string }> }> = [];
+  for (const day of days) {
+    const previous = groups.at(-1);
+    if (previous && previous.last + 1 === day.dayOfWeek && previous.isOpen === day.isOpen &&
+      JSON.stringify(previous.shifts) === JSON.stringify(day.shifts)) previous.last = day.dayOfWeek;
+    else groups.push({ first: day.dayOfWeek, last: day.dayOfWeek, isOpen: day.isOpen, shifts: day.shifts });
+  }
+  const dayLabel = (day: number) => copy[weekdayKeys[day - 1] ?? 'monday'];
   const phone = safePhoneHref(clinic.phone);
   const secondaryPhone = safePhoneHref(clinic.secondaryPhone);
   const email = safeEmailHref(clinic.email);
@@ -53,12 +64,12 @@ export function ClinicDetails({
       <div>
         <h2 className="display-type text-3xl">{copy.regularHours}</h2>
         <dl className="mt-7">
-          {clinic.weeklySchedule.map((day) => (
-            <div key={day.dayOfWeek} className="grid grid-cols-[1fr_auto] gap-5 border-t py-3.5 text-sm first:border-t-0">
-              <dt>{copy[weekdayKeys[day.dayOfWeek - 1] ?? "monday"]}</dt>
+          {groups.map((day) => (
+            <div key={day.first} className="grid grid-cols-[1fr_auto] gap-5 border-t py-3.5 text-sm first:border-t-0">
+              <dt>{dayLabel(day.first)}{day.last !== day.first && `–${dayLabel(day.last)}`}</dt>
               <dd className="text-right font-semibold">
                 {day.isOpen && day.shifts.length
-                  ? day.shifts.map((shift) => `${shift.start}–${shift.end}`).join(", ")
+                  ? <>{day.shifts[0].start}–{day.shifts.at(-1)?.end}{day.shifts.slice(1).map((shift, index) => day.shifts[index].end === shift.start ? null : <span key={shift.start} className="mt-1 block text-xs font-normal text-muted-foreground">{correctiveMessages[locale].break}: {day.shifts[index].end}–{shift.start}</span>)}</>
                   : copy.closed}
               </dd>
             </div>

@@ -11,8 +11,8 @@ export function useRoleLabel() {
   const { copy } = useStaffAuth();
   return (role: StaffRole) => role === "admin" ? copy.roleAdmin : role === "receptionist" ? copy.roleReceptionist : copy.roleDentist;
 }
-export function governanceTimestamp(value: string, locale: "hy" | "ru" | "en") {
-  return new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "UTC", timeZoneName: "short" }).format(new Date(value));
+export function governanceTimestamp(value: string, locale: "hy" | "ru" | "en", timezone = 'UTC') {
+  return new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: timezone, timeZoneName: "short" }).format(new Date(value));
 }
 export function GovernanceFeedback({ value }: { value: { message: string; error: boolean } | null }) {
   return value ? <Alert className="mt-6" variant={value.error ? "destructive" : "default"} role={value.error ? "alert" : "status"}><AlertDescription>{value.message}</AlertDescription></Alert> : null;

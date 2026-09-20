@@ -11,7 +11,9 @@ async function login(page: Page, account: keyof typeof previewAccounts = "admin"
   await page.locator('input[type="email"]').fill(previewAccounts[account].email);
   await page.locator('input[type="password"]').fill(previewPassword);
   await page.locator('button[type="submit"]').click();
-  await expect(page).toHaveURL(new RegExp(`/${locale}/staff/?$`));
+  await expect(page).toHaveURL(
+    new RegExp(`/${locale}/staff${account === "dentist" ? "/my-appointments" : ""}/?$`),
+  );
 }
 test.beforeAll(async () => {
   api = createMockApiServer();
@@ -41,7 +43,7 @@ test("team invitation/filtering has exact bodies, privacy, conflicts, and uncert
   await login(page); await page.goto("/en/staff/team");
   await expect(card(page, previewAccounts.secondAdmin.id)).toBeVisible();
   await page.getByLabel("Role").selectOption("dentist");
-  await page.getByLabel("Account setup").selectOption("false");
+  await page.getByLabel("Status", { exact: true }).selectOption("pending");
   await page.getByRole("button", { name: "Apply filters" }).click();
   await expect(page.getByText("Pending Setup", { exact: true })).toBeVisible();
   await expect(page.getByText("Preview Dentist", { exact: true })).toHaveCount(0);
@@ -50,7 +52,7 @@ test("team invitation/filtering has exact bodies, privacy, conflicts, and uncert
   const body = page.waitForRequest((req) => req.url().endsWith("/staff/invite") && req.method() === "POST");
   await invite(page, "New Staff", "new@preview.local");
   expect((await body).postDataJSON()).toEqual({ name: "New Staff", email: "new@preview.local", role: "receptionist" });
-  await expect(page.getByText(/Invitation confirmed/)).toBeVisible();
+  await expect(page.getByText(/Invitation sent to new@preview.local/)).toBeVisible();
   await expect(page.getByText("New Staff", { exact: true })).toBeVisible();
   await invite(page, "Existing", previewAccounts.admin.email);
   await expect(page.getByText(/established staff account already uses/)).toBeVisible();
@@ -70,6 +72,7 @@ test("role/lifecycle controls, detail, last-admin conflict, and 403 preserve aut
   await expect(self.getByRole("button", { name: "Deactivate staff" })).toBeDisabled();
   const dentist = card(page, previewAccounts.dentist.id);
   await dentist.getByRole("button", { name: "View" }).click();
+  await page.getByRole('dialog').getByText('Staff ID', { exact: true }).click();
   await expect(page.getByRole("dialog").getByText(previewAccounts.dentist.id)).toBeVisible();
   await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
   await dentist.getByRole("button", { name: "Change role" }).click();
@@ -78,6 +81,9 @@ test("role/lifecycle controls, detail, last-admin conflict, and 403 preserve aut
   await expect(dentist).toContainText("Receptionist");
   await dentist.getByRole("button", { name: "Deactivate staff" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Confirm change" }).click();
+  await expect(dentist).toHaveCount(0);
+  await page.getByLabel('Status', { exact: true }).selectOption('all');
+  await page.getByRole('button', { name: 'Apply filters' }).click();
   await expect(dentist.getByText("Deactivated", { exact: true })).toBeVisible();
   await dentist.getByRole("button", { name: "Reactivate staff" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Confirm change" }).click();

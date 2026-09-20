@@ -18,13 +18,14 @@ const self = member(admin.id, admin.name, { role: "admin", email: admin.email })
 const page = (staff = [self, other, inactive, pending]) => ({ staff, pagination: { page: 1, limit: 12, total: staff.length, pages: 1 } });
 const log = (action: string) => ({ id: "64b000000000000000000001", requestId: "safe-reference", actor: null, action, entityType: "future-entity", entityId: "ref", method: "POST", path: "/safe", metadata: { reason: "<img src=x onerror=alert(1)>" }, createdAt: time });
 const auditPage = (action: string) => ({ logs: [log(action)], pagination: { page: 1, limit: 10, total: 1, pages: 1 } });
-const api = { listStaff: vi.fn(), getStaff: vi.fn(), mutateStaff: vi.fn(), inviteStaff: vi.fn(), listAuditLogs: vi.fn(), listDentists: vi.fn(), getDentistProfile: vi.fn(), setDentistProfile: vi.fn() };
+const api = { getClinic: vi.fn(), listStaff: vi.fn(), getStaff: vi.fn(), mutateStaff: vi.fn(), inviteStaff: vi.fn(), listAuditLogs: vi.fn(), listDentists: vi.fn(), getDentistProfile: vi.fn(), setDentistProfile: vi.fn() };
 const replace = vi.fn();
 const state = { api, locale: "en", copy: staffMessages.en, user: { ...admin }, handleApiError: vi.fn(), endRevokedSession: vi.fn() };
 vi.mock("@/components/staff/staff-auth-provider", () => ({ useStaffAuth: () => state }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }), usePathname: () => "/en/staff/team" }));
 beforeEach(() => {
   vi.resetAllMocks(); state.user = { ...admin }; state.locale = "en"; state.copy = staffMessages.en;
+  api.getClinic.mockResolvedValue({ timezone: 'Asia/Yerevan' });
   api.listStaff.mockResolvedValue(page()); api.getStaff.mockResolvedValue(other); api.mutateStaff.mockResolvedValue(other); api.inviteStaff.mockResolvedValue(pending); api.listAuditLogs.mockResolvedValue(auditPage("future.unknown"));
   api.listDentists.mockResolvedValue([]); api.getDentistProfile.mockResolvedValue(null);
 });
@@ -82,6 +83,28 @@ describe("admin-only team governance", () => {
     expect(api.inviteStaff).toHaveBeenCalledExactlyOnceWith({ name: "New Staff", email: "new@example.test", role: "receptionist" });
     await waitFor(() => expect(api.listStaff).toHaveBeenCalledTimes(2));
   });
+  it("validates invitation names in the browser and never retries an uncertain explicit resend", async () => {
+    api.mutateStaff.mockRejectedValueOnce(new StaffApiError({ kind: "network" }));
+    render(<StaffTeamManagement />); await screen.findByText("Other");
+    expect(api.listStaff).toHaveBeenCalledWith({ lifecycle: "current", page: 1, limit: 12 }, expect.any(AbortSignal));
+    fireEvent.click(screen.getByRole("button", { name: "Invite staff" }));
+    const inviteDialog = within(screen.getByRole("dialog"));
+    fireEvent.change(inviteDialog.getByLabelText("Staff name"), { target: { value: "1111`" } });
+    fireEvent.change(inviteDialog.getByLabelText("Email address"), { target: { value: "valid@example.test" } });
+    fireEvent.click(inviteDialog.getByRole("button", { name: "Invite staff" }));
+    expect(await inviteDialog.findByText(/at least two letters/i)).toBeVisible();
+    expect(api.inviteStaff).not.toHaveBeenCalled();
+    fireEvent.click(inviteDialog.getAllByRole("button", { name: "Close" })[0]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    const pendingCard = within(screen.getByTestId(`staff-${pending.id}`));
+    fireEvent.click(pendingCard.getByRole("button", { name: "Resend invitation" }));
+    const resendDialog = within(screen.getByRole("dialog"));
+    expect(resendDialog.getByText(/previous link will stop working/i)).toBeVisible();
+    fireEvent.click(resendDialog.getByRole("button", { name: "Confirm change" }));
+    expect(await screen.findByText(/change may have been saved/i)).toBeVisible();
+    expect(api.mutateStaff).toHaveBeenCalledExactlyOnceWith(pending.id, "resend-invitation", "dentist");
+  });
   it("freezes the target during refresh and makes a last-admin conflict actionable without retry", async () => {
     api.mutateStaff.mockRejectedValueOnce(new StaffApiError({ kind: "http", status: 409 }));
     render(<StaffTeamManagement />); await screen.findByText("Other");
@@ -110,7 +133,7 @@ describe("admin-only team governance", () => {
     api.mutateStaff.mockResolvedValueOnce(self);
     render(<StaffTeamManagement />); await screen.findByText("Other");
     const pendingCard = within(screen.getByTestId(`staff-${pending.id}`));
-    expect(pendingCard.getByText("Invitation pending")).toBeVisible(); expect(pendingCard.queryByRole("button", { name: "Reactivate staff" })).toBeNull();
+    expect(pendingCard.getByText("Awaiting account setup")).toBeVisible(); expect(pendingCard.queryByRole("button", { name: "Reactivate staff" })).toBeNull();
     const selfCard = within(screen.getByTestId(`staff-${admin.id}`));
     expect(selfCard.getByRole("button", { name: "Change role" })).toBeDisabled(); expect(selfCard.getByRole("button", { name: "Deactivate staff" })).toBeDisabled();
     fireEvent.click(selfCard.getByRole("button", { name: "Revoke all sessions" }));
@@ -122,7 +145,7 @@ describe("admin-only team governance", () => {
     api.mutateStaff.mockResolvedValueOnce({ ...pending, deactivatedAt: time });
     render(<StaffTeamManagement />); await screen.findByText("Other");
     api.listStaff.mockResolvedValueOnce(page([{ ...pending, deactivatedAt: time }]));
-    fireEvent.click(within(screen.getByTestId(`staff-${pending.id}`)).getByRole("button", { name: "Deactivate staff" }));
+    fireEvent.click(within(screen.getByTestId(`staff-${pending.id}`)).getByRole("button", { name: "Cancel invitation" }));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirm change" }));
     await waitFor(() => expect(within(screen.getByTestId(`staff-${pending.id}`)).getByText("Deactivated")).toBeVisible());
     expect(within(screen.getByTestId(`staff-${pending.id}`)).queryByRole("button", { name: "Reactivate staff" })).toBeNull();
@@ -150,6 +173,7 @@ describe("admin-only team governance", () => {
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
     fireEvent.click(within(screen.getByTestId(`staff-${inactive.id}`)).getByRole("button", { name: "View" }));
     await act(async () => latest.resolve(inactive)); await act(async () => old.resolve(other));
+    fireEvent.click(within(screen.getByRole('dialog')).getByText('Staff ID', { exact: true }));
     expect(within(screen.getByRole("dialog")).getByText(inactive.id)).toBeVisible(); expect(within(screen.getByRole("dialog")).queryByText(other.id)).toBeNull();
   });
 });
