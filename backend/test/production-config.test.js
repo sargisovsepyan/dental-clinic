@@ -267,7 +267,7 @@ test('multi-instance memory limiting is rejected and tests force the isolated st
 });
 
 
-test('booking limiter canonicalizes equivalent Armenian phone formats', () => {
+test('booking limiter canonicalizes Armenian forms without changing explicit international identity', () => {
   const first = bookingKey({
     body: { patientPhone: '091 23 45 67' },
     ip: '127.0.0.1',
@@ -277,6 +277,15 @@ test('booking limiter canonicalizes equivalent Armenian phone formats', () => {
     ip: '127.0.0.2',
   });
   assert.equal(first, second);
+  const explicitInternational = bookingKey({
+    body: { patientPhone: '+12345678' },
+    ip: '127.0.0.3',
+  });
+  const unprefixedLocal = bookingKey({
+    body: { patientPhone: '12345678' },
+    ip: '127.0.0.4',
+  });
+  assert.notEqual(explicitInternational, unprefixedLocal);
 });
 
 

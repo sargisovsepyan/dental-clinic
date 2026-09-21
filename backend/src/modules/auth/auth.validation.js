@@ -13,7 +13,7 @@ const loginSchema = {
       .custom((value, helpers) => isEmail(helpers.original, true) ? value : helpers.error('any.invalid'))
       .trim()
       .lowercase()
-      .email()
+      .email({ tlds: { allow: false } })
       .max(254)
       .required(),
 
@@ -42,7 +42,7 @@ const forgotPasswordSchema = {
       .custom((value, helpers) => isEmail(helpers.original, true) ? value : helpers.error('any.invalid'))
       .trim()
       .lowercase()
-      .email()
+      .email({ tlds: { allow: false } })
       .max(254)
       .required(),
   }).required(),

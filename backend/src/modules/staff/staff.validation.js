@@ -24,7 +24,7 @@ const inviteStaffSchema = {
       .custom((value, helpers) => isEmail(helpers.original, true) ? value : helpers.error('any.invalid'))
       .trim()
       .lowercase()
-      .email()
+      .email({ tlds: { allow: false } })
       .max(254)
       .required(),
     role: role.required(),

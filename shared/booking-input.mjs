@@ -11,8 +11,9 @@ export function canonicalPhone(value) {
   const phone = value.replace(/^ +| +$/g, '');
   if (!/^\+?[0-9 ()-]+$/.test(phone)) return null;
 
-  const body = phone.startsWith('+') ? phone.slice(1) : phone;
-  if (!body || (phone.startsWith('+') && !/^\d/.test(body))) return null;
+  const explicitInternational = phone.startsWith('+');
+  const body = explicitInternational ? phone.slice(1) : phone;
+  if (!body || (explicitInternational && !/^\d/.test(body))) return null;
 
   let parenthesesOpen = false;
   let parenthesesUsed = false;
@@ -51,6 +52,10 @@ export function canonicalPhone(value) {
   if (parenthesesOpen) return null;
 
   let digits = phone.replace(/[^0-9]/g, '');
+  if (explicitInternational) {
+    if (digits.startsWith('0')) return null;
+    return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;
+  }
   if (digits.length === 9 && digits.startsWith('0')) digits = `374${digits.slice(1)}`;
   else if (digits.length === 8) digits = `374${digits}`;
   return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : null;

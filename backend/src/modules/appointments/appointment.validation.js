@@ -35,7 +35,7 @@ const patientFields = {
       .custom((value, helpers) => isEmail(helpers.original) ? value : helpers.error('any.invalid'))
       .trim()
       .lowercase()
-      .email()
+      .email({ tlds: { allow: false } })
       .max(254)
       .allow('')
       .default(''),

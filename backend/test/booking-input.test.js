@@ -27,7 +27,9 @@ test('one Unicode name policy applies to raw patient and staff invitation bounda
 test('phone normalization runs only after valid human formatting passes structural validation', () => {
   const valid = [
     ['+37499000001', '+37499000001'], ['+374 99 000 001', '+37499000001'],
-    ['+374 (99) 000-001', '+37499000001'], ['099 000 001', '+37499000001'],
+    ['+374 (99) 000-001', '+37499000001'], ['+12345678', '+12345678'],
+    ['099000001', '+37499000001'], ['099 000 001', '+37499000001'],
+    ['99000001', '+37499000001'],
     ['(099) 000-001', '+37499000001'], ['99-000-001', '+37499000001'],
     ['+1 (212) 555-0123', '+12125550123'], ['+44 20 7946 0958', '+442079460958'],
   ];
@@ -39,6 +41,7 @@ test('phone normalization runs only after valid human formatting passes structur
   }
   for (const phone of [
     'ABC099123456', '099123456abc', '099123456\n', '++37499123456', '374+99123456',
+    '+099000001', '+00000000',
     '+374((((99----000001', '+374(99))000001', '+374((99)000001', '+37499--00--00--01',
     '+3-7-4-9-9-0-0-0-0-0-1', '+374(99 000)001', '`37499000001', '<37499000001>',
     '+37499\u0000000001', '099.123.456', '()---   ', '--------', '123', '😀099123456', '9'.repeat(16),
@@ -50,7 +53,10 @@ test('phone normalization runs only after valid human formatting passes structur
   }
 });
 test('one pragmatic email contract is a strict frontend/backend-compatible boundary', () => {
-  const valid = ['person@example.com', 'person@care.example.com', 'person+booking@example.com', ' Person.Name@Example.COM '];
+  const valid = [
+    'person@example.com', 'person@care.example.com', 'person+booking@example.com',
+    'admin@preview.local', 'person@example.invalid', ' Person.Name@Example.COM ',
+  ];
   const invalid = [
     'person.example.com', '@example.com', 'person@', 'person@example', 'person@-example.com',
     'person@example-.com', 'person@example..com', 'person@@example.com', 'person @example.com',
@@ -72,6 +78,10 @@ test('one pragmatic email contract is a strict frontend/backend-compatible bound
     assert.equal(isEmail(email, true), false, email);
     for (const result of schemas(email)) assert.ok(result.error, email);
   }
+  const normalized = schemas(' Person.Name@Example.COM ');
+  assert.equal(normalized[0].value.patientEmail, 'person.name@example.com');
+  assert.equal(normalized[1].value.patientEmail, 'person.name@example.com');
+  for (const result of normalized.slice(2)) assert.equal(result.value.email, 'person.name@example.com');
   assert.equal(isEmail('', false), true);
   assert.equal(isEmail('', true), false);
 });

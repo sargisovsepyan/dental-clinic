@@ -239,3 +239,39 @@ This pass is carried by one new focused commit on
 Nothing is merged or pushed. Remaining owner work is unchanged: real clinic
 claims/media/consent and provider/infrastructure release checks require owner or
 deployment-environment evidence.
+
+### Independent-review contact-boundary correction (2026-09-21)
+
+The follow-up review found two narrow semantic gaps. First, phone digits were
+subjected to Armenian local convenience normalization without retaining whether
+the structurally valid raw value had an explicit leading plus. Explicit-plus
+values are now preserved as international identities, must not begin with zero,
+and remain subject to the 8-15 digit boundary. Only no-plus eight-digit or
+leading-zero nine-digit Armenian forms receive `+374` normalization. The shared
+helper continues to drive booking, staff, filtering, quota/rate-limit, clinic,
+and preview/mock boundaries.
+
+Second, shared `isEmail()` accepted the intended application syntax for reserved
+alphabetic suffixes such as `.local` and `.invalid`, while default Joi 18 email
+validation additionally consulted its IANA TLD registry. Relevant backend schemas
+now retain Joi's independent email syntax/type defense with that registry check
+disabled, matching the shared frontend/bootstrap/preview policy. Neither layer
+performs DNS, SMTP, mailbox, ownership, or deliverability verification.
+
+The focused implementation changed `shared/booking-input.mjs`; the appointment,
+auth, staff and clinic backend validation modules; the shared-policy and
+rate-limiter backend tests; the deterministic Arelis mock contract test;
+`docs/API_CONTRACT.md`; `docs/openapi.yaml`; and the regenerated frontend OpenAPI
+types. No application form required modification because public booking, staff
+appointment creation, login, recovery, invitation and clinic settings already use
+the shared helpers.
+
+Focused verification passed 4/4 shared/schema tests, 1/1 rate-limit identity test,
+and 53/53 frontend contact-form/mock tests across six files. Final backend
+verification passed syntax checks for 185 files, the tracked-secret scan for 427
+files, OpenAPI lint, and 336/336 tests (93.42% lines, 84.23% branches, 90.91%
+functions); the separate backend run also passed 336/336. Frontend API generation,
+typecheck, zero-warning lint and production build passed; coverage passed 33/33
+files and 232/232 tests (81.17% statements, 80.82% branches, 88.46% functions,
+85.92% lines), and browser E2E passed 51/51 in 13.3 minutes. Backend and frontend
+runtime-only and full live audits each reported zero vulnerabilities.

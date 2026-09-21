@@ -71,6 +71,26 @@ describe("clean Arelis mock API contract", () => {
       ...body({ ...booking, patientEmail: malformedEmail }),
       headers: { "content-type": "application/json", "idempotency-key": "invalid-email-structure" },
     })).response.status).toBe(400);
+    expect((await json("/api/v1/appointments", {
+      ...body({ ...booking, patientPhone: "+099000001" }),
+      headers: { "content-type": "application/json", "idempotency-key": "invalid-explicit-local-phone" },
+    })).response.status).toBe(400);
+
+    const explicitInternational = await json("/api/v1/appointments", {
+      ...body({ ...booking, patientPhone: "+12345678", patientEmail: "person@example.invalid" }),
+      headers: { "content-type": "application/json", "idempotency-key": "explicit-international-phone" },
+    });
+    expect(explicitInternational.response.status).toBe(201);
+    expect(explicitInternational.body.data.appointment).toMatchObject({ status: "pending" });
+    expect(explicitInternational.body.data.appointment).not.toHaveProperty("patientPhone");
+    expect(explicitInternational.body.data.appointment).not.toHaveProperty("patientEmail");
+    const listing = await json("/api/v1/appointments?page=1&limit=100", {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const stored = listing.body.data.appointments.find(
+      (item: Record<string, unknown>) => item._id === explicitInternational.body.data.appointment.id,
+    );
+    expect(stored).toMatchObject({ patientPhone: "+12345678", status: "pending" });
   });
 
   it("rejects direct past, impossible, and beyond-horizon booking payloads and keeps public/admin statuses authoritative", async () => {

@@ -1252,7 +1252,7 @@ export interface components {
         LoginRequest: {
             /**
              * Format: email
-             * @description Conservative application email contract; surrounding ASCII spaces are trimmed and malformed local/domain separators or labels are rejected.
+             * @description Conservative application syntax contract; surrounding ASCII spaces are trimmed, malformed labels are rejected, and no IANA/DNS/deliverability check is performed.
              */
             email: string;
             password: string;
@@ -1265,7 +1265,7 @@ export interface components {
         EmailRequest: {
             /**
              * Format: email
-             * @description Conservative application email contract; surrounding ASCII spaces are trimmed and malformed local/domain separators or labels are rejected.
+             * @description Conservative application syntax contract; surrounding ASCII spaces are trimmed, malformed labels are rejected, and no IANA/DNS/deliverability check is performed.
              */
             email: string;
         };
@@ -1280,7 +1280,7 @@ export interface components {
             name: string;
             /**
              * Format: email
-             * @description Conservative application email contract; surrounding ASCII spaces are trimmed and malformed local/domain separators or labels are rejected.
+             * @description Conservative application syntax contract; surrounding ASCII spaces are trimmed, malformed labels are rejected, and no IANA/DNS/deliverability check is performed.
              */
             email: string;
             role: components["schemas"]["Role"];
@@ -1763,11 +1763,11 @@ export interface components {
             translations?: components["schemas"]["ClinicTranslations"];
             tagline?: string;
             description?: string;
-            /** @description Empty or structurally valid phone input; structure is checked before any normalization. */
+            /** @description Empty or structurally valid phone input; structure is checked before normalization, and an explicit leading plus is preserved rather than treated as Armenian local input. */
             phone?: string;
-            /** @description Empty or structurally valid phone input; structure is checked before any normalization. */
+            /** @description Empty or structurally valid phone input; structure is checked before normalization, and an explicit leading plus is preserved rather than treated as Armenian local input. */
             secondaryPhone?: string;
-            /** @description Empty or a conservative application-contract email; malformed local/domain separators or labels are rejected before Joi email validation. */
+            /** @description Empty or an application-contract syntactic email; malformed labels are rejected without IANA/DNS/deliverability validation. */
             email?: string | "";
             address?: string;
             mapUrl?: string;
@@ -2003,9 +2003,9 @@ export interface components {
         PatientBookingFields: {
             /** @description Unicode letters and combining marks, with internal spaces, apostrophes, or hyphens; at least two letters and no control/format characters. */
             patientName: string;
-            /** @description Raw structure is validated before normalization. It may contain digits, one optional leading plus, ordinary grouping spaces, at most one balanced digit-only parenthesized group, and non-repeated hyphens between digits; malformed or abusive separators are rejected. It must then normalize to 8-15 digits. Armenian local 8-digit and leading-zero 9-digit forms normalize to +374. */
+            /** @description Raw structure is validated before normalization. It may contain digits, one optional leading plus, ordinary grouping spaces, at most one balanced digit-only parenthesized group, and non-repeated hyphens between digits; malformed or abusive separators are rejected. It must then contain 8-15 digits. Explicit-plus input is preserved as international identity and may not begin with zero. Only no-plus Armenian local 8-digit and leading-zero 9-digit forms normalize to +374. */
             patientPhone: string;
-            /** @description Empty or a conservative application-contract email; surrounding ASCII spaces are trimmed and malformed local/domain separators or labels are rejected before Joi email validation. */
+            /** @description Empty or an application-contract syntactic email; surrounding ASCII spaces are trimmed and malformed labels are rejected without IANA/DNS/deliverability validation. */
             patientEmail?: string | "";
             dentistId: components["schemas"]["ObjectId"];
             serviceId: components["schemas"]["ObjectId"];
