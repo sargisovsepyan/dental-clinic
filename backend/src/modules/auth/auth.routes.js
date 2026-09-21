@@ -9,6 +9,7 @@ import {
   forgotPassword,
   resetPassword,
   setupPassword,
+  invitationContext,
 } from './auth.controller.js';
 
 import {
@@ -17,6 +18,7 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   setupPasswordSchema,
+  invitationContextSchema,
 } from './auth.validation.js';
 
 import auth from '../../middlewares/auth.js';
@@ -130,6 +132,13 @@ router.post(
     },
     resetPassword
   )
+);
+
+router.post(
+  '/invitation-context',
+  passwordSetupLimiter,
+  validate(invitationContextSchema),
+  asyncHandler(invitationContext)
 );
 
 router.post(

@@ -60,6 +60,7 @@ const {
 } = await import('../src/modules/auth/auth.service.js');
 const {
   deactivateStaff,
+  cancelStaffInvitation,
   inviteStaff,
   reactivateStaff,
 } = await import('../src/modules/staff/staff.service.js');
@@ -454,11 +455,11 @@ test('legacy refresh migration fails closed on a concurrent session mutation', a
 });
 
 
-test('deactivation cancels pending invitations and reset tokens even for inactive users', async () => {
+test('explicit cancellation invalidates pending invitations while deactivation invalidates reset tokens', async () => {
   const pending = await User.create({
     name: 'Pending Invitation',
     email: 'pending@example.com',
-    role: 'dentist',
+    role: 'receptionist',
     isActive: false,
     isSetupComplete: false,
     invitedBy: staff.admin._id,
@@ -470,7 +471,7 @@ test('deactivation cancels pending invitations and reset tokens even for inactiv
     ttlMinutes: 60,
   });
 
-  await deactivateStaff(pending._id, staff.admin._id);
+  await cancelStaffInvitation(pending._id, staff.admin._id);
   await assert.rejects(
     () => setupPassword(inviteToken, '123456'),
     (error) => error.statusCode === 400
@@ -528,7 +529,7 @@ test('an invite token persisted after deactivation cannot reactivate the pending
   const pending = await User.create({
     name: 'Concurrent Pending Invitation',
     email: 'concurrent-pending@example.com',
-    role: 'dentist',
+    role: 'receptionist',
     isActive: false,
     isSetupComplete: false,
     invitedBy: staff.admin._id,
@@ -553,7 +554,7 @@ test('an invite token persisted after deactivation cannot reactivate the pending
     },
   });
   await paused;
-  await deactivateStaff(pending._id, staff.admin._id);
+  await cancelStaffInvitation(pending._id, staff.admin._id);
   releasePersistence();
   const racedToken = await issuing;
 

@@ -24,7 +24,7 @@ const {
   clearReplTestDatabase,
   disconnectReplTestDatabase,
 } = await import('../test-support/replDatabase.js');
-const { seedStaff } = await import(
+const { seedStaff, seedCore } = await import(
   '../test-support/fixtures.js'
 );
 const { default: app } = await import('../src/app.js');
@@ -47,15 +47,27 @@ const {
 const authFieldsMigration = await import(
   '../src/migrations/20260814_003_auth_security_fields.js'
 );
+const dentistStaffLinksMigration = await import(
+  '../src/migrations/20260921_012_dentist_staff_links.js'
+);
 
 let staff;
+let core;
 let sentMail;
 
-before(connectReplTestDatabase);
+before(async () => {
+  await connectReplTestDatabase();
+  await User.init();
+});
 
 beforeEach(async () => {
   await clearReplTestDatabase();
   staff = await seedStaff();
+  core = await seedCore();
+  await User.updateOne(
+    { _id: staff.dentistUser._id },
+    { $set: { dentistProfile: core.dentist._id } }
+  );
   sentMail = [];
   setMailAdapterForTests({
     async send(message) {
@@ -89,7 +101,7 @@ const tokenFromMail = (mail) => {
 };
 
 test('admin staff listing uses validated defaults, booleans, and deterministic pages', async () => {
-  await User.create({ name: 'Pending Staff', email: 'pending@example.test', role: 'dentist', isActive: false, isSetupComplete: false });
+  await User.create({ name: 'Pending Staff', email: 'pending@example.test', role: 'dentist', dentistProfile: core.secondDentist._id, isActive: false, isSetupComplete: false });
   await User.create({ name: 'Archived Staff', email: 'archived@example.test', password: '123456', role: 'receptionist', isActive: false, isSetupComplete: true, deactivatedAt: new Date() });
   const defaults = await request(app).get('/api/v1/staff').set(bearer(staff.adminToken));
   assert.equal(defaults.status, 200);
@@ -256,6 +268,47 @@ test('legacy auth field migration is dry-run safe and idempotent', async () => {
   assert.equal(typeof migratedSession.familyId, 'string');
 });
 
+test('dentist staff-link migration dry-runs preconditions and applies additively and idempotently', async () => {
+  const missingProfile = await User.create({
+    name: 'Unlinked Dentist',
+    email: 'unlinked-dentist@example.com',
+    password: '123456',
+    role: 'dentist',
+  });
+  await User.collection.updateOne(
+    { _id: staff.receptionist._id },
+    { $set: { dentistProfile: core.secondDentist._id } }
+  );
+
+  const dryRun = await dentistStaffLinksMigration.run({ dryRun: true });
+  assert.equal(dryRun.duplicateCurrentDentistLinks, 0);
+  assert.equal(dryRun.currentDentistsWithoutProfiles, 1);
+  assert.equal(dryRun.currentNonDentistsWithProfiles, 1);
+  assert.equal(dryRun.indexCreated, false);
+  await assert.rejects(
+    dentistStaffLinksMigration.run({ dryRun: false }),
+    /preconditions/
+  );
+
+  await User.deleteOne({ _id: missingProfile._id });
+  await User.collection.updateOne(
+    { _id: staff.receptionist._id },
+    { $unset: { dentistProfile: '' } }
+  );
+  let leaseChecks = 0;
+  const applied = await dentistStaffLinksMigration.run({
+    dryRun: false,
+    assertLease: async () => { leaseChecks += 1; },
+  });
+  const repeated = await dentistStaffLinksMigration.run({ dryRun: false });
+  assert.equal(applied.indexCreated, true);
+  assert.equal(repeated.indexCreated, true);
+  assert.equal(leaseChecks, 2);
+  assert.ok((await User.collection.indexes()).some((index) => (
+    index.name === 'unique_current_dentist_staff_profile' && index.unique === true
+  )));
+});
+
 test('admin invitation is hashed at rest, uses trusted frontend URL, and setup is single-use', async () => {
   const denied = await request(app)
     .post('/api/v1/staff/invite')
@@ -264,6 +317,7 @@ test('admin invitation is hashed at rest, uses trusted frontend URL, and setup i
       name: 'Invited User',
       email: 'invited@example.com',
       role: 'dentist',
+      dentistProfileId: String(core.secondDentist._id),
     });
   assert.equal(denied.status, 403);
 
@@ -274,6 +328,7 @@ test('admin invitation is hashed at rest, uses trusted frontend URL, and setup i
       name: 'Invited User',
       email: 'invited@example.com',
       role: 'dentist',
+      dentistProfileId: String(core.secondDentist._id),
       isActive: true,
       authVersion: 999,
     });
@@ -328,7 +383,7 @@ test('explicit invitation resend preserves identity, supersedes the prior token,
   const invited = await request(app)
     .post('/api/v1/staff/invite')
     .set(bearer(staff.adminToken))
-    .send({ name: 'Frozen Invitee', email: 'frozen@example.com', role: 'dentist' });
+    .send({ name: 'Frozen Invitee', email: 'frozen@example.com', role: 'dentist', dentistProfileId: String(core.secondDentist._id) });
   assert.equal(invited.status, 201);
   const id = invited.body.data.staff._id;
   const original = tokenFromMail(sentMail[0]);
@@ -356,6 +411,226 @@ test('explicit invitation resend preserves identity, supersedes the prior token,
   assert.equal((await request(app).post('/api/v1/auth/setup-password').send({ token: original, password: '123456' })).status, 400);
   assert.equal((await request(app).post('/api/v1/auth/setup-password').send({ token: replacement, password: '123456' })).status, 200);
   assert.equal((await request(app).post(`/api/v1/staff/${id}/resend-invitation`).set(bearer(staff.adminToken)).send({})).status, 409);
+});
+
+test('an expired invitation cannot provide context or complete account setup', async () => {
+  const invited = await request(app)
+    .post('/api/v1/staff/invite')
+    .set(bearer(staff.adminToken))
+    .send({ name: 'Expired Invite', email: 'expired-invite@example.com', role: 'receptionist' });
+  assert.equal(invited.status, 201);
+  const token = tokenFromMail(sentMail[0]);
+  await OneTimeToken.updateOne(
+    { user: invited.body.data.staff._id, purpose: 'invite', consumedAt: null },
+    { $set: { expiresAt: new Date(Date.now() - 1000) } }
+  );
+  assert.equal((await request(app)
+    .post('/api/v1/auth/invitation-context')
+    .send({ token })).status, 400);
+  assert.equal((await request(app)
+    .post('/api/v1/auth/setup-password')
+    .send({ token, password: '123456' })).status, 400);
+  const user = await User.findById(invited.body.data.staff._id).lean();
+  assert.equal(user.isSetupComplete, false);
+  assert.equal(user.isActive, false);
+});
+
+test('dentist invitations require an existing unlinked profile and enforce the current link under races', async () => {
+  const missing = await request(app)
+    .post('/api/v1/staff/invite')
+    .set(bearer(staff.adminToken))
+    .send({ name: 'Missing Profile', email: 'missing-profile@example.com', role: 'dentist' });
+  assert.equal(missing.status, 400);
+
+  const unrelated = await request(app)
+    .post('/api/v1/staff/invite')
+    .set(bearer(staff.adminToken))
+    .send({
+      name: 'Reception User',
+      email: 'new-reception@example.com',
+      role: 'receptionist',
+      dentistProfileId: String(core.secondDentist._id),
+    });
+  assert.equal(unrelated.status, 400);
+
+  const payload = (suffix) => ({
+    name: `Dentist Invite ${suffix}`,
+    email: `dentist-invite-${suffix}@example.com`,
+    role: 'dentist',
+    dentistProfileId: String(core.secondDentist._id),
+  });
+  const results = await Promise.all([
+    request(app).post('/api/v1/staff/invite').set(bearer(staff.adminToken)).send(payload('a')),
+    request(app).post('/api/v1/staff/invite').set(bearer(staff.adminToken)).send(payload('b')),
+  ]);
+  assert.deepEqual(results.map(({ status }) => status).sort(), [201, 409]);
+  assert.equal(await User.countDocuments({
+    dentistProfile: core.secondDentist._id,
+    deactivatedAt: null,
+  }), 1);
+  const created = results.find(({ status }) => status === 201).body.data.staff;
+  assert.equal(created.dentistProfile, String(core.secondDentist._id));
+  assert.equal(JSON.stringify(created).includes('token'), false);
+
+  const conflictingAssignment = await request(app)
+    .put(`/api/v1/staff/${created._id}/dentist-profile`)
+    .set(bearer(staff.adminToken))
+    .send({ dentistId: String(core.dentist._id) });
+  assert.equal(conflictingAssignment.status, 409);
+});
+
+test('invitation context is non-secret, localized-profile aware, and invalid after cancellation', async () => {
+  const invited = await request(app)
+    .post('/api/v1/staff/invite')
+    .set(bearer(staff.adminToken))
+    .send({
+      name: 'Context Dentist',
+      email: 'context@example.com',
+      role: 'dentist',
+      dentistProfileId: String(core.secondDentist._id),
+    });
+  assert.equal(invited.status, 201);
+  const token = tokenFromMail(sentMail[0]);
+  const context = await request(app)
+    .post('/api/v1/auth/invitation-context')
+    .send({ token });
+  assert.equal(context.status, 200);
+  assert.equal(context.body.data.invitation.email, 'context@example.com');
+  assert.equal(context.body.data.invitation.role, 'dentist');
+  assert.equal(context.body.data.invitation.dentist._id, String(core.secondDentist._id));
+  assert.deepEqual(
+    Object.keys(context.body.data.invitation.dentist).sort(),
+    ['_id', 'firstName', 'lastName', 'translations']
+  );
+  assert.equal(JSON.stringify(context.body.data.invitation.dentist).includes('bio'), false);
+  assert.equal(JSON.stringify(context.body).includes(token), false);
+
+  const cancelled = await request(app)
+    .post(`/api/v1/staff/${invited.body.data.staff._id}/cancel-invitation`)
+    .set(bearer(staff.adminToken))
+    .send({});
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.body.data.staff.isSetupComplete, false);
+  assert.ok(cancelled.body.data.staff.deactivatedAt);
+  assert.equal((await request(app)
+    .post('/api/v1/auth/setup-password')
+    .send({ token, password: '123456' })).status, 400);
+  assert.equal((await request(app)
+    .post('/api/v1/auth/invitation-context')
+    .send({ token })).status, 400);
+});
+
+test('concurrent invitation resends leave exactly one usable replacement token', async () => {
+  const invited = await request(app)
+    .post('/api/v1/staff/invite')
+    .set(bearer(staff.adminToken))
+    .send({ name: 'Resend Race', email: 'resend-race@example.com', role: 'receptionist' });
+  assert.equal(invited.status, 201);
+  const id = invited.body.data.staff._id;
+
+  const responses = await Promise.all([
+    request(app).post(`/api/v1/staff/${id}/resend-invitation`).set(bearer(staff.adminToken)).send({}),
+    request(app).post(`/api/v1/staff/${id}/resend-invitation`).set(bearer(staff.adminToken)).send({}),
+  ]);
+  assert.deepEqual(responses.map(({ status }) => status), [200, 200]);
+  assert.equal(await OneTimeToken.countDocuments({ user: id, purpose: 'invite', consumedAt: null }), 1);
+
+  const contexts = await Promise.all(sentMail.map((mail) => request(app)
+    .post('/api/v1/auth/invitation-context')
+    .send({ token: tokenFromMail(mail) })));
+  assert.equal(contexts.filter(({ status }) => status === 200).length, 1);
+  assert.equal(contexts.filter(({ status }) => status === 400).length, 2);
+});
+
+test('invitation cancellation and setup race to one consistent terminal state', async () => {
+  const invited = await request(app)
+    .post('/api/v1/staff/invite')
+    .set(bearer(staff.adminToken))
+    .send({ name: 'Cancel Race', email: 'cancel-race@example.com', role: 'receptionist' });
+  assert.equal(invited.status, 201);
+  const id = invited.body.data.staff._id;
+  const token = tokenFromMail(sentMail[0]);
+
+  const [cancelled, setup] = await Promise.all([
+    request(app).post(`/api/v1/staff/${id}/cancel-invitation`).set(bearer(staff.adminToken)).send({}),
+    request(app).post('/api/v1/auth/setup-password').send({ token, password: '123456' }),
+  ]);
+  assert.equal([cancelled.status, setup.status].filter((status) => status === 200).length, 1);
+  assert.ok([400, 409].includes([cancelled.status, setup.status].find((status) => status !== 200)));
+
+  const user = await User.findById(id).lean();
+  if (user.isSetupComplete) {
+    assert.equal(user.isActive, true);
+    assert.equal(user.deactivatedAt, null);
+  }
+  else {
+    assert.equal(user.isActive, false);
+    assert.ok(user.deactivatedAt);
+  }
+  assert.equal(await OneTimeToken.countDocuments({ user: id, purpose: 'invite', consumedAt: null }), 0);
+});
+
+test('invitation resend and setup race cannot reactivate an old token or corrupt lifecycle state', async () => {
+  const invited = await request(app)
+    .post('/api/v1/staff/invite')
+    .set(bearer(staff.adminToken))
+    .send({ name: 'Setup Race', email: 'setup-race@example.com', role: 'receptionist' });
+  assert.equal(invited.status, 201);
+  const id = invited.body.data.staff._id;
+  const original = tokenFromMail(sentMail[0]);
+
+  const [resent, setup] = await Promise.all([
+    request(app).post(`/api/v1/staff/${id}/resend-invitation`).set(bearer(staff.adminToken)).send({}),
+    request(app).post('/api/v1/auth/setup-password').send({ token: original, password: '123456' }),
+  ]);
+  assert.equal([resent.status, setup.status].filter((status) => status === 200).length, 1);
+  assert.ok([400, 409].includes([resent.status, setup.status].find((status) => status !== 200)));
+
+  const user = await User.findById(id).lean();
+  assert.equal(user.deactivatedAt, null);
+  assert.equal(user.isActive, user.isSetupComplete);
+  assert.equal(
+    await OneTimeToken.countDocuments({ user: id, purpose: 'invite', consumedAt: null }),
+    user.isSetupComplete ? 0 : 1
+  );
+  assert.equal((await request(app)
+    .post('/api/v1/auth/setup-password')
+    .send({ token: original, password: 'abcdef' })).status, 400);
+});
+
+test('deactivating and restoring dentist staff preserves the independent public profile', async () => {
+  const endpoint = `/api/v1/staff/${staff.dentistUser._id}`;
+  const deactivated = await request(app).post(`${endpoint}/deactivate`).set(bearer(staff.adminToken));
+  assert.equal(deactivated.status, 200);
+  assert.equal(deactivated.body.data.staff.dentistProfile, String(core.dentist._id));
+  const preserved = await core.dentist.constructor.findById(core.dentist._id).lean();
+  assert.equal(preserved.isActive, true);
+  assert.equal(preserved.bookingEnabled, true);
+  assert.equal((await login(staff.dentistUser.email, 'correct horse battery staple')).status, 401);
+  const restored = await request(app).post(`${endpoint}/reactivate`).set(bearer(staff.adminToken));
+  assert.equal(restored.status, 200);
+  assert.equal(restored.body.data.staff.dentistProfile, String(core.dentist._id));
+  assert.equal((await login(staff.dentistUser.email, 'correct horse battery staple')).status, 200);
+});
+
+test('restoring archived dentist staff checks a newly claimed current profile and preserves history', async () => {
+  const endpoint = `/api/v1/staff/${staff.dentistUser._id}`;
+  assert.equal((await request(app).post(`${endpoint}/deactivate`).set(bearer(staff.adminToken))).status, 200);
+  const replacement = await User.create({
+    name: 'Replacement Dentist',
+    email: 'replacement-dentist@example.com',
+    password: '123456',
+    role: 'dentist',
+    dentistProfile: core.dentist._id,
+  });
+  const conflict = await request(app).post(`${endpoint}/reactivate`).set(bearer(staff.adminToken));
+  assert.equal(conflict.status, 409);
+  const archived = await User.findById(staff.dentistUser._id).select('+dentistProfile').lean();
+  assert.equal(archived.isActive, false);
+  assert.ok(archived.deactivatedAt);
+  assert.equal(String(archived.dentistProfile), String(core.dentist._id));
+  assert.equal(await User.countDocuments({ dentistProfile: core.dentist._id, deactivatedAt: null }), 1);
+  assert.ok(replacement._id);
 });
 
 test('forgot/reset is enumeration-safe, atomic, single-use, and invalidates all prior authorization', async () => {
@@ -460,7 +735,7 @@ test('role changes, deactivation, reactivation, and session revocation invalidat
   const roleChange = await request(app)
     .patch(`${endpoint}/role`)
     .set(bearer(staff.adminToken))
-    .send({ role: 'dentist', isActive: true });
+    .send({ role: 'dentist', dentistProfileId: String(core.secondDentist._id), isActive: true });
   assert.equal(roleChange.status, 200);
   assert.equal(roleChange.body.data.staff.role, 'dentist');
   assert.equal(roleChange.body.data.staff.authVersion, undefined);
@@ -515,6 +790,22 @@ test('role changes, deactivation, reactivation, and session revocation invalidat
   assert.equal(list.status, 200);
   assert.equal(list.body.data.staff[0].password, undefined);
   assert.equal(list.body.data.staff[0].authVersion, undefined);
+});
+
+test('concurrent role changes cannot link one dentist profile to two current accounts', async () => {
+  const candidates = await User.create([
+    { name: 'Role Race One', email: 'role-race-one@example.com', password: '123456', role: 'receptionist' },
+    { name: 'Role Race Two', email: 'role-race-two@example.com', password: '123456', role: 'receptionist' },
+  ]);
+  const responses = await Promise.all(candidates.map((candidate) => request(app)
+    .patch(`/api/v1/staff/${candidate._id}/role`)
+    .set(bearer(staff.adminToken))
+    .send({ role: 'dentist', dentistProfileId: String(core.secondDentist._id) })));
+  assert.deepEqual(responses.map(({ status }) => status).sort(), [200, 409]);
+  assert.equal(await User.countDocuments({
+    dentistProfile: core.secondDentist._id,
+    deactivatedAt: null,
+  }), 1);
 });
 
 test('self-lockout is rejected and concurrent removals preserve one active admin', async () => {

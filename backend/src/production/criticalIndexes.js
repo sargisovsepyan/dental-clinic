@@ -1,5 +1,15 @@
 const CRITICAL_INDEXES = Object.freeze([
   { collection: 'users', key: { email: 1 }, unique: true },
+  {
+    collection: 'users',
+    key: { dentistProfile: 1 },
+    unique: true,
+    name: 'unique_current_dentist_staff_profile',
+    partialFilterExpression: {
+      dentistProfile: { $type: 'objectId' },
+      deactivatedAt: null,
+    },
+  },
   { collection: 'sessions', key: { tokenHash: 1 }, unique: true },
   { collection: 'sessions', key: { expiresAt: 1 }, expireAfterSeconds: 0 },
   { collection: 'sessions', key: { user: 1, revokedAt: 1, createdAt: -1 } },

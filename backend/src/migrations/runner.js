@@ -17,6 +17,7 @@ import * as bookingIdempotencyRecords from './20260814_008_booking_idempotency_r
 import * as scheduleRevisions from './20260814_009_schedule_revisions.js';
 import * as removeCancellationNotice from './20260814_010_remove_cancellation_notice.js';
 import * as appointmentNotifications from './20260822_011_appointment_notifications.js';
+import * as dentistStaffLinks from './20260921_012_dentist_staff_links.js';
 
 const withSource = (migration, relativePath) => ({
   ...migration,
@@ -36,6 +37,7 @@ const migrations = [
   [scheduleRevisions, './20260814_009_schedule_revisions.js'],
   [removeCancellationNotice, './20260814_010_remove_cancellation_notice.js'],
   [appointmentNotifications, './20260822_011_appointment_notifications.js'],
+  [dentistStaffLinks, './20260921_012_dentist_staff_links.js'],
 ].map(([migration, source]) => withSource(migration, source));
 
 const migrationManifest = Object.freeze(

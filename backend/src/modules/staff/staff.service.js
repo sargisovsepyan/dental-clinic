@@ -15,7 +15,7 @@ import {
 } from '../../mail/mail.service.js';
 
 const publicFields =
-  'name nameTranslations email role isActive isSetupComplete invitedBy deactivatedAt deactivatedBy createdAt updatedAt';
+  'name nameTranslations email role isActive isSetupComplete +dentistProfile invitedBy deactivatedAt deactivatedBy createdAt updatedAt';
 
 const safeStaff = (user) => ({
   _id: user._id,
@@ -23,6 +23,7 @@ const safeStaff = (user) => ({
   ...(user.nameTranslations ? { nameTranslations: user.nameTranslations } : {}),
   email: user.email,
   role: user.role,
+  dentistProfile: user.dentistProfile || null,
   isActive: user.isActive,
   isSetupComplete: user.isSetupComplete,
   invitedBy: user.invitedBy,
@@ -64,7 +65,7 @@ const listStaff = async (query) => {
   ]);
 
   return {
-    staff,
+    staff: staff.map(safeStaff),
     pagination: {
       page: query.page,
       limit: query.limit,
@@ -83,7 +84,7 @@ const getStaffById = async (id) => {
     throw new ApiError(404, 'Staff member not found');
   }
 
-  return user;
+  return safeStaff(user);
 };
 
 const inviteStaff = async (data, actorId) => {
@@ -98,31 +99,72 @@ const inviteStaff = async (data, actorId) => {
     );
   }
 
-  if (!user) {
-    user = await User.create({
-      name: data.name,
-      email,
-      role: data.role,
-      isActive: false,
-      isSetupComplete: false,
-      invitedBy: actorId,
+  if (user && (
+    user.role !== data.role ||
+    String(user.dentistProfile || '') !== String(data.dentistProfileId || '')
+  )) {
+    throw new ApiError(
+      409,
+      'A pending invitation already exists with different account details'
+    );
+  }
+
+  if (data.role === 'dentist') {
+    if (!await Dentist.exists({ _id: data.dentistProfileId })) {
+      throw new ApiError(400, 'Select an existing dentist profile');
+    }
+    const linked = await User.exists({
+      dentistProfile: data.dentistProfileId,
+      deactivatedAt: null,
+      ...(user ? { _id: { $ne: user._id } } : {}),
     });
+    if (linked) {
+      throw new ApiError(409, 'This dentist profile already has current staff access');
+    }
+  }
+
+  if (!user) {
+    try {
+      user = await User.create({
+        name: data.name,
+        email,
+        role: data.role,
+        dentistProfile: data.role === 'dentist' ? data.dentistProfileId : null,
+        isActive: false,
+        isSetupComplete: false,
+        invitedBy: actorId,
+      });
+    }
+    catch (error) {
+      if (error?.code === 11000) {
+        throw new ApiError(409, 'This email or dentist profile already has current staff access');
+      }
+      throw error;
+    }
   }
   else {
-    user = await User.findOneAndUpdate(
-      {
-        _id: user._id,
-        isSetupComplete: false,
-      },
-      {
-        $set: {
-          deactivatedAt: null,
-          deactivatedBy: null,
-          invitedBy: actorId,
+    try {
+      user = await User.findOneAndUpdate(
+        {
+          _id: user._id,
+          isSetupComplete: false,
         },
-      },
-      { returnDocument: 'after' }
-    );
+        {
+          $set: {
+            deactivatedAt: null,
+            deactivatedBy: null,
+            invitedBy: actorId,
+          },
+        },
+        { returnDocument: 'after' }
+      );
+    }
+    catch (error) {
+      if (error?.code === 11000) {
+        throw new ApiError(409, 'This dentist profile already has current staff access');
+      }
+      throw error;
+    }
 
     if (!user) {
       throw new ApiError(
@@ -225,10 +267,11 @@ const consumeOutstandingOneTimeTokens = (
 const updateStaffRole = async (
   id,
   role,
-  actorId
+  actorId,
+  dentistProfileId = null
 ) => runTransaction(async (session) => {
   const user = await User.findById(id)
-    .select('+authVersion')
+    .select('+authVersion +dentistProfile')
     .session(session);
 
   if (!user) {
@@ -247,9 +290,36 @@ const updateStaffRole = async (
     await ensureNotLastAdmin(user, session);
   }
 
+  if (role === 'dentist') {
+    const requestedProfile = dentistProfileId || user.dentistProfile;
+    if (!requestedProfile || !await Dentist.exists({ _id: requestedProfile }).session(session)) {
+      throw new ApiError(409, 'A dentist role requires an existing dentist profile');
+    }
+    const linked = await User.exists({
+      _id: { $ne: user._id },
+      dentistProfile: requestedProfile,
+      deactivatedAt: null,
+    }).session(session);
+    if (linked) {
+      throw new ApiError(409, 'This dentist profile already has current staff access');
+    }
+    user.dentistProfile = requestedProfile;
+  }
+  else {
+    user.dentistProfile = null;
+  }
+
   user.role = role;
   user.authVersion += 1;
-  await user.save({ session });
+  try {
+    await user.save({ session });
+  }
+  catch (error) {
+    if (error?.code === 11000) {
+      throw new ApiError(409, 'This dentist profile already has current staff access');
+    }
+    throw error;
+  }
   await revokeSessionsInTransaction(user._id, session);
   return safeStaff(user);
 });
@@ -259,7 +329,7 @@ const deactivateStaff = async (
   actorId
 ) => runTransaction(async (session) => {
   const user = await User.findById(id)
-    .select('+authVersion')
+    .select('+authVersion +dentistProfile')
     .session(session);
 
   if (!user) {
@@ -270,6 +340,9 @@ const deactivateStaff = async (
       409,
       'Administrators cannot deactivate themselves'
     );
+  }
+  if (!user.isSetupComplete) {
+    throw new ApiError(409, 'Pending invitations must be cancelled explicitly');
   }
   await ensureNotLastAdmin(user, session);
   await revokeSessionsInTransaction(user._id, session);
@@ -287,10 +360,33 @@ const deactivateStaff = async (
   return safeStaff(user);
 });
 
+const cancelStaffInvitation = async (
+  id,
+  actorId
+) => runTransaction(async (session) => {
+  const user = await User.findById(id)
+    .select('+authVersion +dentistProfile')
+    .session(session);
+
+  if (!user) throw new ApiError(404, 'Staff member not found');
+  if (user.isSetupComplete || user.deactivatedAt) {
+    throw new ApiError(409, 'Invitation is no longer pending');
+  }
+
+  await revokeSessionsInTransaction(user._id, session);
+  await consumeOutstandingOneTimeTokens(user._id, session);
+  user.isActive = false;
+  user.deactivatedAt = new Date();
+  user.deactivatedBy = actorId;
+  user.authVersion += 1;
+  await user.save({ session });
+  return safeStaff(user);
+});
+
 const reactivateStaff = async (id) => (
   runTransaction(async (session) => {
     const user = await User.findById(id)
-      .select('+authVersion')
+      .select('+authVersion +dentistProfile')
       .session(session);
 
     if (!user) {
@@ -302,12 +398,27 @@ const reactivateStaff = async (id) => (
         'Invited staff must complete account setup first'
       );
     }
+    if (user.dentistProfile && await User.exists({
+      _id: { $ne: user._id },
+      dentistProfile: user.dentistProfile,
+      deactivatedAt: null,
+    }).session(session)) {
+      throw new ApiError(409, 'This dentist profile already has current staff access');
+    }
 
     user.isActive = true;
     user.deactivatedAt = null;
     user.deactivatedBy = null;
     user.authVersion += 1;
-    await user.save({ session });
+    try {
+      await user.save({ session });
+    }
+    catch (error) {
+      if (error?.code === 11000) {
+        throw new ApiError(409, 'This dentist profile already has current staff access');
+      }
+      throw error;
+    }
     await revokeSessionsInTransaction(user._id, session);
     return safeStaff(user);
   })
@@ -316,7 +427,7 @@ const reactivateStaff = async (id) => (
 const revokeAllStaffSessions = async (id) => (
   runTransaction(async (session) => {
     const user = await User.findById(id)
-      .select('+authVersion')
+      .select('+authVersion +dentistProfile')
       .session(session);
 
     if (!user) {
@@ -340,12 +451,28 @@ const setDentistProfile = async (id, dentistId) => runTransaction(async (session
   const user = await User.findById(id).select('+dentistProfile +authVersion').session(session);
   if (!user) throw new ApiError(404, 'Staff member not found');
   if (user.role !== 'dentist') throw new ApiError(409, 'Only dentist accounts can have a doctor profile');
-  if (dentistId && !await Dentist.exists({ _id: dentistId, isActive: true }).session(session)) {
-    throw new ApiError(400, 'Select an active doctor profile');
+  if (!await Dentist.exists({ _id: dentistId }).session(session)) {
+    throw new ApiError(400, 'Select an existing dentist profile');
+  }
+  const linked = await User.exists({
+    _id: { $ne: user._id },
+    dentistProfile: dentistId,
+    deactivatedAt: null,
+  }).session(session);
+  if (linked) {
+    throw new ApiError(409, 'This dentist profile already has current staff access');
   }
   user.dentistProfile = dentistId;
   user.authVersion += 1;
-  await user.save({ session });
+  try {
+    await user.save({ session });
+  }
+  catch (error) {
+    if (error?.code === 11000) {
+      throw new ApiError(409, 'This dentist profile already has current staff access');
+    }
+    throw error;
+  }
   await revokeSessionsInTransaction(user._id, session);
   return { dentistId: user.dentistProfile || null };
 });
@@ -358,6 +485,7 @@ export {
   inviteStaff,
   updateStaffRole,
   deactivateStaff,
+  cancelStaffInvitation,
   reactivateStaff,
   revokeAllStaffSessions,
 };

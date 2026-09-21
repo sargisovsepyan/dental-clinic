@@ -162,6 +162,37 @@ paths:
         '200': { $ref: '#/components/responses/Success' }
         '400': { $ref: '#/components/responses/Error' }
         '429': { $ref: '#/components/responses/Error' }
+  /auth/invitation-context:
+    post:
+      tags: [Auth]
+      operationId: getInvitationContext
+      description: Returns only non-secret display context for a valid, pending invitation. The raw token is never returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OneTimeTokenRequest' }
+      responses:
+        '200':
+          description: Pending invitation context.
+          headers:
+            Cache-Control: { schema: { type: string }, description: "private, no-store" }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [success, data]
+                properties:
+                  success: { type: boolean, const: true }
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required: [invitation]
+                    properties:
+                      invitation: { $ref: '#/components/schemas/InvitationContext' }
+        '400': { $ref: '#/components/responses/NoStoreError' }
+        '429': { $ref: '#/components/responses/NoStoreError' }
   /staff:
     get:
       tags: [Staff]
@@ -201,7 +232,7 @@ paths:
     post:
       tags: [Staff]
       operationId: inviteStaff
-      description: Admin only; no-store. Sends a one-time setup link through mail, never in the response. Re-inviting a pending account does not update its name or role.
+      description: Admin only; no-store. Sends a one-time setup link through mail, never in the response. A dentist requires one existing, currently unlinked dentist profile. Re-inviting a pending account does not update its identity, role, or profile relationship.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -231,7 +262,7 @@ paths:
     patch:
       tags: [Staff]
       operationId: updateStaffRole
-      description: Admin only; last-admin and self-lockout invariants apply.
+      description: Admin only; last-admin and self-lockout invariants apply. Changing to dentist requires an existing, currently unlinked dentist profile.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -241,14 +272,22 @@ paths:
               type: object
               additionalProperties: false
               required: [role]
-              properties: { role: { $ref: '#/components/schemas/Role' } }
+              properties:
+                role: { $ref: '#/components/schemas/Role' }
+                dentistProfileId: { $ref: '#/components/schemas/ObjectId' }
+              oneOf:
+                - properties: { role: { type: string, const: dentist } }
+                  required: [dentistProfileId]
+                  maxProperties: 2
+                - properties: { role: { type: string, enum: [admin, receptionist] } }
+                  maxProperties: 1
       responses: { '200': { $ref: '#/components/responses/StaffDetailSuccess' }, '409': { $ref: '#/components/responses/NoStoreError' } }
   /staff/{id}/deactivate:
     parameters: [{ $ref: '#/components/parameters/Id' }]
     post:
       tags: [Staff]
       operationId: deactivateStaff
-      description: Admin only; invalidates all authorization immediately.
+      description: Admin only; established accounts only. Invalidates all authorization immediately; does not alter an independent public dentist profile.
       security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/StaffDetailSuccess' }, '409': { $ref: '#/components/responses/NoStoreError' } }
   /staff/{id}/reactivate:
@@ -256,7 +295,7 @@ paths:
     post:
       tags: [Staff]
       operationId: reactivateStaff
-      description: Admin only; completed setup required. Invalidates existing sessions.
+      description: Admin only; completed setup required. Invalidates existing sessions. A dentist restore conflicts if another current account has claimed its profile.
       security: [{ bearerAuth: [] }]
       responses: { '200': { $ref: '#/components/responses/StaffDetailSuccess' }, '409': { $ref: '#/components/responses/NoStoreError' } }
   /staff/{id}/revoke-sessions:
@@ -282,7 +321,7 @@ paths:
     put:
       tags: [Staff]
       operationId: setStaffDentistProfile
-      description: Admin only. Assign an active doctor profile to a dentist account, or null to unlink. Revokes existing sessions and access tokens. Multiple accounts may intentionally share one profile; no unique index is needed.
+      description: Admin only. Assign an existing doctor profile to a dentist account. The relationship cannot be cleared while the role is dentist, and one non-archived staff account per profile is database-enforced. Revokes existing sessions and access tokens.
       security: [{ bearerAuth: [] }]
       requestBody:
         required: true
@@ -293,7 +332,7 @@ paths:
               additionalProperties: false
               required: [dentistId]
               properties:
-                dentistId: { oneOf: [{ $ref: '#/components/schemas/ObjectId' }, { type: 'null' }] }
+                dentistId: { $ref: '#/components/schemas/ObjectId' }
       responses:
         '200': { $ref: '#/components/responses/DentistProfileSuccess' }
         '400': { $ref: '#/components/responses/NoStoreError' }
@@ -674,6 +713,22 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/StaffDetailSuccess' }
         '400': { $ref: '#/components/responses/NoStoreError' }
+        '401': { $ref: '#/components/responses/NoStoreError' }
+        '403': { $ref: '#/components/responses/NoStoreError' }
+        '404': { $ref: '#/components/responses/NoStoreError' }
+        '409': { $ref: '#/components/responses/NoStoreError' }
+  /staff/{id}/cancel-invitation:
+    parameters: [{ $ref: '#/components/parameters/Id' }]
+    post:
+      tags: [Staff]
+      operationId: cancelStaffInvitation
+      description: >-
+        Admin only; no-store. Available only for an uncancelled, setup-incomplete
+        invitation. Atomically invalidates setup links and sessions, archives the
+        pending account for auditability, and never deletes the dentist profile.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/StaffDetailSuccess' }
         '401': { $ref: '#/components/responses/NoStoreError' }
         '403': { $ref: '#/components/responses/NoStoreError' }
         '404': { $ref: '#/components/responses/NoStoreError' }
@@ -1598,12 +1653,14 @@ components:
     StaffAdminRecord:
       type: object
       additionalProperties: false
-      required: [_id, name, email, role, isActive, isSetupComplete, invitedBy, deactivatedAt, deactivatedBy, createdAt, updatedAt]
+      required: [_id, name, email, role, dentistProfile, isActive, isSetupComplete, invitedBy, deactivatedAt, deactivatedBy, createdAt, updatedAt]
       properties:
         _id: { $ref: '#/components/schemas/ObjectId' }
         name: { type: string, minLength: 1, maxLength: 100 }
         email: { type: string, format: email, maxLength: 254 }
         role: { $ref: '#/components/schemas/Role' }
+        dentistProfile:
+          anyOf: [{ $ref: '#/components/schemas/ObjectId' }, { type: 'null' }]
         isActive: { type: boolean }
         isSetupComplete: { type: boolean }
         invitedBy:
@@ -1713,6 +1770,30 @@ components:
           maxLength: 72
           writeOnly: true
           description: Maximum is enforced in UTF-8 bytes.
+    OneTimeTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: { type: string, minLength: 40, maxLength: 200, writeOnly: true }
+    InvitationContext:
+      type: object
+      additionalProperties: false
+      required: [name, email, role]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        nameTranslations: { $ref: '#/components/schemas/NameTranslations' }
+        email: { type: string, format: email, maxLength: 254 }
+        role: { $ref: '#/components/schemas/Role' }
+        dentist:
+          type: object
+          additionalProperties: false
+          required: [_id, firstName, lastName, translations]
+          properties:
+            _id: { $ref: '#/components/schemas/ObjectId' }
+            firstName: { type: string }
+            lastName: { type: string }
+            translations: { $ref: '#/components/schemas/Translations' }
     StaffInviteRequest:
       type: object
       additionalProperties: false
@@ -1730,6 +1811,13 @@ components:
           maxLength: 254
           description: Conservative application syntax contract; surrounding ASCII spaces are trimmed, malformed labels are rejected, and no IANA/DNS/deliverability check is performed.
         role: { $ref: '#/components/schemas/Role' }
+        dentistProfileId: { $ref: '#/components/schemas/ObjectId' }
+      oneOf:
+        - properties: { role: { type: string, const: dentist } }
+          required: [dentistProfileId]
+          maxProperties: 4
+        - properties: { role: { type: string, enum: [admin, receptionist] } }
+          maxProperties: 3
     TranslationText:
       type: object
       additionalProperties: true

@@ -10,19 +10,20 @@ import { inviteStaffSchema } from '../src/modules/staff/staff.validation.js';
 const validNames = ['Մարիամ Հակոբյան', 'Анна-Мария Иванова', "Jean-Luc O'Neill", 'Davit Petrosyan', 'Jose\u0301 Martin', '  Anna Maria  '];
 const invalidNames = ['123', 'A1', '`Ab`', '😀😀', "'Anna", 'Anna-', 'A', '---', 'Anna\n', 'Anna\u200bMaria', '  \tAnna  ', 'Anna@Maria'];
 const booking = { patientName: 'Anna Maria', patientPhone: '+37499123456', dentistId: '64b000000000000000000021', serviceId: '64b000000000000000000011', date: '2026-09-22', startTime: '09:00', privacyAccepted: true };
+const dentistInvite = { role: 'dentist', dentistProfileId: booking.dentistId };
 test('one Unicode name policy applies to raw patient and staff invitation boundaries', () => {
   for (const name of validNames) {
     assert.equal(isHumanName(name), true, name);
     assert.equal(createAppointmentSchema.body.validate({ ...booking, patientName: name }).error, undefined, name);
-    assert.equal(inviteStaffSchema.body.validate({ name, email: 'anna@example.com', role: 'dentist' }).error, undefined, name);
+    assert.equal(inviteStaffSchema.body.validate({ name, email: 'anna@example.com', ...dentistInvite }).error, undefined, name);
   }
   for (const name of invalidNames) {
     assert.equal(isHumanName(name), false, name);
     assert.ok(createAppointmentSchema.body.validate({ ...booking, patientName: name }).error, name);
-    assert.ok(inviteStaffSchema.body.validate({ name, email: 'anna@example.com', role: 'dentist' }).error, name);
+    assert.ok(inviteStaffSchema.body.validate({ name, email: 'anna@example.com', ...dentistInvite }).error, name);
   }
   assert.equal(isHumanName('A'.repeat(121)), false);
-  assert.ok(inviteStaffSchema.body.validate({ name: 'A'.repeat(101), email: 'anna@example.com', role: 'dentist' }).error);
+  assert.ok(inviteStaffSchema.body.validate({ name: 'A'.repeat(101), email: 'anna@example.com', ...dentistInvite }).error);
 });
 test('phone normalization runs only after valid human formatting passes structural validation', () => {
   const valid = [
@@ -65,7 +66,7 @@ test('one pragmatic email contract is a strict frontend/backend-compatible bound
   const schemas = (email) => [
     createAppointmentSchema.body.validate({ ...booking, patientEmail: email }),
     createAdminAppointmentSchema.body.validate({ ...booking, patientEmail: email, consentMethod: 'phone' }),
-    inviteStaffSchema.body.validate({ name: 'Anna Maria', email, role: 'dentist' }),
+    inviteStaffSchema.body.validate({ name: 'Anna Maria', email, ...dentistInvite }),
     loginSchema.body.validate({ email, password: 'Strong123!' }),
     forgotPasswordSchema.body.validate({ email }),
     updateClinicSchema.body.validate({ email }),

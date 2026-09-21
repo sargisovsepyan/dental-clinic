@@ -33,13 +33,22 @@ const updateRole = async (req, res) => {
   const staff = await staffService.updateStaffRole(
     req.params.id,
     req.body.role,
-    req.user.id
+    req.user.id,
+    req.body.dentistProfileId
   );
   res.status(200).json({ success: true, data: { staff } });
 };
 
 const deactivate = async (req, res) => {
   const staff = await staffService.deactivateStaff(
+    req.params.id,
+    req.user.id
+  );
+  res.status(200).json({ success: true, data: { staff } });
+};
+
+const cancelInvitation = async (req, res) => {
+  const staff = await staffService.cancelStaffInvitation(
     req.params.id,
     req.user.id
   );
@@ -69,6 +78,7 @@ export {
   inviteStaff,
   updateRole,
   deactivate,
+  cancelInvitation,
   reactivate,
   revokeSessions,
 };

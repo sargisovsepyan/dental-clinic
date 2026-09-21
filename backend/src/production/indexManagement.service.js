@@ -3,6 +3,14 @@ import productionModels from './models.js';
 
 const UNIQUE_DATA_CHECKS = Object.freeze([
   { collection: 'users', fields: ['email'] },
+  {
+    collection: 'users',
+    fields: ['dentistProfile'],
+    filter: {
+      dentistProfile: { $type: 'objectId' },
+      deactivatedAt: null,
+    },
+  },
   { collection: 'sessions', fields: ['tokenHash'] },
   { collection: 'refreshreplayhistories', fields: ['tokenHash'] },
   { collection: 'onetimetokens', fields: ['tokenHash'] },

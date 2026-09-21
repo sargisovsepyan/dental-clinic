@@ -4,6 +4,7 @@ import User from '../users/user.model.js';
 import Session from '../sessions/session.model.js';
 import RefreshReplayHistory from '../sessions/refreshReplayHistory.model.js';
 import OneTimeToken from './oneTimeToken.model.js';
+import Dentist from '../dentists/dentist.model.js';
 
 import ApiError from '../../utils/ApiError.js';
 import generateToken from '../../utils/generateToken.js';
@@ -519,6 +520,61 @@ const setupPassword = (token, password) => (
   })
 );
 
+const getInvitationContext = async (token) => {
+  const invitation = await OneTimeToken.findOne({
+    tokenHash: hashOneTimeToken(token),
+    purpose: 'invite',
+    consumedAt: null,
+    expiresAt: { $gt: new Date() },
+  }).lean();
+  if (!invitation) {
+    throw new ApiError(400, 'Invalid or expired one-time token');
+  }
+
+  const user = await User.findOne({
+    _id: invitation.user,
+    isSetupComplete: false,
+    deactivatedAt: null,
+  })
+    .select('name nameTranslations email role +dentistProfile')
+    .lean();
+  if (!user) {
+    throw new ApiError(400, 'Invalid or expired one-time token');
+  }
+
+  let dentist = null;
+  if (user.role === 'dentist' && user.dentistProfile) {
+    dentist = await Dentist.findById(user.dentistProfile)
+      .select('firstName lastName translations')
+      .lean();
+  }
+  if (user.role === 'dentist' && !dentist) {
+    throw new ApiError(400, 'Invalid or expired one-time token');
+  }
+
+  const dentistContext = dentist ? {
+    _id: dentist._id,
+    firstName: dentist.firstName,
+    lastName: dentist.lastName,
+    translations: Object.fromEntries(['hy', 'ru', 'en'].flatMap((locale) => {
+      const translated = dentist.translations?.[locale];
+      if (!translated) return [];
+      return [[locale, {
+        ...(translated.firstName ? { firstName: translated.firstName } : {}),
+        ...(translated.lastName ? { lastName: translated.lastName } : {}),
+      }]];
+    })),
+  } : null;
+
+  return {
+    name: user.name,
+    ...(user.nameTranslations ? { nameTranslations: user.nameTranslations } : {}),
+    email: user.email,
+    role: user.role,
+    ...(dentistContext ? { dentist: dentistContext } : {}),
+  };
+};
+
 const resetPassword = (token, password) => (
   consumePasswordToken({
     token,
@@ -570,6 +626,7 @@ export {
   logout,
   forgotPassword,
   setupPassword,
+  getInvitationContext,
   resetPassword,
   changePassword,
 };

@@ -115,7 +115,7 @@ test('migration 011 is dry-run safe, preserves unknown locale, versions legacy h
   const repeated = await notificationMigration.run({ dryRun: false });
   assert.equal(repeated.remindersScheduled, 0);
   assert.equal(await NotificationJob.countDocuments(), 1);
-  assert.equal(migrationManifest.at(-1).version, notificationMigration.version);
+  assert.ok(migrationManifest.some(({ version }) => version === notificationMigration.version));
 });
 
 

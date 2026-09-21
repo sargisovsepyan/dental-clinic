@@ -178,6 +178,16 @@ const setupPassword = async (req, res) => {
   });
 };
 
+const invitationContext = async (req, res) => {
+  const invitation = await authService.getInvitationContext(
+    req.body.token
+  );
+  res.status(200).json({
+    success: true,
+    data: { invitation },
+  });
+};
+
 export {
   login,
   refresh,
@@ -187,4 +197,5 @@ export {
   forgotPassword,
   resetPassword,
   setupPassword,
+  invitationContext,
 };

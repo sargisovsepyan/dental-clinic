@@ -59,11 +59,16 @@ const resetPasswordSchema = {
 const setupPasswordSchema =
   resetPasswordSchema;
 
+const invitationContextSchema = {
+  body: Joi.object({ token }).required(),
+};
+
 export {
   loginSchema,
   changePasswordSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   setupPasswordSchema,
+  invitationContextSchema,
 };
 

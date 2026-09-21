@@ -28,6 +28,11 @@ const inviteStaffSchema = {
       .max(254)
       .required(),
     role: role.required(),
+    dentistProfileId: mongoId.when('role', {
+      is: 'dentist',
+      then: Joi.required(),
+      otherwise: Joi.forbidden(),
+    }),
   }).required(),
 };
 
@@ -39,6 +44,11 @@ const updateRoleSchema = {
   params: staffIdSchema.params,
   body: Joi.object({
     role: role.required(),
+    dentistProfileId: mongoId.when('role', {
+      is: 'dentist',
+      then: Joi.optional(),
+      otherwise: Joi.forbidden(),
+    }),
   }).required(),
 };
 
@@ -75,5 +85,5 @@ export const resendInvitationSchema = {
 
 const dentistProfileSchema = {
   params: staffIdSchema.params,
-  body: Joi.object({ dentistId: mongoId.allow(null).required() }).required().prefs({ stripUnknown: false }),
+  body: Joi.object({ dentistId: mongoId.required() }).required().prefs({ stripUnknown: false }),
 };

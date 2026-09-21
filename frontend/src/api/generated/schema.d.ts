@@ -187,6 +187,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/invitation-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Returns only non-secret display context for a valid, pending invitation. The raw token is never returned. */
+        post: operations["getInvitationContext"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/staff": {
         parameters: {
             query?: never;
@@ -213,7 +230,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Admin only; no-store. Sends a one-time setup link through mail, never in the response. Re-inviting a pending account does not update its name or role. */
+        /** @description Admin only; no-store. Sends a one-time setup link through mail, never in the response. A dentist requires one existing, currently unlinked dentist profile. Re-inviting a pending account does not update its identity, role, or profile relationship. */
         post: operations["inviteStaff"];
         delete?: never;
         options?: never;
@@ -255,7 +272,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** @description Admin only; last-admin and self-lockout invariants apply. */
+        /** @description Admin only; last-admin and self-lockout invariants apply. Changing to dentist requires an existing, currently unlinked dentist profile. */
         patch: operations["updateStaffRole"];
         trace?: never;
     };
@@ -270,7 +287,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Admin only; invalidates all authorization immediately. */
+        /** @description Admin only; established accounts only. Invalidates all authorization immediately; does not alter an independent public dentist profile. */
         post: operations["deactivateStaff"];
         delete?: never;
         options?: never;
@@ -289,7 +306,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Admin only; completed setup required. Invalidates existing sessions. */
+        /** @description Admin only; completed setup required. Invalidates existing sessions. A dentist restore conflicts if another current account has claimed its profile. */
         post: operations["reactivateStaff"];
         delete?: never;
         options?: never;
@@ -327,7 +344,7 @@ export interface paths {
         };
         /** @description Admin-only care assignment. No-store; never included in public doctor records. */
         get: operations["getStaffDentistProfile"];
-        /** @description Admin only. Assign an active doctor profile to a dentist account, or null to unlink. Revokes existing sessions and access tokens. Multiple accounts may intentionally share one profile; no unique index is needed. */
+        /** @description Admin only. Assign an existing doctor profile to a dentist account. The relationship cannot be cleared while the role is dentist, and one non-archived staff account per profile is database-enforced. Revokes existing sessions and access tokens. */
         put: operations["setStaffDentistProfile"];
         post?: never;
         delete?: never;
@@ -716,6 +733,25 @@ export interface paths {
         put?: never;
         /** @description Admin only; no-store. Available only for an uncancelled, setup-incomplete invitation. Invalidates every prior setup link, preserves the originally invited identity and role, sends one new link through mail, and never returns the raw setup token. An uncertain response must not be replayed automatically; an explicit later resend supersedes the earlier link. */
         post: operations["resendStaffInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/staff/{id}/cancel-invitation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Admin only; no-store. Available only for an uncancelled, setup-incomplete invitation. Atomically invalidates setup links and sessions, archives the pending account for auditability, and never deletes the dentist profile. */
+        post: operations["cancelStaffInvitation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1214,6 +1250,7 @@ export interface components {
             /** Format: email */
             email: string;
             role: components["schemas"]["Role"];
+            dentistProfile: components["schemas"]["ObjectId"] | null;
             isActive: boolean;
             isSetupComplete: boolean;
             invitedBy: components["schemas"]["ObjectId"] | null;
@@ -1274,6 +1311,22 @@ export interface components {
             /** @description Maximum is enforced in UTF-8 bytes. */
             password: string;
         };
+        OneTimeTokenRequest: {
+            token: string;
+        };
+        InvitationContext: {
+            name: string;
+            nameTranslations?: components["schemas"]["NameTranslations"];
+            /** Format: email */
+            email: string;
+            role: components["schemas"]["Role"];
+            dentist?: {
+                _id: components["schemas"]["ObjectId"];
+                firstName: string;
+                lastName: string;
+                translations: components["schemas"]["Translations"];
+            };
+        };
         /** @description The invited name must follow the same Unicode human-name policy as patient names. Re-sending uses the dedicated endpoint and cannot replace these frozen identity fields. */
         StaffInviteRequest: {
             /** @description Unicode letters and combining marks, with internal spaces, apostrophes, or hyphens; at least two letters and no control/format characters. */
@@ -1284,7 +1337,14 @@ export interface components {
              */
             email: string;
             role: components["schemas"]["Role"];
-        };
+            dentistProfileId?: components["schemas"]["ObjectId"];
+        } & ({
+            /** @constant */
+            role?: "dentist";
+        } | {
+            /** @enum {string} */
+            role?: "admin" | "receptionist";
+        });
         TranslationText: {
             [key: string]: unknown;
         };
@@ -2685,6 +2745,40 @@ export interface operations {
             429: components["responses"]["Error"];
         };
     };
+    getInvitationContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OneTimeTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Pending invitation context. */
+            200: {
+                headers: {
+                    /** @description private, no-store */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        success: true;
+                        data: {
+                            invitation: components["schemas"]["InvitationContext"];
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["NoStoreError"];
+            429: components["responses"]["NoStoreError"];
+        };
+    };
     listStaff: {
         parameters: {
             query?: {
@@ -2760,7 +2854,14 @@ export interface operations {
             content: {
                 "application/json": {
                     role: components["schemas"]["Role"];
-                };
+                    dentistProfileId?: components["schemas"]["ObjectId"];
+                } & ({
+                    /** @constant */
+                    role?: "dentist";
+                } | {
+                    /** @enum {string} */
+                    role?: "admin" | "receptionist";
+                });
             };
         };
         responses: {
@@ -2842,7 +2943,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    dentistId: components["schemas"]["ObjectId"] | null;
+                    dentistId: components["schemas"]["ObjectId"];
                 };
             };
         };
@@ -3446,6 +3547,24 @@ export interface operations {
         responses: {
             200: components["responses"]["StaffDetailSuccess"];
             400: components["responses"]["NoStoreError"];
+            401: components["responses"]["NoStoreError"];
+            403: components["responses"]["NoStoreError"];
+            404: components["responses"]["NoStoreError"];
+            409: components["responses"]["NoStoreError"];
+        };
+    };
+    cancelStaffInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["StaffDetailSuccess"];
             401: components["responses"]["NoStoreError"];
             403: components["responses"]["NoStoreError"];
             404: components["responses"]["NoStoreError"];

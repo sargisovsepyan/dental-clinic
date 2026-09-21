@@ -9,6 +9,7 @@ import {
   resendInvitation,
   updateRole,
   deactivate,
+  cancelInvitation,
   reactivate,
   revokeSessions,
 } from './staff.controller.js';
@@ -64,6 +65,10 @@ router.get(
 router.post('/:id/resend-invitation', validate(resendInvitationSchema), auditAction({
   action: 'staff.invitation.resent', entityType: 'user',
 }, resendInvitation));
+
+router.post('/:id/cancel-invitation', validate(resendInvitationSchema), auditAction({
+  action: 'staff.invitation.cancelled', entityType: 'user',
+}, cancelInvitation));
 
 router.patch(
   '/:id/role',

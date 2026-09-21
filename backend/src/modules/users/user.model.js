@@ -23,7 +23,8 @@ const userSchema = new mongoose.Schema(
       default: undefined,
     },
 
-    // Admin-controlled care assignment. Multiple accounts may share a profile.
+    // Admin-controlled care assignment. Current accounts are kept one-to-one
+    // with dentist profiles by the partial unique index below.
     dentistProfile: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Dentist',
@@ -115,6 +116,18 @@ userSchema.pre('save', async function () {
 
   this.password = await bcrypt.hash(this.password, 12);
 });
+
+userSchema.index(
+  { dentistProfile: 1 },
+  {
+    unique: true,
+    name: 'unique_current_dentist_staff_profile',
+    partialFilterExpression: {
+      dentistProfile: { $type: 'objectId' },
+      deactivatedAt: null,
+    },
+  }
+);
 
 userSchema.methods.comparePassword = function (password) {
   return bcrypt.compare(password, this.password);
