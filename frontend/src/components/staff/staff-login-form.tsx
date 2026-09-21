@@ -10,6 +10,8 @@ import { staffErrorMessage } from "@/components/staff/staff-feedback";
 import { useStaffAuth } from "@/components/staff/staff-auth-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { correctiveMessages } from "@/i18n/corrective-messages";
+import { isEmail } from '../../../../shared/booking-input.mjs';
 
 import { StaffLanguageSwitcher } from './staff-language-switcher';
 
@@ -30,10 +32,15 @@ export function StaffLoginForm() {
     if (pending) return;
     clearNotice();
     setError(null);
-    setPending(true);
     const data = new FormData(event.currentTarget);
+    const email = String(data.get("email") || "");
+    if (!isEmail(email, true)) {
+      setError({ message: correctiveMessages[locale].invalidEmail });
+      return;
+    }
+    setPending(true);
     try {
-      await login(String(data.get("email") || "").trim().toLowerCase(), String(data.get("password") || ""));
+      await login(email.trim().toLowerCase(), String(data.get("password") || ""));
     } catch (caught) {
       setError({
         message: staffErrorMessage(caught, copy),

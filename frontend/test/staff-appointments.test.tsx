@@ -106,6 +106,35 @@ describe("staff appointment workspace", () => {
     expect(api.createAppointment).toHaveBeenCalledTimes(1);
   });
 
+  it("blocks malformed contact details before a staff-created appointment reaches the API", async () => {
+    api.getAvailability.mockResolvedValue({
+      date: appointment.date, timezone: "Asia/Yerevan", available: true, reason: null,
+      dentist: { id: catalog.dentists[0].id }, service: { id: catalog.services[0].id }, rules: {},
+      slots: [{ start: "09:00", end: "10:00", startAt: appointment.startAt, endAt: appointment.endAt }],
+    });
+    render(<CreateAppointmentDialog catalog={catalog} onCreated={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "New appointment" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(screen.getByLabelText("Patient name"), { target: { value: "Created Patient" } });
+    fireEvent.change(screen.getByLabelText("Patient phone"), { target: { value: "+374((((99----000001" } });
+    fireEvent.change(screen.getByLabelText("Patient email (optional)"), { target: { value: "patient@example.com" } });
+    fireEvent.change(dialog.querySelectorAll("select")[0], { target: { value: catalog.services[0].id } });
+    fireEvent.change(dialog.querySelectorAll("select")[1], { target: { value: catalog.dentists[0].id } });
+    fireEvent.change(screen.getByLabelText("Date", { selector: "input" }), { target: { value: appointment.date } });
+    fireEvent.click(screen.getByRole("button", { name: "Check availability" }));
+    fireEvent.click(await screen.findByRole("button", { name: /09:00–10:00/ }));
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Create appointment" }));
+    expect(await screen.findByText(/digits, an optional leading \+/i)).toBeVisible();
+    expect(api.createAppointment).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Patient phone"), { target: { value: "+374 (99) 000-001" } });
+    fireEvent.change(screen.getByLabelText("Patient email (optional)"), { target: { value: "patient@-example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create appointment" }));
+    expect(await screen.findByText(/valid email address/i)).toBeVisible();
+    expect(api.createAppointment).not.toHaveBeenCalled();
+  });
+
   it("renders a bounded appointment list and applies non-PII filters", async () => {
     render(<StaffAppointments catalog={catalog} />);
     expect(await screen.findAllByText("Preview Patient")).not.toHaveLength(0);

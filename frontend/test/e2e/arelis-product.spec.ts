@@ -57,6 +57,8 @@ for (const locale of ['hy', 'ru', 'en'] as const) {
     await page.goto(`/${locale}/dentists`); await expect(page.locator('main h2')).toHaveCount(5);
     await page.goto(`/${locale}/services`); await expect(page.getByRole('heading', { name: content.services[2].translations[locale].name, exact: true })).toBeVisible();
     await page.goto(`/${locale}/clinic`);
+    await expect(page.getByText(content.clinic.translations[locale].tagline, { exact: true })).toBeVisible();
+    await expect(page.getByText('Стоматология в центре Еревана', { exact: true })).toHaveCount(0);
     const map = page.locator(`main a[href="${content.clinic.mapUrl}"]`);
     await expect(map).toHaveCount(1); await expect(map).toHaveAttribute('rel', 'noopener noreferrer');
     await expect(page.locator('main img[src*="/illustrations/"]')).toHaveCount(4);

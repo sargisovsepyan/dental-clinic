@@ -156,8 +156,8 @@ describe("booking flow", () => {
     render(<BookingFlow locale="en" services={services} dentists={dentists} clinic={{ ...clinic, requireEmail: true }} challenge={challenge} />);
     await reachForm(user);
     fireEvent.change(screen.getByLabelText(/Full name/), { target: { value: "1111`" } });
-    fireEvent.change(screen.getByLabelText(/Phone number/), { target: { value: "call-me-099123456" } });
-    fireEvent.change(screen.getByLabelText(/Email address/), { target: { value: "not-an-email" } });
+    fireEvent.change(screen.getByLabelText(/Phone number/), { target: { value: "+374((((99----000001" } });
+    fireEvent.change(screen.getByLabelText(/Email address/), { target: { value: "person@-example.com" } });
     fireEvent.change(screen.getByLabelText(/Comment/), { target: { value: "x".repeat(1001) } });
     await user.click(screen.getByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: "Send booking request" }));

@@ -21,8 +21,10 @@ import {
 } from "@/components/staff/staff-management-shared";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { correctiveMessages } from '@/i18n/corrective-messages';
 import { safeExternalUrl, safeSocialUrl } from "@/lib/safe-urls";
 import { productMessages } from '@/i18n/product-messages';
+import { canonicalPhone, isEmail } from '../../../../shared/booking-input.mjs';
 
 function nullableNumber(value: FormDataEntryValue | null) {
   const raw = String(value ?? "").trim();
@@ -55,7 +57,12 @@ function ClinicSettingsForm({ clinic, onSaved }: {
     };
     const latitude = nullableNumber(data.get("latitude"));
     const longitude = nullableNumber(data.get("longitude"));
-    const email = String(data.get("email") || "").trim().toLowerCase();
+    const rawPhone = String(data.get("phone") || "");
+    const rawSecondaryPhone = String(data.get("secondaryPhone") || "");
+    const rawEmail = String(data.get("email") || "");
+    const phone = rawPhone.trim();
+    const secondaryPhone = rawSecondaryPhone.trim();
+    const email = rawEmail.trim().toLowerCase();
     const slotIntervalMinutes = Number(data.get("slotIntervalMinutes"));
     const minBookingNoticeMinutes = Number(data.get("minBookingNoticeMinutes"));
     const maxBookingDaysAhead = Number(data.get("maxBookingDaysAhead"));
@@ -70,16 +77,20 @@ function ClinicSettingsForm({ clinic, onSaved }: {
       Number.isInteger(maxBookingDaysAhead) && maxBookingDaysAhead >= 1 && maxBookingDaysAhead <= 365 &&
       Number.isInteger(bufferMinutes) && bufferMinutes >= 0 && bufferMinutes <= 120 &&
       Number.isInteger(maxAppointmentsPerPhonePerDay) && maxAppointmentsPerPhonePerDay >= 1 && maxAppointmentsPerPhonePerDay <= 20;
-    if (translations.hy.clinicName.trim().length < 2 || !urlsValid || !numericValid ||
-        (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
-      setValidation(urlsValid ? copy.validationError : copy.unsafeUrl);
+    const contactError = !isEmail(rawEmail)
+      ? correctiveMessages[locale].invalidEmail
+      : (phone && !canonicalPhone(rawPhone)) || (secondaryPhone && !canonicalPhone(rawSecondaryPhone))
+        ? correctiveMessages[locale].invalidPhone
+        : null;
+    if (translations.hy.clinicName.trim().length < 2 || !urlsValid || !numericValid || contactError) {
+      setValidation(!urlsValid ? copy.unsafeUrl : contactError || copy.validationError);
       return;
     }
 
     const payload: UpdateClinicPayload = {
       translations: compactTranslations(translations) as UpdateClinicPayload["translations"],
-      phone: String(data.get("phone") || "").trim(),
-      secondaryPhone: String(data.get("secondaryPhone") || "").trim(),
+      phone,
+      secondaryPhone,
       email,
       mapUrl,
       latitude,

@@ -1,6 +1,6 @@
 import Joi from 'joi';
 
-import { isHumanName } from '../../../../shared/booking-input.mjs';
+import { isHumanName, isEmail } from '../../../../shared/booking-input.mjs';
 
 const mongoId = Joi.string()
   .hex()
@@ -21,6 +21,7 @@ const inviteStaffSchema = {
       .max(100)
       .required(),
     email: Joi.string()
+      .custom((value, helpers) => isEmail(helpers.original, true) ? value : helpers.error('any.invalid'))
       .trim()
       .lowercase()
       .email()

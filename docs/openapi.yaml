@@ -565,7 +565,10 @@ paths:
         - { name: dentistId, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
         - { name: serviceId, in: query, schema: { $ref: '#/components/schemas/ObjectId' } }
         - { name: status, in: query, schema: { $ref: '#/components/schemas/AppointmentStatus' } }
-        - { name: phone, in: query, schema: { type: string, maxLength: 30 } }
+        - name: phone
+          in: query
+          description: Structurally valid phone input using the same pre-normalization policy as appointment creation.
+          schema: { type: string, maxLength: 30 }
       responses:
         '200': { $ref: '#/components/responses/AppointmentListSuccess' }
         '401': { $ref: '#/components/responses/Error' }
@@ -1670,7 +1673,11 @@ components:
       additionalProperties: false
       required: [email, password]
       properties:
-        email: { type: string, format: email, maxLength: 254 }
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Conservative application email contract; surrounding ASCII spaces are trimmed and malformed local/domain separators or labels are rejected.
         password: { type: string, minLength: 6, maxLength: 1024, writeOnly: true }
     ChangePasswordRequest:
       type: object
@@ -1688,7 +1695,12 @@ components:
       type: object
       additionalProperties: false
       required: [email]
-      properties: { email: { type: string, format: email, maxLength: 254 } }
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Conservative application email contract; surrounding ASCII spaces are trimmed and malformed local/domain separators or labels are rejected.
     TokenPasswordRequest:
       type: object
       additionalProperties: false
@@ -1712,7 +1724,11 @@ components:
           minLength: 2
           maxLength: 100
           description: Unicode letters and combining marks, with internal spaces, apostrophes, or hyphens; at least two letters and no control/format characters.
-        email: { type: string, format: email, maxLength: 254 }
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Conservative application email contract; surrounding ASCII spaces are trimmed and malformed local/domain separators or labels are rejected.
         role: { $ref: '#/components/schemas/Role' }
     TranslationText:
       type: object
@@ -2528,9 +2544,16 @@ components:
         translations: { $ref: '#/components/schemas/ClinicTranslations' }
         tagline: { type: string, maxLength: 250 }
         description: { type: string, maxLength: 5000 }
-        phone: { type: string, maxLength: 30 }
-        secondaryPhone: { type: string, maxLength: 30 }
+        phone:
+          type: string
+          maxLength: 30
+          description: Empty or structurally valid phone input; structure is checked before any normalization.
+        secondaryPhone:
+          type: string
+          maxLength: 30
+          description: Empty or structurally valid phone input; structure is checked before any normalization.
         email:
+          description: Empty or a conservative application-contract email; malformed local/domain separators or labels are rejected before Joi email validation.
           anyOf:
             - { type: string, format: email, maxLength: 254 }
             - { type: string, const: '' }
@@ -2941,8 +2964,9 @@ components:
           type: string
           minLength: 8
           maxLength: 30
-          description: Raw input may contain digits, one optional leading plus, spaces, parentheses, and hyphens only; it must normalize to 8-15 digits. Armenian local 8-digit and leading-zero 9-digit forms normalize to +374.
+          description: Raw structure is validated before normalization. It may contain digits, one optional leading plus, ordinary grouping spaces, at most one balanced digit-only parenthesized group, and non-repeated hyphens between digits; malformed or abusive separators are rejected. It must then normalize to 8-15 digits. Armenian local 8-digit and leading-zero 9-digit forms normalize to +374.
         patientEmail:
+          description: Empty or a conservative application-contract email; surrounding ASCII spaces are trimmed and malformed local/domain separators or labels are rejected before Joi email validation.
           anyOf:
             - { type: string, format: email, maxLength: 254 }
             - { type: string, const: '' }

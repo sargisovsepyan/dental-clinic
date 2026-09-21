@@ -1,7 +1,7 @@
 ﻿import Joi from 'joi';
 
 
-import { isHumanName, canonicalPhone, isCalendarDate } from '../../../../shared/booking-input.mjs';
+import { isHumanName, canonicalPhone, isEmail, isCalendarDate } from '../../../../shared/booking-input.mjs';
 
 const mongoId = Joi.string()
   .hex()
@@ -32,6 +32,7 @@ const patientFields = {
 
   patientEmail:
     Joi.string()
+      .custom((value, helpers) => isEmail(helpers.original) ? value : helpers.error('any.invalid'))
       .trim()
       .lowercase()
       .email()
@@ -278,6 +279,7 @@ const listAppointmentsSchema = {
 
     phone:
       Joi.string()
+        .custom((value, helpers) => canonicalPhone(helpers.original) ? value : helpers.error('any.invalid'))
         .trim()
         .max(30),
 

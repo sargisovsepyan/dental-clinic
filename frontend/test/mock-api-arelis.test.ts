@@ -47,6 +47,32 @@ afterAll(async () => {
 });
 
 describe("clean Arelis mock API contract", () => {
+  it("mirrors the shared contact boundary for direct public, account, and invitation requests", async () => {
+    const malformedEmail = "person@-example.com";
+    expect((await json("/api/v1/auth/login", body({ email: malformedEmail, password: previewPassword }))).response.status).toBe(400);
+    expect((await json("/api/v1/auth/forgot-password", body({ email: malformedEmail }))).response.status).toBe(400);
+
+    const token = await adminToken();
+    expect((await json("/api/v1/staff/invite", body({ name: "Valid Staff", email: malformedEmail, role: "dentist" }, token))).response.status).toBe(400);
+
+    const services = (await json("/api/v1/services")).body.data.services;
+    const service = services[0];
+    const dentist = (await json(`/api/v1/dentists?bookingEnabled=true&service=${service._id}`)).body.data.dentists[0];
+    const booking = {
+      patientName: "Մարիամ Հակոբյան", patientPhone: "+374 99 123456", patientEmail: "", patientComment: "",
+      dentistId: dentist._id, serviceId: service._id, date: "2026-09-22", startTime: "09:00",
+      privacyAccepted: true, locale: "en",
+    };
+    expect((await json("/api/v1/appointments", {
+      ...body({ ...booking, patientPhone: "+374((((99----000001" }),
+      headers: { "content-type": "application/json", "idempotency-key": "invalid-phone-structure" },
+    })).response.status).toBe(400);
+    expect((await json("/api/v1/appointments", {
+      ...body({ ...booking, patientEmail: malformedEmail }),
+      headers: { "content-type": "application/json", "idempotency-key": "invalid-email-structure" },
+    })).response.status).toBe(400);
+  });
+
   it("rejects direct past, impossible, and beyond-horizon booking payloads and keeps public/admin statuses authoritative", async () => {
     const services = (await json("/api/v1/services")).body.data.services;
     const service = services[0];

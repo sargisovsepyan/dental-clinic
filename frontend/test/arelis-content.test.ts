@@ -51,7 +51,14 @@ describe('Arelis manual content profile', () => {
         expect(view.title.text).toBe(source.translations[locale].title);
         if (locale !== 'hy') expect(JSON.stringify(view)).not.toMatch(/\p{Script=Armenian}/u);
       }
-      expect(clinicView(content.clinic as ClinicRecord, locale).name.text).toBe('Arelis Dental');
+      const clinic = clinicView(content.clinic as ClinicRecord, locale);
+      expect(clinic.name.text).toBe('Arelis Dental');
+      expect(clinic.tagline.text).toBe({
+        hy: 'Arelis Dental — ժամանակակից ատամնաբուժություն ամբողջ ընտանիքի համար',
+        ru: 'Arelis Dental — современная стоматология для всей семьи',
+        en: 'Arelis Dental — modern dentistry for the whole family',
+      }[locale]);
+      expect(clinic.tagline.text).not.toBe('Стоматология в центре Еревана');
       for (const source of content.cases) {
         const view = beforeAfterView(source as BeforeAfterRecord, locale);
         expect(view.title.text).toBe(source.translations[locale].title);
@@ -65,6 +72,7 @@ describe('Arelis manual content profile', () => {
       ...content.gallery.map((item) => item.translations), ...content.cases.map((item) => item.translations),
       ...Object.values(content.staff).map((item) => item.nameTranslations)];
     expect(JSON.stringify(ordinary)).not.toMatch(/test|preview|example\.test|<img|onerror|XSS|тест|թեստ|փորձնական/iu);
+    expect(JSON.stringify(ordinary)).not.toContain('Стоматология в центре Еревана');
     expect(content.clinic.bookingSettings.autoConfirmAppointments).toBe(false);
     expect(content.staff.dentist.dentistProfile).toBe(content.dentists[3]._id);
     expect(safeExternalUrl(content.clinic.mapUrl)).toBe(content.clinic.mapUrl);

@@ -159,3 +159,83 @@ parameters nor fragments. No new PII logging was introduced.
 | NO REAL SECRETS COMMITTED | YES |
 | WORKTREE CLEAN | YES |
 | SAFE FOR INDEPENDENT REVIEW | YES |
+
+## Narrow public-copy and contact-validation corrective pass (2026-09-21)
+
+### Findings and root causes
+
+1. The clean preview clinic fixture still supplied the Russian tagline
+   `Стоматология в центре Еревана`, and the public clinic page rendered that
+   localized fixture value. The HY/RU/EN fixture values now use restrained,
+   locale-specific Arelis Dental family-clinic copy. Unit and browser regressions
+   assert the exact localized taglines and that the retired Russian phrase is not
+   rendered.
+2. `canonicalPhone` previously allowed a broad punctuation set, stripped every
+   non-digit character, and only then applied number constraints. Consequently,
+   malformed punctuation such as `+374((((99----000001` could be legitimized by
+   normalization. The shared policy now validates the submitted structure first
+   and canonicalizes only a structurally valid value.
+3. The shared browser email helper checked only a broad shape, while backend Joi
+   `.email()` rejected malformed domain labels. The shared helper is now a
+   conservative pragmatic subset of Joi, and relevant backend schemas retain Joi
+   as an independent defense before applying that shared policy.
+
+### Contact contract and affected entry points
+
+- Phone input permits an optional leading plus, ASCII digits, bounded human
+  separators, and at most one balanced digit-only parenthesized group. Separators
+  must occur in meaningful positions; controls, Unicode lookalikes, letters,
+  HTML-like characters, emoji, misplaced/multiple plus signs, nested/unbalanced
+  parentheses, and abusive/repeated punctuation fail before normalization.
+- Accepted examples include `+37499000001`, `+374 99 000 001`,
+  `+374 (99) 000-001`, `+1 (212) 555-0123`, and `+44 20 7946 0958`.
+  Rejected examples include `+374((((99----000001`, `++++37499000001`,
+  `+374(99))000001`, `+374((99)000001`, alphabetic/control/HTML-like input,
+  punctuation-only values, and repeated nonsensical separators.
+- Email input permits ordinary ASCII addresses, subdomains, and plus-addressing;
+  local parts are bounded and segmented, domains contain valid nonempty labels,
+  and the alphabetic final label is bounded. Multiple `@` characters, empty
+  pieces, malformed/repeated separators, leading/trailing domain hyphens,
+  whitespace, control/format characters, and malformed domains fail consistently.
+- The policy is shared by public and staff-created appointments, authentication
+  and recovery forms, staff invitations, clinic settings, admin bootstrap input,
+  and the deterministic preview/mock API. Backend appointment/auth/staff/clinic
+  schemas retain their existing Joi validation and apply the shared contract.
+- Public booking remains pending, staff-created booking remains confirmed, and no
+  booking date, idempotency, RBAC, session, invitation, archive/audit, dentist
+  privacy, appointment-locking, CAS, or media behavior changed.
+
+The implementation touches the shared validator; narrowly related backend
+validation/bootstrap files; affected frontend forms and localized messages; the
+preview fixture/mock; generated OpenAPI types; API/OpenAPI documentation; and
+focused backend, component, mock-contract, localization, and browser tests. No
+environment, credential, upload, log, trace, coverage, or provider artifact is
+part of the change.
+
+### Regression and verification evidence
+
+- Focused backend shared-policy coverage passed 4/4 tests. Focused frontend
+  booking, authentication, invitation, appointment, clinic, mock-contract, and
+  localization coverage passed 60/60 tests across seven files. The regressions
+  preserve Armenian/Cyrillic names, combining marks, apostrophes, and hyphens.
+- Backend `npm run verify` passed syntax checks for 185 files, the tracked-secret
+  scan for 426 files, OpenAPI validation, and 336/336 tests (93.38% lines, 84.18%
+  branches, 90.91% functions). A separate `npm test` passed 336/336.
+- Frontend API type generation, typecheck, lint, and production build passed.
+  `npm run test:coverage` passed 33/33 files and 232/232 tests (81.17% statements,
+  80.82% branches, 88.46% functions, 85.92% lines).
+- The first complete browser run passed 50 scenarios; one scenario did not execute
+  because its `beforeEach` scenario-reset request received a one-connection
+  `ECONNRESET`. The same endpoint immediately served the following scenario. The
+  exact untouched status/reschedule/cancellation scenario then passed 1/1, and a
+  fresh complete invocation passed 51/51 in 13.9 minutes. No timeout, retry,
+  assertion, harness, or product-code accommodation was added.
+- Backend and frontend runtime-only and full live npm audits each reported zero
+  vulnerabilities. The E2E launcher stopped normally, ports 3100/5100 were free,
+  `.next-e2e` was absent, and the ignored Playwright result marker was removed.
+
+This pass is carried by one new focused commit on
+`feature/arelis-content-staff-ux`; `main` and `origin/main` remain at `6133d6b`.
+Nothing is merged or pushed. Remaining owner work is unchanged: real clinic
+claims/media/consent and provider/infrastructure release checks require owner or
+deployment-environment evidence.

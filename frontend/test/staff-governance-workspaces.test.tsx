@@ -94,6 +94,11 @@ describe("admin-only team governance", () => {
     fireEvent.click(inviteDialog.getByRole("button", { name: "Invite staff" }));
     expect(await inviteDialog.findByText(/at least two letters/i)).toBeVisible();
     expect(api.inviteStaff).not.toHaveBeenCalled();
+    fireEvent.change(inviteDialog.getByLabelText("Staff name"), { target: { value: "Valid Staff" } });
+    fireEvent.change(inviteDialog.getByLabelText("Email address"), { target: { value: "staff@-example.com" } });
+    fireEvent.click(inviteDialog.getByRole("button", { name: "Invite staff" }));
+    expect(await inviteDialog.findByText(/valid email address/i)).toBeVisible();
+    expect(api.inviteStaff).not.toHaveBeenCalled();
     fireEvent.click(inviteDialog.getAllByRole("button", { name: "Close" })[0]);
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 

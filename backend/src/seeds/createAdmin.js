@@ -8,6 +8,7 @@ import {
   validateNewPassword,
 } from '../security/passwordPolicy.js';
 import { assertMaintenanceSafety } from '../scripts/maintenanceGuard.js';
+import { isEmail } from '../../../shared/booking-input.mjs';
 
 const createAdmin = async () => {
   try {
@@ -37,7 +38,7 @@ const createAdmin = async () => {
         'ADMIN_NAME, ADMIN_EMAIL and ADMIN_PASSWORD must be defined in .env'
       );
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!isEmail(process.env.ADMIN_EMAIL, true)) {
       throw new Error('ADMIN_EMAIL must be a valid email address');
     }
 

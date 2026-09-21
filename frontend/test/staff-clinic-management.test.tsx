@@ -71,4 +71,19 @@ describe("staff clinic settings", () => {
     expect(await screen.findByText(/credential-free HTTPS URL/)).toBeVisible();
     expect(api.updateClinic).not.toHaveBeenCalled();
   });
+
+  it("uses the shared contact contract before saving clinic contact details", async () => {
+    render(<StaffClinicManagement />);
+    await screen.findByText("Clinic timezone: Asia/Yerevan");
+    fireEvent.change(screen.getByLabelText("Primary phone"), { target: { value: "+374((((99----000001" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByText(/digits, an optional leading \+/i)).toBeVisible();
+    expect(api.updateClinic).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Primary phone"), { target: { value: "+374 (99) 000-001" } });
+    fireEvent.change(screen.getByLabelText("Public email"), { target: { value: "clinic@-example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByText(/valid email address/i)).toBeVisible();
+    expect(api.updateClinic).not.toHaveBeenCalled();
+  });
 });

@@ -9,7 +9,9 @@ import { staffErrorMessage } from "@/components/staff/staff-feedback";
 import { useStaffAuth } from "@/components/staff/staff-auth-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { correctiveMessages } from "@/i18n/corrective-messages";
 import { validateNewPassword } from "@/lib/password-policy";
+import { isEmail } from '../../../../shared/booking-input.mjs';
 
 const fieldClass = "mt-2 min-h-11 w-full rounded-md border bg-background px-3 py-2 text-base shadow-sm";
 
@@ -38,8 +40,13 @@ export function ForgotPasswordForm() {
     if (pending) return;
     const form = event.currentTarget;
     setMessage(null);
+    const rawEmail = String(new FormData(event.currentTarget).get("email") || "");
+    if (!isEmail(rawEmail, true)) {
+      setMessage(correctiveMessages[locale].invalidEmail);
+      return;
+    }
     setPending(true);
-    const email = String(new FormData(event.currentTarget).get("email") || "").trim().toLowerCase();
+    const email = rawEmail.trim().toLowerCase();
     try {
       await staffApi.forgotPassword(email);
       setMessage(copy.forgotSent);
@@ -53,7 +60,7 @@ export function ForgotPasswordForm() {
   return (
     <StaffAuthCard locale={locale} title={copy.forgotTitle} intro={copy.forgotIntro}>
       {message && <Alert className="mb-5"><AlertDescription>{message}</AlertDescription></Alert>}
-      <form onSubmit={submit} className="space-y-5">
+      <form onSubmit={submit} className="space-y-5" noValidate>
         <label className="block text-sm font-medium">{copy.email}<input className={fieldClass} name="email" type="email" autoComplete="email" required maxLength={254} disabled={pending} /></label>
         <Button className="w-full" size="lg" type="submit" disabled={pending}>{pending ? copy.sending : copy.sendReset}</Button>
       </form>

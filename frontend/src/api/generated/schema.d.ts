@@ -1250,7 +1250,10 @@ export interface components {
             };
         };
         LoginRequest: {
-            /** Format: email */
+            /**
+             * Format: email
+             * @description Conservative application email contract; surrounding ASCII spaces are trimmed and malformed local/domain separators or labels are rejected.
+             */
             email: string;
             password: string;
         };
@@ -1260,7 +1263,10 @@ export interface components {
             newPassword: string;
         };
         EmailRequest: {
-            /** Format: email */
+            /**
+             * Format: email
+             * @description Conservative application email contract; surrounding ASCII spaces are trimmed and malformed local/domain separators or labels are rejected.
+             */
             email: string;
         };
         TokenPasswordRequest: {
@@ -1272,7 +1278,10 @@ export interface components {
         StaffInviteRequest: {
             /** @description Unicode letters and combining marks, with internal spaces, apostrophes, or hyphens; at least two letters and no control/format characters. */
             name: string;
-            /** Format: email */
+            /**
+             * Format: email
+             * @description Conservative application email contract; surrounding ASCII spaces are trimmed and malformed local/domain separators or labels are rejected.
+             */
             email: string;
             role: components["schemas"]["Role"];
         };
@@ -1754,8 +1763,11 @@ export interface components {
             translations?: components["schemas"]["ClinicTranslations"];
             tagline?: string;
             description?: string;
+            /** @description Empty or structurally valid phone input; structure is checked before any normalization. */
             phone?: string;
+            /** @description Empty or structurally valid phone input; structure is checked before any normalization. */
             secondaryPhone?: string;
+            /** @description Empty or a conservative application-contract email; malformed local/domain separators or labels are rejected before Joi email validation. */
             email?: string | "";
             address?: string;
             mapUrl?: string;
@@ -1991,8 +2003,9 @@ export interface components {
         PatientBookingFields: {
             /** @description Unicode letters and combining marks, with internal spaces, apostrophes, or hyphens; at least two letters and no control/format characters. */
             patientName: string;
-            /** @description Raw input may contain digits, one optional leading plus, spaces, parentheses, and hyphens only; it must normalize to 8-15 digits. Armenian local 8-digit and leading-zero 9-digit forms normalize to +374. */
+            /** @description Raw structure is validated before normalization. It may contain digits, one optional leading plus, ordinary grouping spaces, at most one balanced digit-only parenthesized group, and non-repeated hyphens between digits; malformed or abusive separators are rejected. It must then normalize to 8-15 digits. Armenian local 8-digit and leading-zero 9-digit forms normalize to +374. */
             patientPhone: string;
+            /** @description Empty or a conservative application-contract email; surrounding ASCII spaces are trimmed and malformed local/domain separators or labels are rejected before Joi email validation. */
             patientEmail?: string | "";
             dentistId: components["schemas"]["ObjectId"];
             serviceId: components["schemas"]["ObjectId"];
@@ -3311,6 +3324,7 @@ export interface operations {
                 dentistId?: components["schemas"]["ObjectId"];
                 serviceId?: components["schemas"]["ObjectId"];
                 status?: components["schemas"]["AppointmentStatus"];
+                /** @description Structurally valid phone input using the same pre-normalization policy as appointment creation. */
                 phone?: string;
             };
             header?: never;

@@ -1,5 +1,7 @@
 ﻿import Joi from 'joi';
 
+import { canonicalPhone, isEmail } from '../../../../shared/booking-input.mjs';
+
 import {
   createJoiTranslations,
 } from '../../i18n/localization.js';
@@ -167,18 +169,25 @@ const updateClinicSchema = {
 
     phone:
       Joi.string()
+        .custom((value, helpers) => !String(helpers.original).replace(/^ +| +$/g, '') || canonicalPhone(helpers.original)
+          ? value
+          : helpers.error('any.invalid'))
         .trim()
         .max(30)
         .allow(''),
 
     secondaryPhone:
       Joi.string()
+        .custom((value, helpers) => !String(helpers.original).replace(/^ +| +$/g, '') || canonicalPhone(helpers.original)
+          ? value
+          : helpers.error('any.invalid'))
         .trim()
         .max(30)
         .allow(''),
 
     email:
       Joi.string()
+        .custom((value, helpers) => isEmail(helpers.original) ? value : helpers.error('any.invalid'))
         .trim()
         .lowercase()
         .email()

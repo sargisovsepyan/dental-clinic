@@ -8,7 +8,9 @@ import type { StaffCatalog } from "@/components/staff/staff-appointment-types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { correctiveMessages } from "@/i18n/corrective-messages";
 import { bookingDateRange } from "@/lib/booking-date";
+import { isHumanName, canonicalPhone, isEmail } from '../../../../shared/booking-input.mjs';
 
 const fieldClass = "mt-2 min-h-11 w-full rounded-md border bg-background px-3 py-2 text-base shadow-sm";
 
@@ -78,13 +80,28 @@ export function CreateAppointmentDialog({ catalog, onCreated }: { catalog: Staff
     event.preventDefault();
     if (submitting || !slot) return;
     const data = new FormData(event.currentTarget);
+    const patientName = String(data.get("patientName") || "");
+    const patientPhone = String(data.get("patientPhone") || "");
+    const patientEmail = String(data.get("patientEmail") || "");
+    const validationCopy = correctiveMessages[locale];
+    const validationError = !isHumanName(patientName)
+      ? validationCopy.invalidName
+      : !canonicalPhone(patientPhone)
+        ? validationCopy.invalidPhone
+        : !isEmail(patientEmail, catalog.clinic.requireEmail)
+          ? validationCopy.invalidEmail
+          : null;
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
       const created = await api.createAppointment({
-        patientName: String(data.get("patientName") || "").trim(),
-        patientPhone: String(data.get("patientPhone") || "").trim(),
-        patientEmail: String(data.get("patientEmail") || "").trim().toLowerCase(),
+        patientName: patientName.trim(),
+        patientPhone: patientPhone.trim(),
+        patientEmail: patientEmail.trim().toLowerCase(),
         patientComment: String(data.get("patientComment") || "").trim(),
         internalNote: String(data.get("internalNote") || "").trim(),
         dentistId, serviceId, date, startTime: slot, locale,
@@ -114,7 +131,7 @@ export function CreateAppointmentDialog({ catalog, onCreated }: { catalog: Staff
       <DialogContent closeLabel={copy.close}>
         <DialogTitle>{copy.createTitle}</DialogTitle>
         <DialogDescription>{copy.appointmentsIntro}</DialogDescription>
-        <form className="mt-6 space-y-5" onSubmit={submit}>
+        <form className="mt-6 space-y-5" onSubmit={submit} noValidate>
           {error && <Alert variant="destructive" role="alert"><AlertDescription>{error}</AlertDescription></Alert>}
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="text-sm font-medium">{copy.patientName}<input className={fieldClass} name="patientName" required minLength={2} maxLength={120} disabled={submitting} /></label>

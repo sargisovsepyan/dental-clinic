@@ -1,5 +1,7 @@
 ﻿import Joi from 'joi';
 
+import { isEmail } from '../../../../shared/booking-input.mjs';
+
 import {
   loginPasswordJoi,
   newPasswordJoi,
@@ -8,6 +10,7 @@ import {
 const loginSchema = {
   body: Joi.object({
     email: Joi.string()
+      .custom((value, helpers) => isEmail(helpers.original, true) ? value : helpers.error('any.invalid'))
       .trim()
       .lowercase()
       .email()
@@ -36,6 +39,7 @@ const changePasswordSchema = {
 const forgotPasswordSchema = {
   body: Joi.object({
     email: Joi.string()
+      .custom((value, helpers) => isEmail(helpers.original, true) ? value : helpers.error('any.invalid'))
       .trim()
       .lowercase()
       .email()

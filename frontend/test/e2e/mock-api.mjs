@@ -706,6 +706,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
     if (request.method === "POST" && url.pathname === "/api/v1/auth/login") {
       let body;
       try { body = await readJson(request); } catch { return send(response, 400, { success: false, code: "VALIDATION_ERROR" }); }
+      if (!body || !isEmail(body.email, true)) return send(response, 400, { success: false, code: "VALIDATION_ERROR" });
       const account = previewUsersByEmail.get(String(body.email || "").trim().toLowerCase());
       const member = account && managedStaff.find((item) => item._id === account.id && item.isActive && item.isSetupComplete);
       const user = member ? { id: member._id, name: member.name, email: member.email, role: member.role,
@@ -734,7 +735,8 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
       return send(response, 200, { success: true, message: "Logged out" });
     }
     if (request.method === "POST" && url.pathname === "/api/v1/auth/forgot-password") {
-      await readJson(request).catch(() => ({}));
+      const body = await readJson(request).catch(() => null);
+      if (!body || !isEmail(body.email, true)) return send(response, 400, { success: false, code: "VALIDATION_ERROR" });
       return send(response, 202, { success: true, message: "If eligible, instructions were sent" });
     }
     if (request.method === "POST" && (url.pathname === "/api/v1/auth/reset-password" || url.pathname === "/api/v1/auth/setup-password")) {
@@ -805,7 +807,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
       }
       if (request.method === "POST" && url.pathname === "/api/v1/staff/invite") {
         const body = await readJson(request).catch(() => null);
-        if (!body || Object.keys(body).sort().join(",") !== "email,name,role" || !isHumanName(body.name, 100) || typeof body.email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(body.email) || !["admin", "receptionist", "dentist"].includes(body.role)) return send(response, 400, { success: false });
+        if (!body || Object.keys(body).sort().join(",") !== "email,name,role" || !isHumanName(body.name, 100) || !isEmail(body.email, true) || !["admin", "receptionist", "dentist"].includes(body.role)) return send(response, 400, { success: false });
         const email = body.email.trim().toLowerCase();
         let member = managedStaff.find((item) => item.email === email);
         if (member?.isSetupComplete) return send(response, 409, { success: false });
