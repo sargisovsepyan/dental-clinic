@@ -22,7 +22,7 @@ const assignedProfile = async (userId, authenticatedVersion) => {
   const user = await User.findOne({ _id: userId, role: 'dentist', isActive: true, isSetupComplete: true })
     .select('+dentistProfile +authVersion').lean();
   if (!Number.isInteger(authenticatedVersion) || user?.authVersion !== authenticatedVersion ||
-      !user?.dentistProfile || !await Dentist.exists({ _id: user.dentistProfile, isActive: true })) {
+      !user?.dentistProfile || !await Dentist.exists({ _id: user.dentistProfile })) {
     throw new ApiError(403, 'A current doctor profile assignment is required', { code: 'DENTIST_PROFILE_REQUIRED' });
   }
   return { dentist: user.dentistProfile, authVersion: user.authVersion };

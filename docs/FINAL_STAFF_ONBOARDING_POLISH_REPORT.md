@@ -118,7 +118,7 @@ or privacy defect. Specifically:
   hard-delete path, uncertain-write retry, external-provider call, or access
   scope expansion was introduced.
 - A source scan found no token logging or local/session-storage credential sink.
-  The tracked-secret scanner covered 427 files.
+  The tracked-secret scanner covered 433 files.
 
 The first full browser run exposed only stale test assumptions caused by the
 intentional UI and lifecycle changes. They were classified and corrected
@@ -133,8 +133,8 @@ interaction-heavy appointment test whose isolated behavior was already green.
 
 | Gate | Final result |
 | --- | --- |
-| Backend `npm run verify` | PASS: 346/346 tests; 93.36% lines, 84.10% branches, 91% functions; OpenAPI lint and tracked-secret checks included. |
-| Separate backend `npm test` | PASS: 346/346 tests. |
+| Backend `npm run verify` | PASS after corrective pass: 348/348 tests; 93.33% lines, 84.09% branches, 91.00% functions; OpenAPI lint and tracked-secret checks included. |
+| Separate backend `npm test` | Prior completed pass: 346/346 tests; not repeated because the corrective `npm run verify` ran the complete current 348-test suite. |
 | Backend `npm audit --omit=dev` | PASS: 0 vulnerabilities. |
 | Backend `npm audit` | PASS: 0 vulnerabilities. |
 | Frontend `npm run api:types` | PASS against the final OpenAPI contract. |
@@ -147,7 +147,7 @@ interaction-heavy appointment test whose isolated behavior was already green.
 | Final frontend `npm run test:e2e` | PASS: 52/52 scenarios in one fresh serial invocation (14.1 minutes). |
 | Frontend `npm audit --omit=dev --audit-level=moderate` | PASS: 0 vulnerabilities. |
 | Frontend `npm audit --audit-level=moderate` | PASS: 0 vulnerabilities. |
-| Repository checks | PASS: `git diff --check`; tracked-secret scan of 427 files; no staged or tracked environment, credential, log, upload, browser, or coverage artifact. |
+| Repository checks | PASS: `git diff --check`; tracked-secret scan of 433 files; no staged or tracked environment, credential, log, upload, browser, or coverage artifact. |
 | Process cleanup | PASS: the E2E runner stopped its owned processes; ports 3100 and 5100 were not listening. |
 
 The production build used only these documented non-secret values:
@@ -232,3 +232,43 @@ git status --short
 | NO REAL SECRETS COMMITTED | YES |
 | WORKTREE CLEAN | YES |
 | SAFE FOR INDEPENDENT REVIEW | YES |
+
+## Narrow dentist access/public-visibility correction
+
+A final boundary review found that the authenticated dentist appointment scope
+resolver required the linked dentist profile to be publicly active. That mixed
+two separate concepts: an existing internal profile identity and public
+patient-facing visibility. The resolver now continues to require an active,
+setup-complete dentist employee, the authenticated authorization version, and
+an existing linked dentist profile, but no longer requires that profile to be
+publicly visible.
+
+Public collection/detail, availability, and booking paths retain their existing
+`isActive` and `bookingEnabled` predicates and booking-guard checks. Hiding a
+profile therefore still blocks discovery, availability, stale/open booking, and
+new booking while preserving the active employee's profile-scoped, minimal
+`My appointments` view. Employee deactivation still revokes access and refresh
+sessions without changing the public dentist profile.
+
+Focused backend regressions prove both directions, including public rejection,
+unchanged historical appointments, exact appointment ownership, employee-state
+independence, stale access/refresh rejection, and unchanged public visibility
+after employee deactivation. The deterministic preview API now matches the real
+backend, and a focused browser regression proves that hiding the public profile
+does not interrupt `My appointments`, while subsequent employee deactivation
+redirects to sign-in without mounting a forbidden private appointment request.
+
+Corrective verification completed with:
+
+- `node --test --test-concurrency=1 test/dentist-appointments.test.js` —
+  10/10 focused backend tests passed.
+- `npm run verify` from `backend/` — 348/348 tests passed with all coverage
+  thresholds, syntax, OpenAPI, and tracked-secret checks green.
+- `npm run test:e2e -- test/e2e/arelis-product.spec.ts --grep "public dentist
+  hiding preserves active employee appointments while employee deactivation
+  revokes them"` — 1/1 focused Chromium scenario passed.
+- `npm run typecheck` and `npm run lint` from `frontend/` — passed.
+
+Frontend application/configuration code did not change, so the already-green
+frontend coverage, production build, and 52/52 complete browser run were not
+invalidated or repeated.

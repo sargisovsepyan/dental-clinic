@@ -1488,7 +1488,7 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
       if (request.method !== 'GET') return send(response, 405, { success: false });
       if ([...url.searchParams.keys()].some((key) => !['page', 'limit', 'date', 'from', 'to'].includes(key))) return send(response, 400, { success: false });
       const profile = managedStaff.find((member) => member._id === user.id)?.dentistProfile;
-      if (!managedDentists.some((doctor) => doctor._id === profile && doctor.isActive)) return send(response, 403, { success: false, code: 'DENTIST_PROFILE_REQUIRED' });
+      if (!managedDentists.some((doctor) => doctor._id === profile)) return send(response, 403, { success: false, code: 'DENTIST_PROFILE_REQUIRED' });
       const minimal = (item) => ({ _id: item._id, patientName: item.patientName, patientPhone: item.patientPhone,
         date: item.date, startTime: item.startTime, endTime: item.endTime, status: item.status,
         serviceSnapshot: { name: item.serviceSnapshot.name, durationMinutes: item.serviceSnapshot.durationMinutes,

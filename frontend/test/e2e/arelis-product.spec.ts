@@ -8,6 +8,7 @@ import { staffMessages } from '../../src/i18n/staff-messages';
 import { expectHeroTextWithinViewport, expectPublicHeadingsWithinViewport } from '../preview/hero-geometry';
 let server: Server;
 const content = buildArelisContent(previewAccounts);
+const apiUrl = 'http://127.0.0.1:5100/api/v1';
 test.beforeAll(async () => {
   server = createMockApiServer(5100, 'success', { profile: 'arelis' });
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(5100, '127.0.0.1', resolve); });
@@ -82,6 +83,38 @@ test('dentist sees only assigned visits with zero forbidden management fetches a
   }
   expect(reads.filter((path) => /appointments(?!\/mine)|\/staff|\/admin\/|audit-logs/.test(path))).toEqual([]);
   await page.goto('/en/staff/services'); await expect(page.getByText('Access denied')).toBeVisible();
+});
+test('public dentist hiding preserves active employee appointments while employee deactivation revokes them', async ({ page, request }) => {
+  const linkedProfile = content.dentists.find((item) => item._id === content.staff.dentist.dentistProfile)!;
+  await login(page, 'en', 'dentist');
+  await expect(page.getByText('Alex Martin', { exact: true })).toBeVisible();
+  await expect(page.getByText('Levon Adam', { exact: true })).toHaveCount(0);
+
+  const adminLogin = await request.post(`${apiUrl}/auth/login`, {
+    data: { email: previewAccounts.admin.email, password: previewPassword },
+  });
+  expect(adminLogin.ok()).toBe(true);
+  const adminAccessToken = (await adminLogin.json()).data.accessToken as string;
+  const adminHeaders = { Authorization: `Bearer ${adminAccessToken}` };
+  const hidden = await request.delete(`${apiUrl}/dentists/${linkedProfile._id}`, { headers: adminHeaders });
+  expect(hidden.ok()).toBe(true);
+
+  await page.reload();
+  await expect(page.getByText('Alex Martin', { exact: true })).toBeVisible();
+  await expect(page.getByText('Levon Adam', { exact: true })).toHaveCount(0);
+  const publicList = await request.get(`${apiUrl}/dentists`);
+  expect((await publicList.json()).data.dentists.some((item: { _id: string }) => item._id === linkedProfile._id)).toBe(false);
+  expect((await request.get(`${apiUrl}/dentists/${linkedProfile.slug}`)).status()).toBe(404);
+
+  const deactivated = await request.post(`${apiUrl}/staff/${previewAccounts.dentist.id}/deactivate`, { headers: adminHeaders });
+  expect(deactivated.ok()).toBe(true);
+  const privateReads: string[] = [];
+  page.on('request', (browserRequest) => {
+    if (new URL(browserRequest.url()).pathname.startsWith('/api/v1/appointments/mine')) privateReads.push(browserRequest.url());
+  });
+  await page.reload();
+  await expect(page).toHaveURL(/\/en\/staff\/login$/);
+  expect(privateReads).toEqual([]);
 });
 test('admin services default to services, show human sections and retain hide guards', async ({ page }) => {
   await login(page, 'en', 'admin'); await page.goto('/en/staff/services');

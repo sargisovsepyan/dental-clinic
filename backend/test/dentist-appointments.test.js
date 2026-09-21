@@ -20,6 +20,7 @@ const { getMyAppointments } = await import('../src/modules/appointments/assigned
 
 let core, staff, own, other;
 const auth = (token) => ({ Authorization: `Bearer ${token}` });
+const cookiePair = (response) => response.headers['set-cookie'][0].split(';')[0];
 before(connectReplTestDatabase);
 beforeEach(async () => {
   await clearReplTestDatabase();
@@ -78,14 +79,88 @@ test('arbitrary scopes, invalid dates, and all management endpoints remain forbi
   assert.equal((await request(app).get('/api/v1/appointments/mine').set(auth(staff.receptionistToken))).status, 403);
 });
 
-test('reads follow the current database association and fail closed when unlinked or inactive', async () => {
+test('reads follow the current database association, including a hidden linked profile', async () => {
   await User.updateOne({ _id: staff.dentistUser._id }, { $set: { dentistProfile: core.secondDentist._id } });
   const data = await getMyAppointments(staff.dentistUser._id, { page: 1, limit: 25 }, 0);
   assert.equal(String(data.appointments[0]._id), String(other._id));
-  await Dentist.updateOne({ _id: core.secondDentist._id }, { $set: { isActive: false } });
+  await Dentist.updateOne({ _id: core.secondDentist._id }, { $set: { isActive: false, bookingEnabled: false } });
+  const hidden = await request(app).get('/api/v1/appointments/mine').set(auth(staff.dentistToken));
+  assert.equal(hidden.status, 200);
+  assert.deepEqual(hidden.body.data.appointments.map(({ _id }) => _id), [String(other._id)]);
+  await Dentist.deleteOne({ _id: core.secondDentist._id });
   assert.equal((await request(app).get('/api/v1/appointments/mine').set(auth(staff.dentistToken))).status, 403);
   await User.updateOne({ _id: staff.dentistUser._id }, { $set: { dentistProfile: null } });
   assert.equal((await request(app).get('/api/v1/appointments/mine').set(auth(staff.dentistToken))).status, 403);
+});
+
+test('hiding a public dentist blocks discovery and booking without changing employee access', async () => {
+  const beforeCount = await Appointment.countDocuments();
+  const disabled = await request(app)
+    .delete(`/api/v1/dentists/${core.dentist._id}`)
+    .set(auth(staff.adminToken));
+  assert.equal(disabled.status, 200);
+
+  const [profile, employee] = await Promise.all([
+    Dentist.findById(core.dentist._id).lean(),
+    User.findById(staff.dentistUser._id).select('+dentistProfile +authVersion').lean(),
+  ]);
+  assert.equal(profile.isActive, false);
+  assert.equal(profile.bookingEnabled, false);
+  assert.equal(employee.isActive, true);
+  assert.equal(employee.deactivatedAt, null);
+  assert.equal(employee.authVersion, 0);
+  assert.equal(String(employee.dentistProfile), String(core.dentist._id));
+
+  const collection = await request(app).get('/api/v1/dentists');
+  assert.equal(collection.status, 200);
+  assert.equal(collection.body.data.dentists.some(({ _id }) => _id === String(core.dentist._id)), false);
+  assert.equal((await request(app).get(`/api/v1/dentists/${core.dentist.slug}`)).status, 404);
+  assert.equal((await request(app).get('/api/v1/availability').query({
+    dentistId: String(core.dentist._id), serviceId: String(core.service._id), date: core.date,
+  })).status, 404);
+
+  const booking = await request(app)
+    .post('/api/v1/appointments')
+    .set('Idempotency-Key', '00000000-0000-4000-8000-000000000123')
+    .send(publicBooking(core, '11:00', '903'));
+  assert.equal(booking.status, 404);
+  assert.equal(await Appointment.countDocuments(), beforeCount);
+
+  const mine = await request(app).get('/api/v1/appointments/mine').set(auth(staff.dentistToken));
+  assert.equal(mine.status, 200);
+  assert.deepEqual(mine.body.data.appointments.map(({ _id }) => _id), [String(own._id)]);
+  assert.equal(mine.body.data.appointments.some(({ _id }) => _id === String(other._id)), false);
+});
+
+test('deactivating a dentist employee revokes private access without hiding the public profile', async () => {
+  const login = await request(app)
+    .post('/api/v1/auth/login')
+    .send({ email: staff.dentistUser.email, password: 'correct horse battery staple' });
+  assert.equal(login.status, 200);
+  const accessToken = login.body.data.accessToken;
+  const refreshCookie = cookiePair(login);
+  assert.equal((await request(app).get('/api/v1/appointments/mine').set(auth(accessToken))).status, 200);
+
+  const deactivated = await request(app)
+    .post(`/api/v1/staff/${staff.dentistUser._id}/deactivate`)
+    .set(auth(staff.adminToken));
+  assert.equal(deactivated.status, 200);
+
+  const [profile, employee] = await Promise.all([
+    Dentist.findById(core.dentist._id).lean(),
+    User.findById(staff.dentistUser._id).select('+dentistProfile +authVersion').lean(),
+  ]);
+  assert.equal(profile.isActive, true);
+  assert.equal(profile.bookingEnabled, true);
+  assert.equal(employee.isActive, false);
+  assert.ok(employee.deactivatedAt instanceof Date);
+  assert.equal(String(employee.dentistProfile), String(core.dentist._id));
+
+  assert.equal((await request(app).get('/api/v1/appointments/mine').set(auth(accessToken))).status, 401);
+  assert.equal((await request(app).post('/api/v1/auth/refresh').set('Cookie', refreshCookie)).status, 401);
+  assert.equal((await request(app).post('/api/v1/auth/login').send({
+    email: staff.dentistUser.email, password: 'correct horse battery staple',
+  })).status, 401);
 });
 
 test('only admins may change care assignment; a change revokes old access', async () => {
