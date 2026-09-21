@@ -52,4 +52,23 @@ describe("frontend environment validation", () => {
     expect(() => parseFrontendEnvironment({ ...base, NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: "disabled" }, true)).toThrow(/requires/);
     expect(parseFrontendEnvironment(base, false).bookingChallenge).toEqual({ provider: "disabled", siteKey: undefined });
   });
+
+  it("allows supervised preview only outside production and rejects unknown modes", () => {
+    const local = {
+      NEXT_PUBLIC_API_URL: "http://localhost:5000/api/v1",
+      NEXT_PUBLIC_SITE_URL: "http://localhost:3000",
+      NEXT_PUBLIC_ARELIS_PREVIEW_MODE: "supervised",
+    };
+    expect(parseFrontendEnvironment(local, false).previewMode).toBe(true);
+    expect(() => parseFrontendEnvironment({ ...local, NEXT_PUBLIC_ARELIS_PREVIEW_MODE: "enabled" }, false)).toThrow(/empty or supervised/);
+
+    const production = {
+      NEXT_PUBLIC_API_URL: "https://clinic.example.com/api/v1",
+      NEXT_PUBLIC_SITE_URL: "https://clinic.example.com",
+      NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: "turnstile",
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: "public-site-key",
+      NEXT_PUBLIC_ARELIS_PREVIEW_MODE: "supervised",
+    };
+    expect(() => parseFrontendEnvironment(production, true)).toThrow(/cannot be enabled in production/);
+  });
 });

@@ -10,7 +10,7 @@ import { buildTeam } from './preview/arelis-team.mjs';
 import type { StaffDentist } from '@/api/staff-management';
 const time = "2026-09-15T08:00:00.000Z";
 const admin = { id: "64b000000000000000000091", name: "Admin", email: "admin@example.test", role: "admin" };
-const member = (id: string, name: string, extra = {}): GovernedStaff => ({ id, name, email: `${name}@example.test`, role: "dentist", isActive: true, isSetupComplete: true, deactivatedAt: null, createdAt: time, updatedAt: time, ...extra });
+const member = (id: string, name: string, extra = {}): GovernedStaff => ({ id, name, email: `${name}@example.test`, role: "dentist", dentistProfile: null, isActive: true, isSetupComplete: true, deactivatedAt: null, createdAt: time, updatedAt: time, ...extra });
 const other = member("64b000000000000000000092", "Other");
 const pending = member("64b000000000000000000096", "Pending", { isActive: false, isSetupComplete: false });
 const inactive = member("64b000000000000000000095", "Inactive", { isActive: false });
@@ -20,11 +20,12 @@ const log = (action: string) => ({ id: "64b000000000000000000001", requestId: "s
 const auditPage = (action: string) => ({ logs: [log(action)], pagination: { page: 1, limit: 10, total: 1, pages: 1 } });
 const api = { getClinic: vi.fn(), listStaff: vi.fn(), getStaff: vi.fn(), mutateStaff: vi.fn(), inviteStaff: vi.fn(), listAuditLogs: vi.fn(), listDentists: vi.fn(), getDentistProfile: vi.fn(), setDentistProfile: vi.fn() };
 const replace = vi.fn();
+let search = "";
 const state = { api, locale: "en", copy: staffMessages.en, user: { ...admin }, handleApiError: vi.fn(), endRevokedSession: vi.fn() };
 vi.mock("@/components/staff/staff-auth-provider", () => ({ useStaffAuth: () => state }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }), usePathname: () => "/en/staff/team" }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, push: vi.fn() }), usePathname: () => "/en/staff/team", useSearchParams: () => new URLSearchParams(search) }));
 beforeEach(() => {
-  vi.resetAllMocks(); state.user = { ...admin }; state.locale = "en"; state.copy = staffMessages.en;
+  vi.resetAllMocks(); search = ""; state.user = { ...admin }; state.locale = "en"; state.copy = staffMessages.en;
   api.getClinic.mockResolvedValue({ timezone: 'Asia/Yerevan' });
   api.listStaff.mockResolvedValue(page()); api.getStaff.mockResolvedValue(other); api.mutateStaff.mockResolvedValue(other); api.inviteStaff.mockResolvedValue(pending); api.listAuditLogs.mockResolvedValue(auditPage("future.unknown"));
   api.listDentists.mockResolvedValue([]); api.getDentistProfile.mockResolvedValue(null);
@@ -83,10 +84,41 @@ describe("admin-only team governance", () => {
     expect(api.inviteStaff).toHaveBeenCalledExactlyOnceWith({ name: "New Staff", email: "new@example.test", role: "receptionist" });
     await waitFor(() => expect(api.listStaff).toHaveBeenCalledTimes(2));
   });
+  it("prevents repeated invite clicks and disables pending invitation actions in flight", async () => {
+    const inviteResult = deferred<typeof pending>();
+    api.inviteStaff.mockReturnValueOnce(inviteResult.promise);
+    render(<StaffTeamManagement />); await screen.findByText("Other");
+    fireEvent.click(screen.getByRole("button", { name: "Invite staff" }));
+    const inviteDialog = within(screen.getByRole("dialog"));
+    fireEvent.change(inviteDialog.getByLabelText("Staff name"), { target: { value: "New Staff" } });
+    fireEvent.change(inviteDialog.getByLabelText("Email address"), { target: { value: "new@example.test" } });
+    const inviteButton = inviteDialog.getByRole("button", { name: "Invite staff" });
+    fireEvent.click(inviteButton);
+    await waitFor(() => expect(inviteButton).toBeDisabled());
+    fireEvent.click(inviteButton);
+    expect(api.inviteStaff).toHaveBeenCalledOnce();
+    expect(within(screen.getByTestId(`staff-${pending.id}`)).getByRole("button", { name: "Resend invitation", hidden: true })).toBeDisabled();
+    expect(within(screen.getByTestId(`staff-${pending.id}`)).getByRole("button", { name: "Cancel invitation", hidden: true })).toBeDisabled();
+    await act(async () => inviteResult.resolve(pending));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+  it("keeps a missing dentist-profile invite editable instead of leaving the form busy", async () => {
+    render(<StaffTeamManagement />); await screen.findByText("Other");
+    fireEvent.click(screen.getByRole("button", { name: "Invite staff" }));
+    const dialog = within(screen.getByRole("dialog"));
+    fireEvent.change(dialog.getByLabelText("Staff name"), { target: { value: "New Dentist" } });
+    fireEvent.change(dialog.getByLabelText("Email address"), { target: { value: "dentist@example.test" } });
+    fireEvent.change(dialog.getByLabelText("Role"), { target: { value: "dentist" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Invite staff" }));
+    expect(await dialog.findByRole("alert")).toHaveTextContent(/Connect the employee account to the dentist profile/i);
+    expect(dialog.getByLabelText("Role")).toBeEnabled();
+    expect(dialog.getAllByRole("button", { name: "Close" }).every((button) => !button.hasAttribute("disabled"))).toBe(true);
+    expect(api.inviteStaff).not.toHaveBeenCalled();
+  });
   it("validates invitation names in the browser and never retries an uncertain explicit resend", async () => {
     api.mutateStaff.mockRejectedValueOnce(new StaffApiError({ kind: "network" }));
     render(<StaffTeamManagement />); await screen.findByText("Other");
-    expect(api.listStaff).toHaveBeenCalledWith({ lifecycle: "current", page: 1, limit: 12 }, expect.any(AbortSignal));
+    expect(api.listStaff).toHaveBeenCalledWith({ lifecycle: "active", page: 1, limit: 12 }, expect.any(AbortSignal));
     fireEvent.click(screen.getByRole("button", { name: "Invite staff" }));
     const inviteDialog = within(screen.getByRole("dialog"));
     fireEvent.change(inviteDialog.getByLabelText("Staff name"), { target: { value: "1111`" } });
@@ -127,7 +159,64 @@ describe("admin-only team governance", () => {
     expect(api.mutateStaff).toHaveBeenCalledExactlyOnceWith(other.id, "role", "receptionist");
     await waitFor(() => expect(api.listStaff).toHaveBeenCalledTimes(3));
   });
-  it.each([["Other", other.id, "Deactivate staff", "deactivate"], ["Inactive", inactive.id, "Reactivate staff", "reactivate"], ["Other", other.id, "Revoke all sessions", "revoke-sessions"]])("confirms %s lifecycle action %s against the exact staff ID", async (_name, id, label, action) => {
+  it("requires and submits an eligible doctor profile when changing a role to dentist", async () => {
+    const doctors = buildTeam(buildCatalog().services) as unknown as StaffDentist[];
+    const receptionist = member(other.id, "Reception", { role: "receptionist" });
+    api.listDentists.mockResolvedValue(doctors);
+    api.listStaff.mockResolvedValue(page([self, receptionist]));
+    render(<StaffTeamManagement />); await screen.findByText("Reception");
+    fireEvent.click(within(screen.getByTestId(`staff-${receptionist.id}`)).getByRole("button", { name: "Change role" }));
+    const dialog = within(screen.getByRole("dialog"));
+    fireEvent.change(dialog.getByLabelText("Role"), { target: { value: "dentist" } });
+    expect(dialog.getByRole("button", { name: "Confirm change" })).toBeDisabled();
+    await waitFor(() => expect(dialog.getByLabelText("Dentist profile")).toBeEnabled());
+    fireEvent.change(dialog.getByLabelText("Dentist profile"), { target: { value: doctors[3]._id } });
+    fireEvent.click(dialog.getByRole("button", { name: "Confirm change" }));
+    await waitFor(() => expect(api.mutateStaff).toHaveBeenCalledExactlyOnceWith(
+      receptionist.id, "role", "dentist", doctors[3]._id
+    ));
+  });
+  it("rejects a dentist deep link after current account links prove the profile is already claimed", async () => {
+    const doctors = buildTeam(buildCatalog().services) as unknown as StaffDentist[];
+    const linked = member(other.id, "Linked Dentist", { dentistProfile: doctors[3]._id });
+    search = `inviteDentist=${doctors[3]._id}`;
+    api.listDentists.mockResolvedValue(doctors);
+    api.listStaff.mockImplementation(async (filters: { lifecycle?: string }) => (
+      filters.lifecycle === "current" ? page([self, linked]) : page([self, linked])
+    ));
+
+    render(<StaffTeamManagement />);
+
+    expect(await screen.findByText(/established staff account already uses this email/i)).toBeVisible();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(api.inviteStaff).not.toHaveBeenCalled();
+  });
+  it("clears the dentist relationship when changing a dentist role to administrator", async () => {
+    const linked = member(other.id, "Linked Dentist", { dentistProfile: "66a0000000000000000000cb" });
+    api.listStaff.mockResolvedValue(page([self, linked]));
+    render(<StaffTeamManagement />); await screen.findByText("Linked Dentist");
+    fireEvent.click(within(screen.getByTestId(`staff-${linked.id}`)).getByRole("button", { name: "Change role" }));
+    const dialog = within(screen.getByRole("dialog"));
+    fireEvent.change(dialog.getByLabelText("Role"), { target: { value: "admin" } });
+    expect(dialog.queryByLabelText("Dentist profile")).toBeNull();
+    fireEvent.click(dialog.getByRole("button", { name: "Confirm change" }));
+    await waitFor(() => expect(api.mutateStaff).toHaveBeenCalledExactlyOnceWith(linked.id, "role", "admin"));
+  });
+  it("requests current, pending, and archive views with explicit lifecycle filters", async () => {
+    render(<StaffTeamManagement />); await screen.findByText("Other");
+    const status = screen.getByLabelText("Status");
+    fireEvent.change(status, { target: { value: "pending" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
+    await waitFor(() => expect(api.listStaff).toHaveBeenCalledWith(
+      { lifecycle: "pending", page: 1, limit: 12 }, expect.any(AbortSignal)
+    ));
+    fireEvent.change(status, { target: { value: "deactivated" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
+    await waitFor(() => expect(api.listStaff).toHaveBeenCalledWith(
+      { lifecycle: "deactivated", page: 1, limit: 12 }, expect.any(AbortSignal)
+    ));
+  });
+  it.each([["Other", other.id, "Deactivate staff", "deactivate"], ["Inactive", inactive.id, "Restore employee", "reactivate"], ["Other", other.id, "Revoke all sessions", "revoke-sessions"]])("confirms %s lifecycle action %s against the exact staff ID", async (_name, id, label, action) => {
     render(<StaffTeamManagement />); await screen.findByText("Other");
     fireEvent.click(within(screen.getByTestId(`staff-${id}`)).getByRole("button", { name: label }));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirm change" }));
@@ -152,7 +241,8 @@ describe("admin-only team governance", () => {
     api.listStaff.mockResolvedValueOnce(page([{ ...pending, deactivatedAt: time }]));
     fireEvent.click(within(screen.getByTestId(`staff-${pending.id}`)).getByRole("button", { name: "Cancel invitation" }));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirm change" }));
-    await waitFor(() => expect(within(screen.getByTestId(`staff-${pending.id}`)).getByText("Deactivated")).toBeVisible());
+    await waitFor(() => expect(within(screen.getByTestId(`staff-${pending.id}`)).getByText("Invitation cancelled")).toBeVisible());
+    expect(api.mutateStaff).toHaveBeenCalledWith(pending.id, "cancel-invitation", "dentist");
     expect(within(screen.getByTestId(`staff-${pending.id}`)).queryByRole("button", { name: "Reactivate staff" })).toBeNull();
   });
   it("preserves 403 and refuses stale staff filter responses even if the adapter ignores abort", async () => {

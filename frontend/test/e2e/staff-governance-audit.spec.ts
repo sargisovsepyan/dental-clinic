@@ -42,7 +42,7 @@ test("team invitation/filtering has exact bodies, privacy, conflicts, and uncert
   page.on("request", (req) => { if (!["127.0.0.1", "localhost"].includes(new URL(req.url()).hostname)) external.push(req.url()); });
   await login(page); await page.goto("/en/staff/team");
   await expect(card(page, previewAccounts.secondAdmin.id)).toBeVisible();
-  await page.getByLabel("Role").selectOption("dentist");
+  await page.getByLabel("Role").selectOption("receptionist");
   await page.getByLabel("Status", { exact: true }).selectOption("pending");
   await page.getByRole("button", { name: "Apply filters" }).click();
   await expect(page.getByText("Pending Setup", { exact: true })).toBeVisible();
@@ -53,6 +53,8 @@ test("team invitation/filtering has exact bodies, privacy, conflicts, and uncert
   await invite(page, "New Staff", "new@preview.local");
   expect((await body).postDataJSON()).toEqual({ name: "New Staff", email: "new@preview.local", role: "receptionist" });
   await expect(page.getByText(/Invitation sent to new@preview.local/)).toBeVisible();
+  await page.getByLabel("Status", { exact: true }).selectOption("pending");
+  await page.getByRole("button", { name: "Apply filters" }).click();
   await expect(page.getByText("New Staff", { exact: true })).toBeVisible();
   await invite(page, "Existing", previewAccounts.admin.email);
   await expect(page.getByText(/established staff account already uses/)).toBeVisible();
@@ -82,11 +84,14 @@ test("role/lifecycle controls, detail, last-admin conflict, and 403 preserve aut
   await dentist.getByRole("button", { name: "Deactivate staff" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Confirm change" }).click();
   await expect(dentist).toHaveCount(0);
-  await page.getByLabel('Status', { exact: true }).selectOption('all');
+  await page.getByLabel('Status', { exact: true }).selectOption('deactivated');
   await page.getByRole('button', { name: 'Apply filters' }).click();
   await expect(dentist.getByText("Deactivated", { exact: true })).toBeVisible();
-  await dentist.getByRole("button", { name: "Reactivate staff" }).click();
+  await dentist.getByRole("button", { name: "Restore employee" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Confirm change" }).click();
+  await expect(dentist).toHaveCount(0);
+  await page.getByLabel('Status', { exact: true }).selectOption('active');
+  await page.getByRole('button', { name: 'Apply filters' }).click();
   await expect(dentist.getByText("Active", { exact: true })).toBeVisible();
   await request.get(`${apiUrl}/__test__/scenario/staff-last-admin-conflict`);
   await card(page, previewAccounts.secondAdmin.id).getByRole("button", { name: "Deactivate staff" }).click();

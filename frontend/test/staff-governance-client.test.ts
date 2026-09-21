@@ -4,7 +4,8 @@ import { parseGovernedStaff, parseAuditMetadata, parseGovernedAudit, parseGovern
 
 const time = "2026-09-15T08:00:00.000Z";
 const user = { id: "64b000000000000000000091", name: "Admin", email: "admin@example.test", role: "admin" };
-const member = { _id: user.id, name: user.name, email: user.email, role: user.role, isActive: true, isSetupComplete: true, deactivatedAt: null, createdAt: time, updatedAt: time };
+const dentistProfileId = "64b000000000000000000099";
+const member = { _id: user.id, name: user.name, email: user.email, role: user.role, dentistProfile: null, isActive: true, isSetupComplete: true, deactivatedAt: null, createdAt: time, updatedAt: time };
 const log = { _id: "64b000000000000000000001", requestId: "request-safe", actor: { _id: user.id, name: user.name, email: user.email, role: user.role }, action: "future.unknown", entityType: "future-entity", entityId: "reference", method: "GET", path: "/safe", metadata: { nested: { values: [true, 2, null], reason: "<b>plain text</b>" } }, createdAt: time };
 const pagination = { page: 1, limit: 10, total: 1, pages: 1 };
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(status < 400 ? { success: true, data } : { success: false, message: "private server error" }), { status });
@@ -17,7 +18,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(
 
 describe("positive governance projections", () => {
   it("drops all unlisted staff, actor, and audit fields", () => {
-    expect(parseGovernedStaff({ ...member, password: "secret", authVersion: 5, inviteToken: "secret" })).toEqual({ id: user.id, name: user.name, email: user.email, role: "admin", isActive: true, isSetupComplete: true, deactivatedAt: null, createdAt: time, updatedAt: time });
+    expect(parseGovernedStaff({ ...member, password: "secret", authVersion: 5, inviteToken: "secret" })).toEqual({ id: user.id, name: user.name, email: user.email, role: "admin", dentistProfile: null, isActive: true, isSetupComplete: true, deactivatedAt: null, createdAt: time, updatedAt: time });
     const safe = parseGovernedAudit({ ...log, ip: "private", userAgent: "private", actor: { ...log.actor, password: "secret" } });
     expect(safe).not.toHaveProperty("ip"); expect(safe.actor).not.toHaveProperty("password");
     expect(parseGovernedAudit({ ...log, actor: null }).actor).toBeNull();
@@ -69,12 +70,12 @@ describe("governed staff client", () => {
     const mock = vi.fn().mockResolvedValueOnce(auth()).mockResolvedValueOnce(json({ staff: [member], pagination })).mockResolvedValueOnce(json({ staff: member, token: "must-drop" }, 201)).mockResolvedValueOnce(json({ staff: member })).mockResolvedValueOnce(json({ staff: member })).mockResolvedValueOnce(json({ staff: member })).mockResolvedValueOnce(json({ logs: [log], pagination }));
     const api = await client(mock);
     await api.listStaff({ ...pagination, lifecycle: "current", role: "dentist" });
-    const invited = await api.inviteStaff({ name: "Staff", email: "staff@example.test", role: "dentist", token: "must-not-send" } as never);
+    const invited = await api.inviteStaff({ name: "Staff", email: "staff@example.test", role: "dentist", dentistProfileId, token: "must-not-send" } as never);
     await api.getStaff(user.id);
     await api.mutateStaff(user.id, "role", "receptionist");
     await api.mutateStaff(user.id, "resend-invitation");
     await api.listAuditLogs({ page: 1, limit: 10, action: "staff.invited", actorId: user.id, from: time, to: time, entityType: "user", entityId: user.id });
-    expect(JSON.parse(mock.mock.calls[2][1].body)).toEqual({ name: "Staff", email: "staff@example.test", role: "dentist" });
+    expect(JSON.parse(mock.mock.calls[2][1].body)).toEqual({ name: "Staff", email: "staff@example.test", role: "dentist", dentistProfileId });
     expect(JSON.parse(mock.mock.calls[4][1].body)).toEqual({ role: "receptionist" });
     expect(new URL(mock.mock.calls[1][0]).searchParams.get("lifecycle")).toBe("current");
     expect(String(mock.mock.calls[5][0])).toBe(`http://localhost:5000/api/v1/staff/${user.id}/resend-invitation`);
@@ -87,7 +88,7 @@ describe("governed staff client", () => {
   it("never replays an uncertain invitation or lifecycle write, and preserves sessions on 403/409", async () => {
     const mock = vi.fn().mockResolvedValueOnce(auth()).mockRejectedValueOnce(new TypeError("offline")).mockResolvedValueOnce(json({}, 503)).mockResolvedValueOnce(json({}, 403)).mockResolvedValueOnce(json({}, 409));
     const api = await client(mock);
-    const payload = { name: "Staff", email: "staff@example.test", role: "dentist" as const };
+    const payload = { name: "Staff", email: "staff@example.test", role: "dentist" as const, dentistProfileId };
     await expect(api.inviteStaff(payload)).rejects.toMatchObject({ kind: "network" });
     await expect(api.inviteStaff(payload)).rejects.toMatchObject({ status: 503 });
     await expect(api.mutateStaff(user.id, "deactivate")).rejects.toMatchObject({ status: 403 });
@@ -110,7 +111,7 @@ describe("governed staff client", () => {
       json: () => new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => reject(new Error("body stalled")), { once: true })),
     }));
     const api = await client(mock);
-    const outcome = api.inviteStaff({ name: "Staff", email: "staff@example.test", role: "dentist" }).catch((error) => error);
+    const outcome = api.inviteStaff({ name: "Staff", email: "staff@example.test", role: "dentist", dentistProfileId }).catch((error) => error);
     await vi.advanceTimersByTimeAsync(10_001);
     expect(await outcome).toMatchObject({ kind: "timeout", status: 201 });
     expect(mock).toHaveBeenCalledTimes(2);
@@ -118,7 +119,7 @@ describe("governed staff client", () => {
   it("does not refresh/replay a malformed 401 invitation response body", async () => {
     const mock = vi.fn().mockResolvedValueOnce(auth()).mockResolvedValueOnce(new Response("not-json", { status: 401 }));
     const api = await client(mock);
-    await expect(api.inviteStaff({ name: "Staff", email: "staff@example.test", role: "dentist" })).rejects.toMatchObject({ kind: "protocol", status: 401 });
+    await expect(api.inviteStaff({ name: "Staff", email: "staff@example.test", role: "dentist", dentistProfileId })).rejects.toMatchObject({ kind: "protocol", status: 401 });
     expect(mock).toHaveBeenCalledTimes(2);
   });
 });

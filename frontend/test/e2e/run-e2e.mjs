@@ -119,6 +119,7 @@ const nextProcess = spawn(
       NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME: "preview-local",
       NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: "disabled",
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: "",
+      NEXT_PUBLIC_ARELIS_PREVIEW_MODE: "supervised",
       NEXT_DIST_DIR: distDir,
     },
     shell: false,

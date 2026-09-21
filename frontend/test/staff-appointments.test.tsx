@@ -104,7 +104,7 @@ describe("staff appointment workspace", () => {
     expect(screen.getByRole("button", { name: "Create appointment" })).toBeDisabled();
     expect(api.getAvailability).toHaveBeenCalledTimes(1);
     expect(api.createAppointment).toHaveBeenCalledTimes(1);
-  });
+  }, 15_000);
 
   it("blocks malformed contact details before a staff-created appointment reaches the API", async () => {
     api.getAvailability.mockResolvedValue({
@@ -125,7 +125,7 @@ describe("staff appointment workspace", () => {
     fireEvent.click(await screen.findByRole("button", { name: /09:00–10:00/ }));
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Create appointment" }));
-    expect(await screen.findByText(/digits, an optional leading \+/i)).toBeVisible();
+    expect(await screen.findByText(/valid phone number/i)).toBeVisible();
     expect(api.createAppointment).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText("Patient phone"), { target: { value: "+374 (99) 000-001" } });

@@ -162,7 +162,7 @@ describe("booking flow", () => {
     await user.click(screen.getByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: "Send booking request" }));
     expect(screen.getByText(/at least two letters/i)).toBeVisible();
-    expect(screen.getByText(/digits, an optional leading \+/i)).toBeVisible();
+    expect(screen.getByText(/valid phone number/i)).toBeVisible();
     expect(screen.getByText(/valid email address/i)).toBeVisible();
     expect(screen.getByText(/no more than 1000 characters/i)).toBeVisible();
     expect(api.createPublicAppointment).not.toHaveBeenCalled();

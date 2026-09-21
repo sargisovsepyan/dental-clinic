@@ -152,6 +152,9 @@ test("dentist lifecycle keeps profile writes separate from schedule and media", 
   await dialog.getByRole("tabpanel", { name: "English (EN)" }).getByLabel("Given name in this language (Optional)").fill("Mane");
   await dialog.getByRole("tabpanel", { name: "English (EN)" }).getByLabel("Family name in this language (Optional)").fill("Preview");
   await dialog.getByRole("button", { name: "Create" }).click();
+  await expect(dialog.getByRole("heading", { name: "Dentist profile created." })).toBeVisible();
+  await expect(dialog.getByText("Mane Preview", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "Done" }).click();
   await expect(page.getByRole("heading", { name: "Mane Preview" })).toBeVisible();
   expect(createPayload).toMatchObject({ weeklySchedule: [], bookingEnabled: false });
   expect(createPayload).not.toHaveProperty("slug");

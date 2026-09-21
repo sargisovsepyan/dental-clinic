@@ -422,7 +422,6 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
   const beforeAfter = content?.cases[0] ?? testFixtures.beforeAfter;
   const secondBeforeAfter = content?.cases[1] ?? testFixtures.secondBeforeAfter;
   const previewAccounts = content?.staff ?? testFixtures.previewAccounts;
-  const previewUsersByEmail = new Map(Object.values(previewAccounts).map((user) => [user.email, user]));
   const makeAppointment = (values) => {
     const row = { ...testFixtures.makeAppointment(values), createdAt: stamp(), updatedAt: stamp(), privacyAcceptedAt: stamp() };
     if (!content) return row;
@@ -462,6 +461,8 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
   let scheduleExceptions = [];
   let clinicClosures = [];
   let managedStaff = [];
+  let previewInvitations = [];
+  const previewPasswords = new Map();
   let auditHistory = [];
   let governanceSequence = 0;
   const idempotentResults = new Map();
@@ -487,6 +488,37 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
     const current = session && managedStaff.find((member) => member._id === session.id && member.isActive && member.isSetupComplete);
     return current ? { id: current._id, name: current.name, email: current.email, role: current.role,
       ...(current.nameTranslations ? { nameTranslations: current.nameTranslations } : {}) } : null;
+  };
+  const safeMember = (member) => ({
+    _id: member._id,
+    name: member.name,
+    ...(member.nameTranslations ? { nameTranslations: member.nameTranslations } : {}),
+    email: member.email,
+    role: member.role,
+    dentistProfile: member.dentistProfile ?? null,
+    isActive: member.isActive,
+    isSetupComplete: member.isSetupComplete,
+    invitedBy: member.invitedBy ?? null,
+    deactivatedAt: member.deactivatedAt ?? null,
+    deactivatedBy: member.deactivatedBy ?? null,
+    createdAt: member.createdAt,
+    updatedAt: member.updatedAt,
+  });
+  const invitationContext = (member) => {
+    const linkedDentist = member.dentistProfile
+      ? managedDentists.find((item) => item._id === member.dentistProfile) : null;
+    return {
+      name: member.name,
+      ...(member.nameTranslations ? { nameTranslations: member.nameTranslations } : {}),
+      email: member.email,
+      role: member.role,
+      ...(linkedDentist ? { dentist: {
+        _id: linkedDentist._id,
+        firstName: linkedDentist.firstName,
+        lastName: linkedDentist.lastName,
+        translations: linkedDentist.translations,
+      } } : {}),
+    };
   };
   const endTimeFor = (start, serviceId) => {
     const [hours, minutes] = start.split(":").map(Number);
@@ -531,8 +563,8 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
       createdAt: timestamp, updatedAt: timestamp,
     }));
     managedStaff.push(
-      { _id: "64b000000000000000000095", name: "Established Inactive", email: "inactive@preview.local", role: "receptionist", isActive: false, isSetupComplete: true, invitedBy: null, deactivatedAt: timestamp, deactivatedBy: previewAccounts.admin.id, createdAt: timestamp, updatedAt: timestamp },
-      { _id: "64b000000000000000000096", name: "Pending Setup", email: "pending@preview.local", role: "dentist", isActive: false, isSetupComplete: false, invitedBy: previewAccounts.admin.id, deactivatedAt: null, deactivatedBy: null, createdAt: timestamp, updatedAt: timestamp },
+      { _id: "64b000000000000000000095", name: "Established Inactive", email: "inactive@preview.local", role: "receptionist", dentistProfile: null, isActive: false, isSetupComplete: true, invitedBy: null, deactivatedAt: timestamp, deactivatedBy: previewAccounts.admin.id, createdAt: timestamp, updatedAt: timestamp },
+      { _id: "64b000000000000000000096", name: "Pending Setup", email: "pending@preview.local", role: "receptionist", dentistProfile: null, isActive: false, isSetupComplete: false, invitedBy: previewAccounts.admin.id, deactivatedAt: null, deactivatedBy: null, createdAt: timestamp, updatedAt: timestamp },
     );
     auditHistory = Array.from({ length: 36 }, (_, index) => ({
       _id: (0x1000 + index).toString(16).padStart(24, "0"), requestId: `preview-audit-${index + 1}`,
@@ -543,6 +575,8 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
       createdAt: `2026-09-15T${String(8 + Math.floor(index / 12)).padStart(2, "0")}:00:00.000Z`,
     }));
     if (content) managedStaff = managedStaff.filter((item) => item.isActive);
+    previewInvitations = [];
+    previewPasswords.clear();
     if (content) auditHistory = [];
     managedCategories = structuredClone(content?.categories ?? [category]);
     managedServices = structuredClone(content?.services ?? [service]);
@@ -707,11 +741,12 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
       let body;
       try { body = await readJson(request); } catch { return send(response, 400, { success: false, code: "VALIDATION_ERROR" }); }
       if (!body || !isEmail(body.email, true)) return send(response, 400, { success: false, code: "VALIDATION_ERROR" });
-      const account = previewUsersByEmail.get(String(body.email || "").trim().toLowerCase());
-      const member = account && managedStaff.find((item) => item._id === account.id && item.isActive && item.isSetupComplete);
+      const normalizedEmail = String(body.email || "").trim().toLowerCase();
+      const member = managedStaff.find((item) => item.email === normalizedEmail && item.isActive && item.isSetupComplete);
       const user = member ? { id: member._id, name: member.name, email: member.email, role: member.role,
         ...(member.nameTranslations ? { nameTranslations: member.nameTranslations } : {}) } : null;
-      if (!user || body.password !== previewPassword) {
+      const expectedPassword = member ? (previewPasswords.get(member._id) ?? previewPassword) : null;
+      if (!user || body.password !== expectedPassword) {
         return send(response, 401, { success: false, code: "INVALID_CREDENTIALS", message: "Invalid credentials" });
       }
       issueRefreshCookie(response, user);
@@ -738,6 +773,17 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
       const body = await readJson(request).catch(() => null);
       if (!body || !isEmail(body.email, true)) return send(response, 400, { success: false, code: "VALIDATION_ERROR" });
       return send(response, 202, { success: true, message: "If eligible, instructions were sent" });
+    }
+    if (request.method === "POST" && url.pathname === "/api/v1/auth/invitation-context") {
+      const body = await readJson(request).catch(() => ({}));
+      if (body.token !== "preview-setup-token-000000000000000000000000") {
+        return send(response, 400, { success: false, code: "INVALID_TOKEN", message: "Invalid token" });
+      }
+      return send(response, 200, { success: true, data: { invitation: {
+        name: "Preview Employee",
+        email: "employee@preview.local",
+        role: "receptionist",
+      } } });
     }
     if (request.method === "POST" && (url.pathname === "/api/v1/auth/reset-password" || url.pathname === "/api/v1/auth/setup-password")) {
       const body = await readJson(request).catch(() => ({}));
@@ -767,7 +813,38 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
       response.setHeader("set-cookie", "preview_refresh=; HttpOnly; SameSite=Strict; Path=/api/v1/auth; Max-Age=0");
       return send(response, 200, { success: true, message: "Password changed" });
     }
-    const governanceStaffRoute = url.pathname.match(/^\/api\/v1\/staff\/([a-f\d]{24})(?:\/(role|deactivate|reactivate|revoke-sessions|resend-invitation|dentist-profile))?$/iu);
+    if (request.method === "GET" && url.pathname === "/api/v1/preview/invitations") {
+      const user = authenticatedUser(request);
+      if (!user) return send(response, 401, { success: false, code: "UNAUTHORIZED" });
+      if (user.role !== "admin") return send(response, 403, { success: false, code: "FORBIDDEN" });
+      return send(response, 200, { success: true, data: { invitations: previewInvitations.map((item) => ({
+        id: item.id, recipient: item.recipient, name: item.name, role: item.role,
+        createdAt: item.createdAt, status: item.status,
+      })).sort((a, b) => b.createdAt.localeCompare(a.createdAt)) } });
+    }
+    const previewInvitationRoute = url.pathname.match(/^\/api\/v1\/preview\/invitations\/([a-f\d-]{36})(?:\/(setup))?$/iu);
+    if (previewInvitationRoute) {
+      const invitation = previewInvitations.find((item) => item.id === previewInvitationRoute[1]);
+      const member = invitation && managedStaff.find((item) => item._id === invitation.memberId);
+      if (!invitation || !member || !['pending', 'opened'].includes(invitation.status) || member.deactivatedAt || member.isSetupComplete) {
+        return send(response, 400, { success: false, code: "INVALID_INVITATION" });
+      }
+      if (!previewInvitationRoute[2] && request.method === "GET") {
+        invitation.status = 'opened';
+        return send(response, 200, { success: true, data: { invitation: invitationContext(member) } });
+      }
+      if (previewInvitationRoute[2] === 'setup' && request.method === "POST") {
+        const body = await readJson(request).catch(() => ({}));
+        if (typeof body.password !== 'string' || [...body.password].length < 6 || Buffer.byteLength(body.password, 'utf8') > 72) {
+          return send(response, 400, { success: false, code: "VALIDATION_ERROR" });
+        }
+        member.isSetupComplete = true; member.isActive = true; member.updatedAt = stamp();
+        previewPasswords.set(member._id, body.password); invitation.status = 'activated';
+        return send(response, 200, { success: true, message: "Account activated" });
+      }
+      return send(response, 405, { success: false });
+    }
+    const governanceStaffRoute = url.pathname.match(/^\/api\/v1\/staff\/([a-f\d]{24})(?:\/(role|deactivate|reactivate|revoke-sessions|resend-invitation|cancel-invitation|dentist-profile))?$/iu);
     if (url.pathname === "/api/v1/staff" || url.pathname === "/api/v1/staff/invite" || governanceStaffRoute || url.pathname === "/api/v1/audit-logs") {
       response.setHeader("cache-control", "no-store");
       const user = authenticatedUser(request);
@@ -790,7 +867,8 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
         if (request.method === 'GET') return send(response, 200, { success: true, data: { dentistId: member.dentistProfile ?? null } });
         if (request.method !== 'PUT' || member.role !== 'dentist') return send(response, 409, { success: false });
         const body = await readJson(request).catch(() => null);
-        if (!body || Object.keys(body).join(',') !== 'dentistId' || (body.dentistId !== null && !managedDentists.some((item) => item._id === body.dentistId && item.isActive))) return send(response, 400, { success: false });
+        if (!body || Object.keys(body).join(',') !== 'dentistId' || !managedDentists.some((item) => item._id === body.dentistId)) return send(response, 400, { success: false });
+        if (managedStaff.some((item) => item._id !== member._id && !item.deactivatedAt && item.dentistProfile === body.dentistId)) return send(response, 409, { success: false });
         member.dentistProfile = body.dentistId; member.updatedAt = stamp();
         invalidate(member._id); recordAudit('staff.dentist_profile.updated', member);
         return send(response, 200, { success: true, data: { dentistId: member.dentistProfile } });
@@ -803,46 +881,73 @@ export function createMockApiServer(port = 5100, initialScenario = "success", op
           lifecycle === 'pending' && !member.isSetupComplete && !member.deactivatedAt ||
           lifecycle === 'deactivated' && (Boolean(member.deactivatedAt) || !member.isActive && member.isSetupComplete);
         const items = managedStaff.filter((member) => matchesLifecycle(member) && (!url.searchParams.has("role") || member.role === url.searchParams.get("role")) && (!url.searchParams.has("isActive") || member.isActive === (url.searchParams.get("isActive") === "true")) && (!url.searchParams.has("setupComplete") || member.isSetupComplete === (url.searchParams.get("setupComplete") === "true"))).sort((a, b) => a.name.localeCompare(b.name) || a._id.localeCompare(b._id));
-        return paginated(items, "staff");
+        return paginated(items.map(safeMember), "staff");
       }
       if (request.method === "POST" && url.pathname === "/api/v1/staff/invite") {
         const body = await readJson(request).catch(() => null);
-        if (!body || Object.keys(body).sort().join(",") !== "email,name,role" || !isHumanName(body.name, 100) || !isEmail(body.email, true) || !["admin", "receptionist", "dentist"].includes(body.role)) return send(response, 400, { success: false });
+        const expectedKeys = body?.role === 'dentist' ? 'dentistProfileId,email,name,role' : 'email,name,role';
+        if (!body || Object.keys(body).sort().join(",") !== expectedKeys || !isHumanName(body.name, 100) || !isEmail(body.email, true) || !["admin", "receptionist", "dentist"].includes(body.role) ||
+            (body.role === 'dentist' && !managedDentists.some((item) => item._id === body.dentistProfileId))) return send(response, 400, { success: false });
+        if (body.role === 'dentist' && managedStaff.some((item) => !item.deactivatedAt && item.dentistProfile === body.dentistProfileId)) return send(response, 409, { success: false });
         const email = body.email.trim().toLowerCase();
         let member = managedStaff.find((item) => item.email === email);
         if (member?.isSetupComplete) return send(response, 409, { success: false });
+        if (member && (member.role !== body.role || member.dentistProfile !== (body.dentistProfileId ?? null))) return send(response, 409, { success: false });
         if (!member) {
-          member = { _id: (0x3000 + ++governanceSequence).toString(16).padStart(24, "0"), name: body.name.trim(), email, role: body.role, isActive: false, isSetupComplete: false, invitedBy: user.id, deactivatedAt: null, deactivatedBy: null, createdAt: stamp(), updatedAt: stamp() };
+          member = { _id: (0x3000 + ++governanceSequence).toString(16).padStart(24, "0"), name: body.name.trim(), email, role: body.role, dentistProfile: body.dentistProfileId ?? null, isActive: false, isSetupComplete: false, invitedBy: user.id, deactivatedAt: null, deactivatedBy: null, createdAt: stamp(), updatedAt: stamp() };
           managedStaff.push(member);
         }
         member.deactivatedAt = null; member.deactivatedBy = null; member.updatedAt = stamp();
+        for (const item of previewInvitations) if (item.memberId === member._id && ['pending', 'opened'].includes(item.status)) item.status = 'replaced';
+        previewInvitations.push({ id: randomUUID(), memberId: member._id, recipient: member.email, name: member.name,
+          role: member.role, createdAt: stamp(), status: 'pending' });
         recordAudit("staff.invited", member);
         if (scenario === "staff-invite-uncertain") return send(response, 503, { success: false });
-        return send(response, 201, { success: true, data: { staff: member } });
+        return send(response, 201, { success: true, data: { staff: safeMember(member) } });
       }
       if (governanceStaffRoute) {
         const [, id, action] = governanceStaffRoute;
         const member = managedStaff.find((item) => item._id === id);
         if (!member) return send(response, 404, { success: false });
-        if (!action && request.method === "GET") return send(response, 200, { success: true, data: { staff: member } });
+        if (!action && request.method === "GET") return send(response, 200, { success: true, data: { staff: safeMember(member) } });
         if ((action === "role" && request.method !== "PATCH") || (action !== "role" && request.method !== "POST")) return send(response, 405, { success: false });
         const body = action === "role" ? await readJson(request).catch(() => null) : {};
-        if (action === "role" && (!body || Object.keys(body).join(",") !== "role" || !["admin", "receptionist", "dentist"].includes(body.role))) return send(response, 400, { success: false });
+        if (action === "role" && (!body || !["role", "dentistProfileId"].every((key) => body[key] === undefined || typeof body[key] === "string") ||
+            Object.keys(body).some((key) => !["role", "dentistProfileId"].includes(key)) || !["admin", "receptionist", "dentist"].includes(body.role))) return send(response, 400, { success: false });
         if (["role", "deactivate"].includes(action) && user.id === id) return send(response, 409, { success: false });
         if ((action === "deactivate" || (action === "role" && body.role !== "admin")) && member.role === "admin" && member.isActive && member.isSetupComplete && (scenario === "staff-last-admin-conflict" || managedStaff.filter((item) => item.role === "admin" && item.isActive && item.isSetupComplete).length <= 1)) return send(response, 409, { success: false });
         if (action === 'resend-invitation') {
           if (member.isSetupComplete || member.deactivatedAt) return send(response, 409, { success: false });
+          for (const item of previewInvitations) if (item.memberId === member._id && ['pending', 'opened'].includes(item.status)) item.status = 'replaced';
+          previewInvitations.push({ id: randomUUID(), memberId: member._id, recipient: member.email, name: member.name,
+            role: member.role, createdAt: stamp(), status: 'pending' });
           member.updatedAt = stamp(); recordAudit('staff.invitation.resent', member);
           if (scenario === 'staff-invite-uncertain') return send(response, 503, { success: false });
-          return send(response, 200, { success: true, data: { staff: member } });
+          return send(response, 200, { success: true, data: { staff: safeMember(member) } });
         }
+        if (action === 'cancel-invitation') {
+          if (member.isSetupComplete || member.deactivatedAt) return send(response, 409, { success: false });
+          member.isActive = false; member.deactivatedAt = stamp(); member.deactivatedBy = user.id; member.updatedAt = stamp();
+          for (const item of previewInvitations) if (item.memberId === member._id && ['pending', 'opened'].includes(item.status)) item.status = 'cancelled';
+          recordAudit('staff.invitation.cancelled', member);
+          return send(response, 200, { success: true, data: { staff: safeMember(member) } });
+        }
+        if (action === 'deactivate' && !member.isSetupComplete) return send(response, 409, { success: false });
         if (action === "reactivate" && !member.isSetupComplete) return send(response, 409, { success: false });
-        if (action === "role") member.role = body.role;
+        if (action === "reactivate" && member.dentistProfile && managedStaff.some((item) => item._id !== member._id && !item.deactivatedAt && item.dentistProfile === member.dentistProfile)) return send(response, 409, { success: false });
+        if (action === "role") {
+          if (body.role === 'dentist') {
+            const requestedProfile = body.dentistProfileId ?? member.dentistProfile;
+            if (!requestedProfile || !managedDentists.some((item) => item._id === requestedProfile) || managedStaff.some((item) => item._id !== member._id && !item.deactivatedAt && item.dentistProfile === requestedProfile)) return send(response, 409, { success: false });
+            member.dentistProfile = requestedProfile;
+          } else member.dentistProfile = null;
+          member.role = body.role;
+        }
         if (action === "deactivate") { member.isActive = false; member.deactivatedAt = stamp(); member.deactivatedBy = user.id; }
         if (action === "reactivate") { member.isActive = true; member.deactivatedAt = null; member.deactivatedBy = null; }
         member.updatedAt = stamp(); invalidate(id);
         recordAudit(action === "role" ? "staff.role.updated" : action === "revoke-sessions" ? "staff.sessions.revoked" : `staff.${action === "deactivate" ? "deactivated" : "reactivated"}`, member);
-        return send(response, 200, { success: true, data: { staff: member } });
+        return send(response, 200, { success: true, data: { staff: safeMember(member) } });
       }
       if (request.method === "GET" && url.pathname === "/api/v1/audit-logs") {
         const from = url.searchParams.get("from"); const to = url.searchParams.get("to");

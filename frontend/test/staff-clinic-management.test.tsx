@@ -77,7 +77,7 @@ describe("staff clinic settings", () => {
     await screen.findByText("Clinic timezone: Asia/Yerevan");
     fireEvent.change(screen.getByLabelText("Primary phone"), { target: { value: "+374((((99----000001" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    expect(await screen.findByText(/digits, an optional leading \+/i)).toBeVisible();
+    expect(await screen.findByText(/valid phone number/i)).toBeVisible();
     expect(api.updateClinic).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText("Primary phone"), { target: { value: "+374 (99) 000-001" } });

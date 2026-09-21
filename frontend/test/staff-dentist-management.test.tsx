@@ -52,7 +52,7 @@ const dentistWithInactiveAssignment = {
 
 const api = {
   listDentists: vi.fn(), listServices: vi.fn(), createDentist: vi.fn(), updateDentist: vi.fn(),
-  disableDentist: vi.fn(), restoreDentist: vi.fn(),
+  disableDentist: vi.fn(), restoreDentist: vi.fn(), listStaff: vi.fn(),
 };
 const authState = {
   locale: "en" as const,
@@ -61,18 +61,56 @@ const authState = {
   api,
   handleApiError: vi.fn(),
 };
+const push = vi.fn();
 vi.mock("@/components/staff/staff-auth-provider", () => ({ useStaffAuth: () => authState }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
 beforeEach(() => {
   vi.clearAllMocks();
   authState.user.role = "admin";
   api.listDentists.mockResolvedValue([dentist]);
   api.listServices.mockResolvedValue([service]);
-  api.createDentist.mockResolvedValue(undefined);
+  api.listStaff.mockResolvedValue({ staff: [], pagination: { page: 1, limit: 100, total: 0, pages: 0 } });
+  api.createDentist.mockResolvedValue(dentist);
   api.updateDentist.mockResolvedValue(undefined);
 });
 
 describe("staff dentist management", () => {
+  it("starts a profile-bound invitation from an unlinked dentist card", async () => {
+    render(<StaffDentistManagement />);
+    expect(await screen.findByText("Not configured")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Invite to staff workspace" }));
+    expect(push).toHaveBeenCalledWith(`/en/staff/team?inviteDentist=${dentist._id}`);
+  });
+
+  it("shows current access state and keeps archived profiles eligible for reassignment", async () => {
+    const archived = {
+      id: "64b000000000000000000098", name: "Archived Dentist", email: "archived@example.test",
+      role: "dentist", dentistProfile: dentist._id, isActive: false, isSetupComplete: true,
+      deactivatedAt: "2026-09-10T00:00:00.000Z", createdAt: dentist.createdAt, updatedAt: dentist.updatedAt,
+    };
+    api.listStaff.mockResolvedValue({ staff: [archived], pagination: { page: 1, limit: 100, total: 1, pages: 1 } });
+    render(<StaffDentistManagement />);
+    expect(await screen.findByText("Access disabled")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Invite to staff workspace" }));
+    expect(push).toHaveBeenCalledWith(`/en/staff/team?inviteDentist=${dentist._id}`);
+    fireEvent.click(screen.getByRole("button", { name: "Open employee" }));
+    expect(push).toHaveBeenCalledWith(`/en/staff/team?staff=${archived.id}&view=archive`);
+  });
+
+  it("shows a pending linked employee instead of offering a duplicate invitation", async () => {
+    const pendingAccount = {
+      id: "64b000000000000000000097", name: "Pending Dentist", email: "pending@example.test",
+      role: "dentist", dentistProfile: dentist._id, isActive: false, isSetupComplete: false,
+      deactivatedAt: null, createdAt: dentist.createdAt, updatedAt: dentist.updatedAt,
+    };
+    api.listStaff.mockResolvedValue({ staff: [pendingAccount], pagination: { page: 1, limit: 100, total: 1, pages: 1 } });
+    render(<StaffDentistManagement />);
+    expect(await screen.findByText("Awaiting account setup")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Invite to staff workspace" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open employee" }));
+    expect(push).toHaveBeenCalledWith(`/en/staff/team?staff=${pendingAccount.id}&view=pending`);
+  });
   it("denies non-admin roles without fetching dentist administration", async () => {
     authState.user.role = "dentist";
     render(<StaffDentistManagement />);

@@ -130,16 +130,17 @@ describe("clean Arelis mock API contract", () => {
 
   it("uses the injected mutation clock for governance, scheduling, and media records", async () => {
     const token = await adminToken();
+    const dentist = (await json("/api/v1/dentists/admin/all", { headers: { authorization: `Bearer ${token}` } })).body.data.dentists[0];
     currentTime = new Date("2026-09-20T10:00:00.000Z");
-    const invited = await json("/api/v1/staff/invite", body({ name: "Анна-Мария Иванова", email: "anna@example.test", role: "dentist" }, token));
+    const invited = await json("/api/v1/staff/invite", body({ name: "Анна-Мария Иванова", email: "anna@example.test", role: "dentist", dentistProfileId: dentist._id }, token));
     expect(invited.response.status).toBe(201);
     expect(invited.body.data.staff).toMatchObject({ createdAt: currentTime.toISOString(), updatedAt: currentTime.toISOString() });
 
     currentTime = new Date("2026-09-20T11:00:00.000Z");
-    const deactivated = await json(`/api/v1/staff/${invited.body.data.staff._id}/deactivate`, body({}, token));
-    expect(deactivated.body.data.staff).toMatchObject({ deactivatedAt: currentTime.toISOString(), updatedAt: currentTime.toISOString() });
+    const cancelled = await json(`/api/v1/staff/${invited.body.data.staff._id}/cancel-invitation`, body({}, token));
+    expect(cancelled.response.status).toBe(200);
+    expect(cancelled.body.data.staff).toMatchObject({ deactivatedAt: currentTime.toISOString(), updatedAt: currentTime.toISOString() });
 
-    const dentist = (await json("/api/v1/dentists/admin/all", { headers: { authorization: `Bearer ${token}` } })).body.data.dentists[0];
     currentTime = new Date("2026-09-20T12:00:00.000Z");
     const exception = await json(`/api/v1/dentists/${dentist._id}/schedule-exceptions/2026-09-23`, {
       method: "PUT", headers: { "content-type": "application/json", authorization: `Bearer ${token}` },

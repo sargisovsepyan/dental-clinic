@@ -286,6 +286,50 @@ describe("staff API authentication boundary", () => {
     expect(fetchMock.mock.calls[1][1]).toMatchObject({ credentials: "omit" });
   });
 
+  it("parses non-secret invitation context and keeps preview setup credentials out of URLs", async () => {
+    const setupToken = "setup-token-private-value-000000000000000000";
+    const invitationId = "11111111-1111-4111-8111-111111111111";
+    const context = {
+      name: "Invited Dentist",
+      nameTranslations: { hy: "Հրավիրված բժիշկ", ru: "Приглашённый врач" },
+      email: "dentist@example.test",
+      role: "dentist",
+      dentist: {
+        _id: "64b000000000000000000021",
+        firstName: "Ani",
+        lastName: "Test",
+        translations: { hy: { firstName: "Անի", lastName: "Թեստ" }, en: { firstName: "Ani" } },
+      },
+    };
+    const preview = {
+      id: invitationId, recipient: context.email, name: context.name, role: context.role,
+      createdAt: "2026-09-21T10:00:00.000Z", status: "opened",
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(successAuth())
+      .mockResolvedValueOnce(json({ success: true, data: { invitation: context } }))
+      .mockResolvedValueOnce(json({ success: true, data: { invitations: [preview] } }))
+      .mockResolvedValueOnce(json({ success: true, data: { invitation: context } }))
+      .mockResolvedValueOnce(json({ success: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new StaffApiClient();
+
+    await client.login(user.email, "Preview1!");
+    await expect(client.getInvitationContext(setupToken)).resolves.toMatchObject(context);
+    await expect(client.listPreviewInvitations()).resolves.toEqual([preview]);
+    await expect(client.getPreviewInvitationContext(invitationId)).resolves.toMatchObject(context);
+    await expect(client.setupPreviewInvitation(invitationId, "Changed1!")).resolves.toBeUndefined();
+
+    const calls = fetchMock.mock.calls as Array<[URL, RequestInit]>;
+    expect(calls[1][0].pathname).toBe("/api/v1/auth/invitation-context");
+    expect(calls[1][0].href).not.toContain(setupToken);
+    expect(JSON.parse(String(calls[1][1].body))).toEqual({ token: setupToken });
+    expect(calls[2][1]).toMatchObject({ credentials: "omit" });
+    expect(calls[4][0].pathname).toBe(`/api/v1/preview/invitations/${invitationId}/setup`);
+    expect(JSON.parse(String(calls[4][1].body))).toEqual({ password: "Changed1!" });
+    await expect(client.getPreviewInvitationContext("not-an-invitation-id")).rejects.toMatchObject({ kind: "configuration" });
+  });
+
   it("normalizes mutation conflicts and exposes only safe concurrency metadata", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(successAuth())
