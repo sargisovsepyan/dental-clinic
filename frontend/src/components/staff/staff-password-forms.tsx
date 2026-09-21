@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { useEffect, useRef, useState } from "react";
-import { StaffApiError, staffApi } from "@/api/staff-client";
+import { StaffApiError, staffApi, type InvitationContext } from "@/api/staff-client";
 import { StaffAuthCard } from "@/components/staff/staff-auth-card";
 import { staffErrorMessage } from "@/components/staff/staff-feedback";
 import { useStaffAuth } from "@/components/staff/staff-auth-provider";
@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { correctiveMessages } from "@/i18n/corrective-messages";
 import { validateNewPassword } from "@/lib/password-policy";
 import { isEmail } from '../../../../shared/booking-input.mjs';
+import { getFrontendEnvironment } from '@/lib/env';
+import { staffOnboardingMessages } from '@/i18n/staff-onboarding-messages';
 
 const fieldClass = "mt-2 min-h-11 w-full rounded-md border bg-background px-3 py-2 text-base shadow-sm";
 
@@ -71,38 +73,57 @@ export function ForgotPasswordForm() {
 
 export function OneTimePasswordForm({ kind }: { kind: "reset" | "setup" }) {
   const { locale, copy } = useStaffAuth();
+  const onboarding = staffOnboardingMessages[locale];
   const tokenRef = useRef<string | null | undefined>(undefined);
+  const previewInvitationRef = useRef<string | null>(null);
   const [hasToken, setHasToken] = useState<boolean | null>(null);
+  const [context, setContext] = useState<InvitationContext | null>(null);
   const [pending, setPending] = useState(false);
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
+    const hydrateCapturedCredential = () => {
+      if (!active) return;
+      const available = tokenRef.current !== null || Boolean(previewInvitationRef.current);
+      setHasToken(available);
+      setComplete(false);
+      setError(null);
+      if (kind === 'setup' && available) {
+        const request = previewInvitationRef.current
+          ? staffApi.getPreviewInvitationContext(previewInvitationRef.current)
+          : staffApi.getInvitationContext(tokenRef.current!);
+        void request.then((value) => { if (active) setContext(value); }, () => {
+          if (active) { setHasToken(false); setContext(null); setError(onboarding.invitationUnavailable); }
+        });
+      }
+    };
     const captureToken = () => {
       const params = new URLSearchParams(window.location.hash.slice(1));
       const token = params.get("token");
-      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+      const previewInvitation = kind === 'setup' && getFrontendEnvironment().previewMode
+        ? new URLSearchParams(window.location.search).get('previewInvitation') : null;
+      const visibleSearch = new URLSearchParams(window.location.search);
+      visibleSearch.delete('previewInvitation');
+      const visibleQuery = visibleSearch.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${visibleQuery ? `?${visibleQuery}` : ''}`);
       tokenRef.current = token && token.length >= 40 && token.length <= 200 ? token : null;
-      queueMicrotask(() => {
-        if (!active) return;
-        setHasToken(tokenRef.current !== null);
-        setComplete(false);
-        setError(null);
-      });
+      previewInvitationRef.current = previewInvitation;
+      queueMicrotask(hydrateCapturedCredential);
     };
     if (tokenRef.current === undefined) captureToken();
-    else queueMicrotask(() => { if (active) setHasToken(tokenRef.current !== null); });
+    else queueMicrotask(hydrateCapturedCredential);
     window.addEventListener("hashchange", captureToken);
     return () => {
       active = false;
       window.removeEventListener("hashchange", captureToken);
     };
-  }, []);
+  }, [kind, onboarding.invitationUnavailable]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pending || !tokenRef.current) return;
+    if (pending || (!tokenRef.current && !previewInvitationRef.current)) return;
     const form = event.currentTarget;
     const data = new FormData(event.currentTarget);
     const password = String(data.get("password") || "");
@@ -115,9 +136,11 @@ export function OneTimePasswordForm({ kind }: { kind: "reset" | "setup" }) {
     setPending(true);
     setError(null);
     try {
-      if (kind === "setup") await staffApi.setupPassword(tokenRef.current, password);
-      else await staffApi.resetPassword(tokenRef.current, password);
+      if (kind === "setup" && previewInvitationRef.current) await staffApi.setupPreviewInvitation(previewInvitationRef.current, password);
+      else if (kind === "setup") await staffApi.setupPassword(tokenRef.current!, password);
+      else await staffApi.resetPassword(tokenRef.current!, password);
       tokenRef.current = null;
+      previewInvitationRef.current = null;
       form.reset();
       setComplete(true);
     } catch (caught) {
@@ -132,15 +155,16 @@ export function OneTimePasswordForm({ kind }: { kind: "reset" | "setup" }) {
   const title = kind === "setup" ? copy.setupTitle : copy.resetTitle;
   return (
     <StaffAuthCard locale={locale} title={title} intro={copy.passwordShort + " " + copy.passwordLong}>
-      {hasToken === null ? <p role="status">{copy.sessionChecking}</p> : complete ? (
-        <Alert><AlertDescription>{copy.resetComplete}</AlertDescription></Alert>
+      {hasToken === null || (kind === 'setup' && hasToken && !context) ? <p role="status">{kind === 'setup' ? onboarding.loadingInvitation : copy.sessionChecking}</p> : complete ? (
+        <Alert><AlertDescription>{kind === 'setup' ? onboarding.activationComplete : copy.resetComplete}</AlertDescription></Alert>
       ) : !hasToken ? (
-        <Alert variant="destructive" role="alert"><AlertDescription>{copy.tokenMissing}</AlertDescription></Alert>
+        <Alert variant="destructive" role="alert"><AlertDescription>{kind === 'setup' ? onboarding.invitationUnavailable : copy.tokenMissing}</AlertDescription></Alert>
       ) : (
         <form onSubmit={submit} className="space-y-5">
+          {kind === 'setup' && context && <div className="rounded-xl border bg-muted/35 p-4 text-sm"><p className="font-semibold">{onboarding.setupBrand}</p><p className="mt-1 text-muted-foreground">{onboarding.setupIntro}</p><dl className="mt-4 space-y-2"><div><dt className="text-muted-foreground">{onboarding.employee}</dt><dd>{context.nameTranslations?.[locale] || context.name}</dd></div><div><dt className="text-muted-foreground">{copy.email}</dt><dd className="break-all">{context.email}</dd></div><div><dt className="text-muted-foreground">{onboarding.role}</dt><dd>{context.role === 'admin' ? copy.roleAdmin : context.role === 'receptionist' ? copy.roleReceptionist : copy.roleDentist}</dd></div>{context.dentist && <div><dt className="text-muted-foreground">{onboarding.dentistProfile}</dt><dd>{[context.dentist.translations[locale]?.firstName || context.dentist.firstName, context.dentist.translations[locale]?.lastName || context.dentist.lastName].filter(Boolean).join(' ')}</dd></div>}</dl></div>}
           {error && <Alert variant="destructive" role="alert"><AlertDescription>{error}</AlertDescription></Alert>}
           <PasswordFields copy={copy} disabled={pending} />
-          <Button className="w-full" size="lg" type="submit" disabled={pending}>{pending ? copy.savingPassword : copy.savePassword}</Button>
+          <Button className="w-full" size="lg" type="submit" disabled={pending}>{pending ? copy.savingPassword : kind === 'setup' ? onboarding.activateAccount : copy.savePassword}</Button>
         </form>
       )}
       <Link href={`/${locale}/staff/login` as Route} className="mt-5 inline-flex min-h-11 items-center text-sm font-semibold text-primary underline-offset-4 hover:underline">{copy.backToLogin}</Link>

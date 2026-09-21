@@ -1,7 +1,7 @@
 import type { Locale } from './locales';
 
 const en = {
-  hero: 'Dentistry, made clear',
+  hero: 'Modern dentistry with attention to detail',
   heroBody: 'Preventive care, treatment, aesthetic dentistry, implants and orthodontics. We explain your options, discuss stages and costs in advance, and help you choose a convenient visit time.',
   visit: 'Your visit, step by step',
   visitSteps: ['Choose a service and dentist', 'Find a convenient time online', 'Discuss your options at the visit'],
@@ -36,7 +36,7 @@ const en = {
 } as const;
 type ProductMessages = { [K in keyof typeof en]: K extends 'visitSteps' ? readonly string[] : string };
 const ru: ProductMessages = {
-  hero: 'Стоматология, где всё понятно',
+  hero: 'Современная стоматология с вниманием к деталям',
   heroBody: 'Диагностика, лечение, профессиональная гигиена, эстетическая стоматология, имплантация и ортодонтия. Объясняем варианты лечения, заранее обсуждаем этапы и стоимость и помогаем выбрать удобное время для визита.',
   visit: 'Как проходит визит', visitSteps: ['Выберите услугу и врача', 'Найдите удобное время онлайн', 'Обсудите варианты на приёме'],
   about: 'О клинике Arelis Dental', inside: 'Внутри Arelis Dental', insideIntro: 'Пространство для спокойного ожидания, понятного разговора и внимательного приёма.',
@@ -55,7 +55,7 @@ const ru: ProductMessages = {
   advanced: 'Дополнительные сведения', sectionCount: 'Услуг в разделе', untranslated: 'Перевод пока недоступен',
 };
 const hy: ProductMessages = {
-  hero: 'Ատամնաբուժություն՝ պարզ ու հասկանալի',
+  hero: 'Ժամանակակից ատամնաբուժություն՝ ուշադրությամբ յուրաքանչյուր մանրուքին',
   heroBody: 'Ախտորոշում, բուժում, պրոֆեսիոնալ հիգիենա, էսթետիկ ստոմատոլոգիա, իմպլանտացիա և օրթոդոնտիա։ Բացատրում ենք բուժման տարբերակները, նախապես քննարկում փուլերն ու արժեքը և օգնում ընտրել այցի հարմար ժամանակ։',
   visit: 'Ինչպես է անցնում այցը', visitSteps: ['Ընտրեք ծառայությունն ու բժշկին', 'Առցանց գտեք հարմար ժամանակ', 'Այցի ընթացքում քննարկեք տարբերակները'],
   about: 'Arelis Dental-ի մասին', inside: 'Arelis Dental-ի ներսում', insideIntro: 'Միջավայր՝ հանգիստ սպասելու, պարզ զրուցելու և ուշադրությամբ խնամք ստանալու համար։',

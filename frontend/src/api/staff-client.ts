@@ -124,6 +124,7 @@ const statuses = new Set<unknown>([
   "pending", "confirmed", "checked_in", "in_progress", "completed", "cancelled", "no_show",
 ]);
 const objectId = objectIdPattern;
+const previewInvitationId = /^[a-f\d]{8}-[a-f\d]{4}-4[a-f\d]{3}-[89ab][a-f\d]{3}-[a-f\d]{12}$/i;
 const safeHeader = /^[A-Za-z0-9._:-]{1,128}$/;
 const safeCode = /^[A-Z0-9_]{1,80}$/;
 
@@ -240,6 +241,80 @@ function parseUser(value: unknown): StaffUser {
     ...(value.nameTranslations !== undefined ? { nameTranslations } : {}) };
 }
 
+export type InvitationContext = {
+  name: string;
+  nameTranslations?: Partial<Record<"hy" | "ru" | "en", string>>;
+  email: string;
+  role: StaffRole;
+  dentist?: {
+    _id: string;
+    firstName: string;
+    lastName: string;
+    translations: Partial<Record<"hy" | "ru" | "en", { firstName?: string; lastName?: string }>>;
+  };
+};
+
+export type PreviewInvitation = {
+  id: string;
+  recipient: string;
+  name: string;
+  role: StaffRole;
+  createdAt: string;
+  status: "pending" | "opened" | "activated" | "cancelled" | "replaced";
+};
+
+function parseInvitationContext(value: unknown): InvitationContext {
+  if (!isRecord(value) || typeof value.name !== "string" || value.name.length > 100 ||
+      typeof value.email !== "string" || value.email.length > 254 || !roles.has(value.role)) {
+    throw new StaffApiError({ kind: "protocol" });
+  }
+  const nameTranslations: InvitationContext["nameTranslations"] = {};
+  if (value.nameTranslations !== undefined) {
+    if (!isRecord(value.nameTranslations)) throw new StaffApiError({ kind: "protocol" });
+    for (const locale of ["hy", "ru", "en"] as const) {
+      const name = value.nameTranslations[locale];
+      if (name !== undefined && (typeof name !== "string" || name.length > 100)) {
+        throw new StaffApiError({ kind: "protocol" });
+      }
+      if (typeof name === "string") nameTranslations[locale] = name;
+    }
+  }
+  let dentist: InvitationContext["dentist"];
+  if (value.dentist !== undefined) {
+    if (!isRecord(value.dentist) || !objectId.test(String(value.dentist._id)) ||
+        typeof value.dentist.firstName !== "string" || typeof value.dentist.lastName !== "string" ||
+        !isRecord(value.dentist.translations)) throw new StaffApiError({ kind: "protocol" });
+    const translations: NonNullable<InvitationContext["dentist"]>["translations"] = {};
+    for (const locale of ["hy", "ru", "en"] as const) {
+      const entry = value.dentist.translations[locale];
+      if (entry === undefined) continue;
+      if (!isRecord(entry) || (entry.firstName !== undefined && typeof entry.firstName !== "string") ||
+          (entry.lastName !== undefined && typeof entry.lastName !== "string")) {
+        throw new StaffApiError({ kind: "protocol" });
+      }
+      translations[locale] = {
+        ...(typeof entry.firstName === "string" ? { firstName: entry.firstName } : {}),
+        ...(typeof entry.lastName === "string" ? { lastName: entry.lastName } : {}),
+      };
+    }
+    dentist = { _id: String(value.dentist._id), firstName: value.dentist.firstName,
+      lastName: value.dentist.lastName, translations };
+  }
+  return { name: value.name, ...(Object.keys(nameTranslations).length ? { nameTranslations } : {}),
+    email: value.email, role: value.role as StaffRole, ...(dentist ? { dentist } : {}) };
+}
+
+function parsePreviewInvitation(value: unknown): PreviewInvitation {
+  const statuses = new Set(["pending", "opened", "activated", "cancelled", "replaced"]);
+  if (!isRecord(value) || typeof value.id !== "string" || !previewInvitationId.test(value.id) ||
+      typeof value.recipient !== "string" || value.recipient.length > 254 ||
+      typeof value.name !== "string" || value.name.length > 100 || !roles.has(value.role) ||
+      typeof value.createdAt !== "string" || !Number.isFinite(Date.parse(value.createdAt)) ||
+      !statuses.has(String(value.status))) throw new StaffApiError({ kind: "protocol" });
+  return { id: value.id, recipient: value.recipient, name: value.name, role: value.role as StaffRole,
+    createdAt: value.createdAt, status: value.status as PreviewInvitation["status"] };
+}
+
 function parseAuth(value: unknown) {
   if (!isRecord(value) || !isRecord(value.data) || typeof value.data.accessToken !== "string" ||
       value.data.accessToken.length < 16) {
@@ -341,19 +416,20 @@ export class StaffApiClient {
     } catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
   }
 
-  async inviteStaff(payload: { name: string; email: string; role: StaffRole }) {
+  async inviteStaff(payload: { name: string; email: string; role: StaffRole; dentistProfileId?: string }) {
     // Authentication precedes the side effect. Only a definitive 401 may refresh;
     // timeout, cancellation, network, 5xx, and malformed results are never replayed.
     const data = dataRecord(await this.#protected({ path: "staff/invite", method: "POST",
-      body: { name: payload.name, email: payload.email, role: payload.role } }));
+      body: { name: payload.name, email: payload.email, role: payload.role,
+        ...(payload.role === "dentist" ? { dentistProfileId: payload.dentistProfileId } : {}) } }));
     try { return parseGovernedStaff(data.staff); }
     catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
   }
 
-  async mutateStaff(id: string, action: "role" | "deactivate" | "reactivate" | "revoke-sessions" | "resend-invitation", role?: StaffRole) {
+  async mutateStaff(id: string, action: "role" | "deactivate" | "reactivate" | "revoke-sessions" | "resend-invitation" | "cancel-invitation", role?: StaffRole, dentistProfileId?: string) {
     if (!objectId.test(id) || (action === "role" && !roles.has(role))) throw new StaffApiError({ kind: "configuration" });
     const data = dataRecord(await this.#protected({ path: `staff/${id}/${action}`, method: action === "role" ? "PATCH" : "POST",
-      ...(action === "role" ? { body: { role } } : {}) }));
+      ...(action === "role" ? { body: { role, ...(role === "dentist" && dentistProfileId ? { dentistProfileId } : {}) } } : {}) }));
     try {
       const staff = parseGovernedStaff(data.staff);
       if (staff.id !== id) throw new Error("Staff identity mismatch");
@@ -446,6 +522,30 @@ export class StaffApiClient {
     await rawRequest({ path: "auth/setup-password", method: "POST", body: { token, password } });
   }
 
+  async getInvitationContext(token: string) {
+    return parseInvitationContext(dataRecord(await rawRequest({
+      path: "auth/invitation-context", method: "POST", body: { token },
+    })).invitation);
+  }
+
+  async listPreviewInvitations(signal?: AbortSignal) {
+    const data = dataRecord(await this.#protected({ path: "preview/invitations", signal }));
+    if (!Array.isArray(data.invitations) || data.invitations.length > 100) {
+      throw new StaffApiError({ kind: "protocol" });
+    }
+    return data.invitations.map(parsePreviewInvitation);
+  }
+
+  async getPreviewInvitationContext(id: string) {
+    if (!previewInvitationId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    return parseInvitationContext(dataRecord(await rawRequest({ path: `preview/invitations/${id}` })).invitation);
+  }
+
+  async setupPreviewInvitation(id: string, password: string) {
+    if (!previewInvitationId.test(id)) throw new StaffApiError({ kind: "configuration" });
+    await rawRequest({ path: `preview/invitations/${id}/setup`, method: "POST", body: { password } });
+  }
+
   async #protected(options: Omit<RequestOptions, "authorization" | "credentials">, allowRefresh = true) {
     if (!this.#accessToken) throw new StaffApiError({ kind: "http", status: 401 });
     const sessionEpoch = this.#sessionEpoch;
@@ -526,8 +626,8 @@ export class StaffApiClient {
     return data.dentistId as string | null;
   }
 
-  async setDentistProfile(id: string, dentistId: string | null) {
-    if (!objectId.test(id) || (dentistId !== null && !objectId.test(dentistId))) throw new StaffApiError({ kind: 'configuration' });
+  async setDentistProfile(id: string, dentistId: string) {
+    if (!objectId.test(id) || !objectId.test(dentistId)) throw new StaffApiError({ kind: 'configuration' });
     const data = dataRecord(await this.#protected({ path: `staff/${id}/dentist-profile`, method: 'PUT', body: { dentistId } }));
     if (data.dentistId !== dentistId) throw new StaffApiError({ kind: 'protocol' });
     return dentistId;
@@ -669,7 +769,9 @@ export class StaffApiClient {
   }
 
   async createDentist(payload: CreateDentistPayload) {
-    await this.#protected({ path: "dentists", method: "POST", body: payload });
+    const data = dataRecord(await this.#protected({ path: "dentists", method: "POST", body: payload }));
+    try { return parseDentist(data.dentist); }
+    catch (cause) { throw new StaffApiError({ kind: "protocol", cause }); }
   }
 
   async updateDentist(id: string, payload: UpdateDentistPayload) {

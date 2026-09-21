@@ -18,6 +18,7 @@ export interface FrontendEnvironment {
     provider: "disabled" | "turnstile";
     siteKey?: string;
   };
+  previewMode: boolean;
 }
 
 export class FrontendConfigurationError extends Error {
@@ -96,6 +97,7 @@ export function parseFrontendEnvironment(
     NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME?: string;
     NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER?: string;
     NEXT_PUBLIC_TURNSTILE_SITE_KEY?: string;
+    NEXT_PUBLIC_ARELIS_PREVIEW_MODE?: string;
   },
   production = process.env.NODE_ENV === "production",
 ): FrontendEnvironment {
@@ -122,6 +124,15 @@ export function parseFrontendEnvironment(
       "Production public booking requires NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER=turnstile",
     );
   }
+  const previewValue = values.NEXT_PUBLIC_ARELIS_PREVIEW_MODE?.trim() || "";
+  if (previewValue && previewValue !== "supervised") {
+    throw new FrontendConfigurationError(
+      "NEXT_PUBLIC_ARELIS_PREVIEW_MODE must be empty or supervised",
+    );
+  }
+  if (production && previewValue) {
+    throw new FrontendConfigurationError("Preview mode cannot be enabled in production");
+  }
 
   const apiBaseUrl = parseApiBaseUrl(values.NEXT_PUBLIC_API_URL, production);
   const siteBaseUrl = parseSiteBaseUrl(values.NEXT_PUBLIC_SITE_URL, production);
@@ -133,6 +144,7 @@ export function parseFrontendEnvironment(
     siteBaseUrl,
     cloudinaryCloudName: cloudResult.data,
     bookingChallenge: { provider, siteKey },
+    previewMode: previewValue === "supervised" && !production,
   };
 }
 
@@ -144,5 +156,6 @@ export function getFrontendEnvironment() {
     NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER:
       process.env.NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER,
     NEXT_PUBLIC_TURNSTILE_SITE_KEY: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+    NEXT_PUBLIC_ARELIS_PREVIEW_MODE: process.env.NEXT_PUBLIC_ARELIS_PREVIEW_MODE,
   });
 }

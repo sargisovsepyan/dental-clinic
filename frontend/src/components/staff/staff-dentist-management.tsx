@@ -2,6 +2,8 @@
 
 import { Archive, Pencil, Plus, RotateCcw, UserRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import type { Route } from "next";
 import { StaffApiError } from "@/api/staff-client";
 import type {
   CreateDentistPayload,
@@ -35,6 +37,8 @@ import { localizedPersonName } from '@/i18n/localized-content';
 import { productMessages } from '@/i18n/product-messages';
 
 import { correctiveMessages } from '@/i18n/corrective-messages';
+import { staffOnboardingMessages } from '@/i18n/staff-onboarding-messages';
+import type { GovernedStaff } from '@/api/staff-governance';
 
 const languageValues: DentistLanguage[] = ["hy", "ru", "en", "fr", "de", "other"];
 
@@ -174,19 +178,26 @@ function DentistDialog({ value, services, open, pending, onOpenChange, onSubmit 
 function DentistAdminContent() {
   const { locale, api, handleApiError } = useStaffAuth();
   const copy = useManagementCopy();
+  const onboarding = staffOnboardingMessages[locale];
+  const router = useRouter();
   const [dentists, setDentists] = useState<StaffDentist[]>([]);
   const [services, setServices] = useState<StaffService[]>([]);
+  const [staffAccounts, setStaffAccounts] = useState<GovernedStaff[]>([]);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<ManagementFeedbackValue | null>(null);
   const [editor, setEditor] = useState<{ open: boolean; value: StaffDentist | null }>({ open: false, value: null });
   const [archiveTarget, setArchiveTarget] = useState<StaffDentist | null>(null);
+  const [createdDentist, setCreatedDentist] = useState<StaffDentist | null>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true); setFeedback(null);
     try {
-      const [nextDentists, nextServices] = await Promise.all([api.listDentists(signal), api.listServices(signal)]);
-      setDentists(nextDentists); setServices(nextServices);
+      const [nextDentists, nextServices, staff] = await Promise.all([
+        api.listDentists(signal), api.listServices(signal),
+        api.listStaff({ lifecycle: 'all', page: 1, limit: 100 }, signal),
+      ]);
+      setDentists(nextDentists); setServices(nextServices); setStaffAccounts(staff.staff);
     } catch (error) {
       if (error instanceof StaffApiError && error.kind === "cancelled") return;
       handleApiError(error); setFeedback({ ...managementFeedback(error, copy), message: copy.loadError });
@@ -199,11 +210,11 @@ function DentistAdminContent() {
     return () => controller.abort();
   }, [load]);
 
-  async function mutate(operation: () => Promise<void>, close: () => void) {
+  async function mutate<T>(operation: () => Promise<T>, close: (value: T) => void) {
     if (pending) return;
     setPending(true); setFeedback(null);
     try {
-      await operation(); await load(); close(); setFeedback({ kind: "success", message: copy.saved });
+      const value = await operation(); await load(); close(value); setFeedback({ kind: "success", message: copy.saved });
     } catch (error) {
       handleApiError(error); setFeedback(error instanceof StaffApiError && error.status === 409
         ? { ...managementFeedback(error, copy), message: copy.relationUnavailable }
@@ -218,16 +229,32 @@ function DentistAdminContent() {
       {loading ? <p role="status" className="mt-8 text-sm text-muted-foreground">{copy.loading}</p> : dentists.length === 0 ? <p className="mt-8 rounded-xl border bg-card p-6 text-muted-foreground">{copy.noDentists}</p> : <div className="mt-7 grid gap-4 lg:grid-cols-2">
         {dentists.map((dentist) => {
           const title = dentist.translations[locale]?.title || (locale === 'hy' ? dentist.title : '');
+          const linked = staffAccounts.filter((member) => member.dentistProfile === dentist._id);
+          const currentAccount = linked.find((member) => !member.deactivatedAt);
+          const archivedAccount = linked.find((member) => Boolean(member.deactivatedAt));
+          const account = currentAccount ?? archivedAccount;
+          const accessLabel = !account ? onboarding.accessNotConfigured : !currentAccount ? onboarding.accessDisabled
+            : !currentAccount.isSetupComplete ? onboarding.accessInvitationPending : currentAccount.isActive ? onboarding.accessActive : onboarding.accessDisabled;
           return <article key={dentist._id} className="rounded-xl border bg-card p-5 shadow-sm">
             <div className="flex items-start gap-4"><span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-secondary"><UserRound aria-hidden="true" className="size-5" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">{dentistName(dentist, locale)}</h2><p className="mt-1 text-sm text-muted-foreground">{title || "—"}</p></div><StatusBadge active={dentist.isActive} copy={copy} /></div></div></div>
             <p className="mt-4 text-sm text-muted-foreground">{dentist.services.map((service) => serviceName(service, locale)).join(" · ") || "—"}</p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-muted px-2.5 py-1">{dentist.bookingEnabled ? copy.bookingEnabled : correctiveMessages[locale].bookingUnavailable}</span>{dentist.isFeatured && <span className="rounded-full bg-secondary px-2.5 py-1">{copy.featured}</span>}</div>
+            <section className="mt-5 rounded-lg border bg-muted/35 p-4" aria-label={onboarding.dentistAccess}>
+              <p className="text-sm font-semibold">{onboarding.dentistAccess}: <span className="font-normal">{accessLabel}</span></p>
+              {account && <p className="mt-2 break-all text-sm text-muted-foreground">{onboarding.linkedEmail}: {account.email}</p>}
+              <div className="mt-3 flex flex-wrap gap-2">{currentAccount
+                ? <Button variant="outline" size="sm" onClick={() => router.push(`/${locale}/staff/team?staff=${currentAccount.id}&view=${currentAccount.isSetupComplete ? 'current' : 'pending'}` as Route)}>{onboarding.openEmployee}</Button>
+                : <><Button size="sm" onClick={() => router.push(`/${locale}/staff/team?inviteDentist=${dentist._id}` as Route)}>{onboarding.inviteToWorkspace}</Button>{archivedAccount && <Button variant="outline" size="sm" onClick={() => router.push(`/${locale}/staff/team?staff=${archivedAccount.id}&view=archive` as Route)}>{onboarding.openEmployee}</Button>}</>}</div>
+            </section>
             <div className="mt-5 flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => setEditor({ open: true, value: dentist })}><Pencil aria-hidden="true" />{copy.edit}</Button>{dentist.isActive ? <Button variant="destructive" size="sm" onClick={() => setArchiveTarget(dentist)}><Archive aria-hidden="true" />{copy.archive}</Button> : <Button variant="secondary" size="sm" disabled={pending} onClick={() => void mutate(() => api.restoreDentist(dentist._id), () => undefined)}><RotateCcw aria-hidden="true" />{copy.restore}</Button>}</div>
           </article>;
         })}
       </div>}
-      {editor.open && <DentistDialog value={editor.value} services={services} open pending={pending} onOpenChange={(open) => setEditor((current) => ({ ...current, open }))} onSubmit={(payload) => mutate(() => editor.value ? api.updateDentist(editor.value._id, payload as UpdateDentistPayload).then(() => undefined) : api.createDentist(payload as CreateDentistPayload), () => setEditor({ open: false, value: null }))} />}
+      {editor.open && <DentistDialog value={editor.value} services={services} open pending={pending} onOpenChange={(open) => setEditor((current) => ({ ...current, open }))} onSubmit={(payload) => editor.value
+        ? mutate(() => api.updateDentist(editor.value!._id, payload as UpdateDentistPayload).then(() => undefined), () => setEditor({ open: false, value: null }))
+        : mutate(() => api.createDentist(payload as CreateDentistPayload), (created) => { setEditor({ open: false, value: null }); setCreatedDentist(created); })} />}
       <ConfirmActionDialog open={Boolean(archiveTarget)} onOpenChange={(open) => !open && setArchiveTarget(null)} title={copy.archiveDentistTitle} body={copy.archiveDentistBody} pending={pending} onConfirm={() => archiveTarget && void mutate(() => api.disableDentist(archiveTarget._id), () => setArchiveTarget(null))} />
+      <Dialog open={Boolean(createdDentist)} onOpenChange={(open) => !open && setCreatedDentist(null)}><DialogContent closeLabel={copy.cancel}><DialogTitle>{onboarding.dentistCreated}</DialogTitle><DialogDescription>{createdDentist && dentistName(createdDentist, locale)}</DialogDescription><div className="mt-6 flex flex-wrap justify-end gap-3"><Button variant="outline" onClick={() => setCreatedDentist(null)}>{onboarding.done}</Button><Button onClick={() => createdDentist && router.push(`/${locale}/staff/team?inviteDentist=${createdDentist._id}` as Route)}>{onboarding.inviteCreatedDentist}</Button></div></DialogContent></Dialog>
     </section>
   );
 }

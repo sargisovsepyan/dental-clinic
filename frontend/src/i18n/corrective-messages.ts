@@ -3,7 +3,7 @@ const copy = {
   "en": {
     "invalidDate": "Choose a valid date within the available booking period.",
     "invalidName": "Use at least two letters; spaces, hyphens and apostrophes are allowed.",
-    "invalidPhone": "Enter digits, an optional leading +, and standard phone spacing, parentheses or hyphens.",
+    "invalidPhone": "Enter a valid phone number.",
     "invalidEmail": "Enter a valid email address.",
     "invalidComment": "Use no more than 1000 characters.",
     "break": "Break",
@@ -21,7 +21,7 @@ const copy = {
   "ru": {
     "invalidDate": "Выберите корректную дату в доступном периоде записи.",
     "invalidName": "Введите не менее двух букв. Допустимы пробелы, дефис и апостроф.",
-    "invalidPhone": "Введите цифры, необязательный + в начале и используйте стандартное оформление номера с пробелами, скобками или дефисами.",
+    "invalidPhone": "Введите корректный номер телефона.",
     "invalidEmail": "Введите корректный адрес электронной почты.",
     "invalidComment": "Не более 1000 символов.",
     "break": "Перерыв",
@@ -39,7 +39,7 @@ const copy = {
   "hy": {
     "invalidDate": "Ընտրեք վավեր օր՝ ամրագրման հասանելի ժամանակահատվածում։",
     "invalidName": "Մուտքագրեք առնվազն երկու տառ։ Թույլատրվում են բացատը, գծիկը և ապաթարցը։",
-    "invalidPhone": "Մուտքագրեք թվեր, սկզբի ոչ պարտադիր + նշան և համարի սովորական ձևաչափ՝ բացատներով, փակագծերով կամ գծիկներով։",
+    "invalidPhone": "Մուտքագրեք վավեր հեռախոսահամար։",
     "invalidEmail": "Մուտքագրեք վավեր էլեկտրոնային հասցե։",
     "invalidComment": "Առավելագույնը 1000 նիշ։",
     "break": "Ընդմիջում",

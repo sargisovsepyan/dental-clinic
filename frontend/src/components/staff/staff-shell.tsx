@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
-import { Building2, CalendarClock, CalendarDays, Images, LayoutDashboard, LockKeyhole, LogOut, Menu, PanelsTopLeft, ShieldCheck, Stethoscope, UserRound, UsersRound } from "lucide-react";
+import { Building2, CalendarClock, CalendarDays, Images, Inbox, LayoutDashboard, LockKeyhole, LogOut, Menu, PanelsTopLeft, ShieldCheck, Stethoscope, UserRound, UsersRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useStaffAuth } from "@/components/staff/staff-auth-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -16,6 +16,8 @@ import { staffGovernanceMessages } from "@/i18n/staff-governance-messages";
 import { productMessages } from '@/i18n/product-messages';
 
 import { StaffLanguageSwitcher } from './staff-language-switcher';
+import { staffOnboardingMessages } from '@/i18n/staff-onboarding-messages';
+import { getFrontendEnvironment } from '@/lib/env';
 
 function roleLabel(role: "admin" | "receptionist" | "dentist", copy: ReturnType<typeof useStaffAuth>["copy"]) {
   return role === "admin" ? copy.roleAdmin : role === "receptionist" ? copy.roleReceptionist : copy.roleDentist;
@@ -26,6 +28,7 @@ function StaffNavigation({ mobile = false, onNavigate }: { mobile?: boolean; onN
   const managementCopy = staffManagementMessages[locale];
   const mediaCopy = staffMediaMessages[locale];
   const governanceCopy = staffGovernanceMessages[locale];
+  const onboardingCopy = staffOnboardingMessages[locale];
   const pathname = usePathname();
   if (!user) return null;
   const links = [
@@ -40,6 +43,7 @@ function StaffNavigation({ mobile = false, onNavigate }: { mobile?: boolean; onN
       { href: `/${locale}/staff/media`, label: mediaCopy.mediaNav, icon: Images, exact: false },
       { href: `/${locale}/staff/before-after`, label: mediaCopy.casesNav, icon: PanelsTopLeft, exact: false },
       { href: `/${locale}/staff/team`, label: governanceCopy.teamNav, icon: UsersRound, exact: false },
+      ...(getFrontendEnvironment().previewMode ? [{ href: `/${locale}/staff/preview-invitations`, label: onboardingCopy.previewInboxNav, icon: Inbox, exact: false }] : []),
       { href: `/${locale}/staff/audit`, label: governanceCopy.auditNav, icon: ShieldCheck, exact: false },
     ] : []),
     { href: `/${locale}/staff/account`, label: copy.account, icon: UserRound, exact: false },

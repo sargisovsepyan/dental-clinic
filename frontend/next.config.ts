@@ -11,6 +11,7 @@ const production = process.env.NODE_ENV === "production";
 const challengeProvider = process.env.NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER?.trim() ||
   (production ? "turnstile" : "disabled");
 const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim();
+const previewMode = process.env.NEXT_PUBLIC_ARELIS_PREVIEW_MODE?.trim() || "";
 
 if (!apiValue) {
   throw new Error("NEXT_PUBLIC_API_URL is required; copy .env.example to .env.local for development");
@@ -45,6 +46,12 @@ if (challengeProvider === "turnstile" && !turnstileSiteKey) {
 }
 if (production && challengeProvider !== "turnstile") {
   throw new Error("Production public booking requires Turnstile");
+}
+if (previewMode && previewMode !== "supervised") {
+  throw new Error("NEXT_PUBLIC_ARELIS_PREVIEW_MODE must be empty or supervised");
+}
+if (production && previewMode) {
+  throw new Error("Preview mode cannot be enabled in production");
 }
 if (apiUrl.protocol !== "https:" && !(apiUrl.protocol === "http:" && isLocalHost(apiUrl) && !production)) {
   throw new Error("NEXT_PUBLIC_API_URL must use HTTPS outside local development");

@@ -4,6 +4,7 @@ import type { Locale } from "@/i18n/locales";
 export type GovernedStaff = {
   id: string; name: string; email: string; role: StaffRole;
   nameTranslations?: Partial<Record<Locale, string>>;
+  dentistProfile: string | null;
   isActive: boolean; isSetupComplete: boolean;
   deactivatedAt: string | null; createdAt: string; updatedAt: string;
 };
@@ -55,6 +56,7 @@ export function parseGovernedStaff(value: unknown): GovernedStaff {
   return {
     id: id(value._id), name: text(value.name, 100, false), email: email(value.email), role: role(value.role),
     ...(Object.keys(nameTranslations).length ? { nameTranslations } : {}),
+    dentistProfile: value.dentistProfile === null ? null : id(value.dentistProfile),
     isActive: value.isActive, isSetupComplete: value.isSetupComplete,
     deactivatedAt: value.deactivatedAt === null ? null : instant(value.deactivatedAt),
     createdAt: instant(value.createdAt), updatedAt: instant(value.updatedAt),
