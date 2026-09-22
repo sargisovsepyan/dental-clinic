@@ -481,7 +481,12 @@ const validateEnvironment = (rawEnvironment) => {
     }
     validateMongoTransport(value.MONGO_URI);
 
-    if (!value.REQUIRE_HTTPS || trustedProxyCidrs.length === 0) {
+    if (!value.REQUIRE_HTTPS) {
+      throw new Error('Production requires HTTPS enforcement');
+    }
+    const usesRenderSingleProxyHop =
+      rawEnvironment.RENDER === 'true' && value.TRUST_PROXY_HOPS === 1;
+    if (trustedProxyCidrs.length === 0 && !usesRenderSingleProxyHop) {
       throw new Error(
         'Production requires HTTPS enforcement and explicit trusted proxy CIDRs'
       );

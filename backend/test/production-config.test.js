@@ -101,6 +101,52 @@ test('valid production configuration is typed, exact-origin, and replica safe', 
 });
 
 
+test('Render production permits only one HTTPS proxy hop without explicit CIDRs', () => {
+  const render = validateEnvironment(productionEnvironment({
+    RENDER: 'true',
+    REQUIRE_HTTPS: 'true',
+    TRUST_PROXY_HOPS: '1',
+    TRUST_PROXY_CIDRS: '',
+  }));
+  assert.equal(render.REQUIRE_HTTPS, true);
+  assert.equal(render.TRUST_PROXY_HOPS, 1);
+  assert.deepEqual(render.TRUST_PROXY_CIDRS, []);
+
+  for (const TRUST_PROXY_HOPS of ['0', '2']) {
+    assert.throws(
+      () => validateEnvironment(productionEnvironment({
+        RENDER: 'true', TRUST_PROXY_HOPS, TRUST_PROXY_CIDRS: '',
+      })),
+      /explicit trusted proxy CIDRs/
+    );
+  }
+  assert.throws(
+    () => validateEnvironment(productionEnvironment({
+      RENDER: 'true', REQUIRE_HTTPS: 'false', TRUST_PROXY_CIDRS: '',
+    })),
+    /HTTPS enforcement/
+  );
+  assert.throws(
+    () => validateEnvironment(productionEnvironment({ TRUST_PROXY_CIDRS: '' })),
+    /explicit trusted proxy CIDRs/
+  );
+
+  const explicit = validateEnvironment(productionEnvironment({
+    TRUST_PROXY_CIDRS: '10.0.0.0/8,192.168.0.0/16',
+  }));
+  assert.deepEqual(explicit.TRUST_PROXY_CIDRS, ['10.0.0.0/8', '192.168.0.0/16']);
+
+  for (const TRUST_PROXY_CIDRS of ['0.0.0.0/0', '::/0']) {
+    assert.throws(
+      () => validateEnvironment(productionEnvironment({
+        RENDER: 'true', TRUST_PROXY_CIDRS,
+      })),
+      /cannot trust the whole internet/
+    );
+  }
+});
+
+
 test('disabled non-production notifications do not impose SMTP delivery lease coupling', () => {
   const result = validateEnvironment(productionEnvironment({
     NODE_ENV: 'development',
