@@ -115,6 +115,10 @@ const envSchema = Joi.object({
   MAIL_FROM: Joi.string()
     .email({ tlds: { allow: false } })
     .max(254).allow('').default(''),
+  MAIL_FROM_NAME: Joi.string()
+    .trim().min(1).max(100)
+    .pattern(/^[^\u0000-\u001f\u007f]+$/u)
+    .default('Arelis Dental'),
   SMTP_CONNECTION_TIMEOUT_MS: Joi.number()
     .integer().min(100).max(30000).default(5000),
   SMTP_SOCKET_TIMEOUT_MS: Joi.number()
@@ -655,6 +659,7 @@ const validateEnvironment = (rawEnvironment) => {
     SMTP_USER: value.SMTP_USER,
     SMTP_PASSWORD: value.SMTP_PASSWORD,
     MAIL_FROM: value.MAIL_FROM,
+    MAIL_FROM_NAME: value.MAIL_FROM_NAME,
     SMTP_CONNECTION_TIMEOUT_MS: value.SMTP_CONNECTION_TIMEOUT_MS,
     SMTP_SOCKET_TIMEOUT_MS: value.SMTP_SOCKET_TIMEOUT_MS,
     NOTIFICATIONS_ENABLED: value.NOTIFICATIONS_ENABLED,

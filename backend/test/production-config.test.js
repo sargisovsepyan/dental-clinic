@@ -23,6 +23,7 @@ const {
 } = await import('../src/security/botChallenge.js');
 const {
   getSmtpTransportOptions,
+  buildSmtpMessage,
 } = await import('../src/mail/smtp.adapter.js');
 
 const strongSecret = (prefix) =>
@@ -90,6 +91,8 @@ test('valid production configuration is typed, exact-origin, and replica safe', 
   assert.equal(result.NODE_ENV, 'production');
   assert.equal(result.TRUST_PROXY_HOPS, 1);
   assert.deepEqual(result.TRUST_PROXY_CIDRS, ['10.0.0.0/8']);
+  assert.equal(result.MAIL_FROM, 'clinic@example.test');
+  assert.equal(result.MAIL_FROM_NAME, 'Arelis Dental');
   assert.equal(result.API_REPLICA_COUNT, 3);
   assert.deepEqual(result.CORS_ORIGINS, [
     'https://clinic.example.test',
@@ -98,6 +101,47 @@ test('valid production configuration is typed, exact-origin, and replica safe', 
   assert.equal(Object.isFrozen(result), true);
   assert.equal(Object.isFrozen(result.CORS_ORIGINS), true);
   assert.equal(result.UNRELATED_SECRET, undefined);
+});
+
+
+test('mail sender configuration keeps a plain address and safe display name', () => {
+  const configured = validateEnvironment(productionEnvironment({
+    MAIL_FROM_NAME: '  Arelis Dental Armenia  ',
+  }));
+  assert.equal(configured.MAIL_FROM, 'clinic@example.test');
+  assert.equal(configured.MAIL_FROM_NAME, 'Arelis Dental Armenia');
+
+  assert.throws(() => validateEnvironment(productionEnvironment({
+    MAIL_FROM: 'Arelis Dental <clinic@example.test>',
+  })));
+  for (const MAIL_FROM_NAME of ['', '   ', 'Arelis\nDental']) {
+    assert.throws(() => validateEnvironment(productionEnvironment({ MAIL_FROM_NAME })));
+  }
+});
+
+
+test('SMTP message uses the configured display name and verified sender address', () => {
+  const configuration = validateEnvironment(productionEnvironment({
+    MAIL_FROM: 'verified@example.test',
+    MAIL_FROM_NAME: 'Arelis Dental',
+  }));
+  const message = buildSmtpMessage({
+    to: 'patient@example.test',
+    subject: 'Appointment confirmed',
+    text: 'Your appointment is confirmed.',
+    html: '<p>Your appointment is confirmed.</p>',
+    messageId: `<${'a'.repeat(64)}@example.test>`,
+  }, configuration);
+
+  assert.deepEqual(message.from, {
+    name: 'Arelis Dental',
+    address: 'verified@example.test',
+  });
+  assert.equal(message.to, 'patient@example.test');
+  assert.equal(message.subject, 'Appointment confirmed');
+  assert.equal(message.text, 'Your appointment is confirmed.');
+  assert.equal(message.html, '<p>Your appointment is confirmed.</p>');
+  assert.equal(message.messageId, `<${'a'.repeat(64)}@example.test>`);
 });
 
 

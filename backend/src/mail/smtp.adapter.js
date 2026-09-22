@@ -64,25 +64,35 @@ const getSmtpTransportOptions = () => ({
   disableUrlAccess: true,
 });
 
+const buildSmtpMessage = (
+  { to, subject, text, html, messageId },
+  configuration = env
+) => {
+  assertSafeMailMessage({ to, subject, text, html, messageId });
+  return {
+    from: {
+      name: configuration.MAIL_FROM_NAME,
+      address: configuration.MAIL_FROM,
+    },
+    to,
+    subject,
+    text,
+    ...(html ? { html } : {}),
+    ...(messageId ? { messageId } : {}),
+  };
+};
+
 const createSmtpAdapter = () => {
   const transporter = nodemailer.createTransport(
     getSmtpTransportOptions()
   );
 
   return {
-    async send({ to, subject, text, html, messageId }) {
-      assertSafeMailMessage({ to, subject, text, html, messageId });
-      await transporter.sendMail({
-        from: env.MAIL_FROM,
-        to,
-        subject,
-        text,
-        ...(html ? { html } : {}),
-        ...(messageId ? { messageId } : {}),
-      });
+    async send(message) {
+      await transporter.sendMail(buildSmtpMessage(message));
     },
   };
 };
 
-export { getSmtpTransportOptions, assertSafeMailMessage };
+export { getSmtpTransportOptions, assertSafeMailMessage, buildSmtpMessage };
 export default createSmtpAdapter;
