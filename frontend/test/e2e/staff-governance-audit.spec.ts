@@ -95,10 +95,20 @@ test("role/lifecycle controls, detail, last-admin conflict, and 403 preserve aut
   await expect(dentist.getByText("Active", { exact: true })).toBeVisible();
   await request.get(`${apiUrl}/__test__/scenario/staff-last-admin-conflict`);
   await card(page, previewAccounts.secondAdmin.id).getByRole("button", { name: "Deactivate staff" }).click();
+  const activeTeamRefresh = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === "GET" && url.pathname === "/api/v1/staff" &&
+      url.searchParams.get("lifecycle") === "active" && response.status() === 200;
+  });
   await page.getByRole("dialog").getByRole("button", { name: "Confirm change" }).click();
   await expect(page.getByText(/protect self-access or the last active administrator/)).toBeVisible();
+  await activeTeamRefresh;
+  const revokeDentistSessions = card(page, previewAccounts.dentist.id)
+    .getByRole("button", { name: "Revoke all sessions" });
+  await expect(revokeDentistSessions).toBeVisible();
+  await expect(revokeDentistSessions).toBeEnabled();
   await request.get(`${apiUrl}/__test__/scenario/governance-forbidden`);
-  await card(page, previewAccounts.dentist.id).getByRole("button", { name: "Revoke all sessions" }).click();
+  await revokeDentistSessions.click();
   await page.getByRole("dialog").getByRole("button", { name: "Confirm change" }).click();
   await expect(page.getByText("You do not have permission for this action.").first()).toBeVisible();
   await expect(page.getByText("Preview Admin").first()).toBeVisible();
