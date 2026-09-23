@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StaffApiError } from "@/api/staff-client";
 import { StaffScheduleManagement } from "@/components/staff/staff-schedule-management";
 import { staffMessages } from "@/i18n/staff-messages";
@@ -59,6 +59,8 @@ const authState = {
 vi.mock("@/components/staff/staff-auth-provider", () => ({ useStaffAuth: () => authState }));
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-01T08:00:00.000Z"));
   vi.clearAllMocks();
   authState.user.role = "admin";
   api.getClinic.mockResolvedValue(clinic);
@@ -67,6 +69,10 @@ beforeEach(() => {
   api.listScheduleExceptions.mockResolvedValue([]);
   api.updateClinic.mockResolvedValue({ ...clinic, scheduleRevision: 1, updatedAt: "2026-01-02T00:00:00.000Z" });
   api.setClinicClosure.mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("staff schedule management", () => {

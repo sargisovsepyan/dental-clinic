@@ -99,6 +99,7 @@ try {
   const web = launch(["--import", "./test/production/isolate-fetch.mjs", "node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", String(webPort)], frontendRoot, {
     ...process.env, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1", NEXT_DIST_DIR: ".next",
     NEXT_PUBLIC_API_URL: `${site}/api/v1`, NEXT_PUBLIC_SITE_URL: site,
+    API_UPSTREAM_ORIGIN: "https://api.example.test",
     NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: "turnstile", NEXT_PUBLIC_TURNSTILE_SITE_KEY: "public-config-only-key",
     PRODUCTION_SMOKE_ISOLATED: "true", SMOKE_API_UPSTREAM: `${apiBase}/`,
   });

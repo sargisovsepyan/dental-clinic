@@ -3,6 +3,10 @@ import { parseFrontendEnvironment, parseApiBaseUrl, parseSiteBaseUrl } from "@/l
 import { getServices } from "@/api/public-client";
 import { createPublicAppointment, type BookingPayload } from "@/api/booking-client";
 import { readJsonWithSignal } from "@/api/abortable-json";
+import {
+  FIXED_API_ROUTE_SOURCE,
+  buildFixedApiRewrites,
+} from "../config/api-rewrite";
 
 const originalEnvironment = { ...process.env };
 const production = {
@@ -19,6 +23,66 @@ it("requires a first-party production browser API and exposes only the public pr
   expect(() => parseFrontendEnvironment({ ...production, NEXT_PUBLIC_API_URL: "https://api.unrelated.test/api/v1" }, true)).toThrow(/share/);
   const result = parseFrontendEnvironment({ ...production, ...{ JWT_SECRET: "private-sensitive-value" } }, true);
   expect(JSON.stringify(result)).not.toContain("private-sensitive-value");
+});
+
+it("requires one fixed production upstream while retaining the same-origin browser API", () => {
+  const frontend = parseFrontendEnvironment(production, true);
+  expect(frontend.apiBaseUrl).toBe(`${frontend.siteBaseUrl}/api/v1`);
+  expect(() => buildFixedApiRewrites({
+    rawUpstream: undefined,
+    production: true,
+    siteOrigin: frontend.siteBaseUrl,
+  })).toThrow(/API_UPSTREAM_ORIGIN is required/);
+
+  expect(buildFixedApiRewrites({
+    rawUpstream: "https://api.example.test",
+    production: true,
+    siteOrigin: frontend.siteBaseUrl,
+  })).toEqual([{
+    source: FIXED_API_ROUTE_SOURCE,
+    destination: "https://api.example.test/api/v1/:path*",
+  }]);
+});
+
+it("proxies only the fixed API namespace", () => {
+  const rewrites = buildFixedApiRewrites({
+    rawUpstream: "https://api.example.test/",
+    production: true,
+    siteOrigin: "https://clinic.example.test",
+  });
+  expect(rewrites).toHaveLength(1);
+  expect(rewrites[0]?.source).toBe("/api/v1/:path*");
+  expect(rewrites[0]?.source).not.toBe("/:path*");
+});
+
+it.each([
+  "http://api.example.test",
+  "https://user:password@api.example.test",
+  "https://api.example.test/base",
+  "https://api.example.test?target=other",
+  "https://api.example.test?",
+  "https://api.example.test#fragment",
+  "https://api.example.test#",
+  "https://localhost",
+])("rejects an unsafe fixed API upstream: %s", (rawUpstream) => {
+  expect(() => buildFixedApiRewrites({
+    rawUpstream,
+    production: true,
+    siteOrigin: "https://clinic.example.test",
+  })).toThrow(/API_UPSTREAM_ORIGIN/);
+});
+
+it("rejects a rewrite loop back to the frontend and permits no rewrite when omitted in development", () => {
+  expect(() => buildFixedApiRewrites({
+    rawUpstream: "https://clinic.example.test",
+    production: true,
+    siteOrigin: "https://clinic.example.test",
+  })).toThrow(/must not point back/);
+  expect(buildFixedApiRewrites({
+    rawUpstream: undefined,
+    production: false,
+    siteOrigin: "http://localhost:3000",
+  })).toEqual([]);
 });
 
 it.each(["localhost", "127.0.0.1", "[::1]", "api.localhost", "0.0.0.0", "[::]", "[::ffff:127.0.0.1]"])("rejects HTTPS production loopback %s", (host) => {

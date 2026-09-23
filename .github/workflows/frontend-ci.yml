@@ -21,9 +21,10 @@ jobs:
         working-directory: frontend
     env:
       NEXT_TELEMETRY_DISABLED: "1"
-      # Public build-only placeholders; never provider credentials.
+      # Build-only placeholders; never provider credentials.
       NEXT_PUBLIC_SITE_URL: https://clinic.example.test
       NEXT_PUBLIC_API_URL: https://clinic.example.test/api/v1
+      API_UPSTREAM_ORIGIN: https://api.example.test
       NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: turnstile
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: public-config-only-key
     steps:

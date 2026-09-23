@@ -1,6 +1,6 @@
 # Dental clinic frontend
 
-Production uses current patched Node22 (>=22.12) or24, `npm ci`, explicit public build values, `npm run build`, then `npm start`. `NEXT_PUBLIC_API_URL` MUST be `<NEXT_PUBLIC_SITE_URL>/api/v1` on the same non-local HTTPS origin; a fixed infrastructure edge routes to the independent private API. `src/proxy.ts` is locale middleware, not a gateway. Never put provider secrets in public inputs or switch Strict cookies to third-party mode. See [deployment architecture](../docs/DEPLOYMENT_ARCHITECTURE.md), [environment contract](../docs/PRODUCTION_ENVIRONMENT.md), [operations](../docs/OPERATIONS.md) and [release runbook](../docs/PRODUCTION_RUNBOOK.md). Public values are inlined at build time; release changes require rebuilding.
+Production uses current patched Node22 (>=22.12) or24, `npm ci`, explicit public build values, `npm run build`, then `npm start`. `NEXT_PUBLIC_API_URL` MUST be `<NEXT_PUBLIC_SITE_URL>/api/v1` on the same non-local HTTPS origin; the server-only `API_UPSTREAM_ORIGIN` fixes that namespace to the independent API through the deployment edge. `src/proxy.ts` remains locale middleware, not a gateway. Never put provider secrets in public inputs or switch Strict cookies to third-party mode. See [deployment architecture](../docs/DEPLOYMENT_ARCHITECTURE.md), [environment contract](../docs/PRODUCTION_ENVIRONMENT.md), [operations](../docs/OPERATIONS.md) and [release runbook](../docs/PRODUCTION_RUNBOOK.md). Public values and the fixed rewrite are resolved at build time; release changes require rebuilding.
 
 `node test/production/run-production-smoke.mjs` verifies the actual compiled production web runtime against a real provider-isolated test API/disposable replica set; requires both installs and the documented same-origin fixture build. It is distinct from dev-mode E2E/preview and does not certify real gateways/TLS/providers. Its test-only preload is never imported by application code. CI includes frontend contract drift/types/lint/coverage/public-placeholder build/E2E/audits without real credentials.
 
@@ -92,6 +92,7 @@ Environment variables:
 
 - `NEXT_PUBLIC_API_URL` — credential-free absolute URL ending in `/api/v1`
 - `NEXT_PUBLIC_SITE_URL` — credential-free public origin with no path
+- `API_UPSTREAM_ORIGIN` — production-only server/build value for the fixed `/api/v1/:path*` rewrite; a non-local HTTPS origin without credentials, path, query, or fragment
 - `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` — optional public cloud name used to allow only that account’s managed image paths
 - `NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER` — `disabled` for deliberate local/test use or `turnstile`
 - `NEXT_PUBLIC_TURNSTILE_SITE_KEY` — public Turnstile site key, required when the provider is `turnstile`

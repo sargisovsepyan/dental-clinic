@@ -1,11 +1,13 @@
 import type { NextConfig } from "next";
 import path from "node:path";
+import { buildFixedApiRewrites } from "./config/api-rewrite";
 import { buildSecurityHeaders } from "./src/lib/security-headers";
 
 const repositoryRoot = path.join(__dirname, "..");
 
 const apiValue = process.env.NEXT_PUBLIC_API_URL;
 const siteValue = process.env.NEXT_PUBLIC_SITE_URL;
+const apiUpstreamValue = process.env.API_UPSTREAM_ORIGIN;
 const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME?.trim();
 const production = process.env.NODE_ENV === "production";
 const challengeProvider = process.env.NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER?.trim() ||
@@ -64,6 +66,12 @@ if (production && (apiUrl.origin !== siteUrl.origin ||
   throw new Error("Production API must share the non-local HTTPS site origin; configure the fixed edge route");
 }
 
+const apiRewrites = buildFixedApiRewrites({
+  rawUpstream: apiUpstreamValue,
+  production,
+  siteOrigin: siteUrl.origin,
+});
+
 const nextConfig: NextConfig = {
   // Hide only in the supervised manual preview, not normal dev or production.
   ...(process.env.NODE_ENV === 'development' && process.env.ARELIS_SUPERVISED_PREVIEW === '1'
@@ -88,6 +96,9 @@ const nextConfig: NextConfig = {
           },
         ]
       : [],
+  },
+  async rewrites() {
+    return apiRewrites;
   },
   async headers() {
     return [
