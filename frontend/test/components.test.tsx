@@ -1,5 +1,5 @@
 import axe from "axe-core";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocalizedText } from "@/components/localized-text";
@@ -12,6 +12,9 @@ import { DentistCard } from "@/components/dentist-card";
 import { ClinicDetails } from "@/components/clinic-details";
 import { productMessages } from "@/i18n/product-messages";
 import { StaffLanguageSwitcher } from "@/components/staff/staff-language-switcher";
+import { isEquivalentDisplayCopy } from "@/lib/equivalent-copy";
+import { MobileNavigation } from "@/components/mobile-navigation";
+import { messages } from "@/i18n/messages";
 
 let pathname = "/ru/services/test-cleaning";
 vi.mock("next/navigation", () => ({
@@ -44,7 +47,30 @@ describe("public UI safety and accessibility", () => {
   it("uses a single semantic page heading", async () => {
     const { container } = render(<main><PageIntro eyebrow="Clinic" title="Services" description="Published services" /></main>);
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    const intro = container.querySelector("header");
+    expect(intro).toHaveClass("site-container");
+    expect(intro).not.toHaveClass("max-w-4xl");
+    expect(intro?.firstElementChild).toHaveClass("max-w-4xl");
     expect((await runAxe(container)).violations.filter((item) => item.impact === "serious" || item.impact === "critical")).toEqual([]);
+  });
+
+  it("keeps the mobile language heading and locale controls in one semantic section", () => {
+    render(<MobileNavigation locale="ru" copy={messages.ru} bookingEnabled />);
+    fireEvent.click(screen.getByRole("button", { name: messages.ru.menu }));
+    const languageHeading = screen.getByRole("heading", { name: messages.ru.language });
+    const languageSection = languageHeading.closest("section");
+    expect(languageSection).not.toBeNull();
+    expect(within(languageSection as HTMLElement).getByRole("navigation", { name: messages.ru.language })).toBeVisible();
+    expect(within(languageSection as HTMLElement).getByRole("link", { name: "Русский" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: messages.ru.services })).toHaveAttribute("href", "/ru/services");
+  });
+
+  it.each([
+    ["hy", "  ՀԻԳԻԵՆԱ   և կանխարգելում ", "Հիգիենա և կանխարգելում", true],
+    ["ru", "Гигиена и профилактика", " гигиена   И ПРОФИЛАКТИКА ", true],
+    ["en", "Hygiene and prevention", "Hygiene and prevention for long-term oral health", false],
+  ] as const)("compares service-section copy safely in %s", (locale, title, description, expected) => {
+    expect(isEquivalentDisplayCopy(title, description, locale)).toBe(expected);
   });
 
   it("keeps meaningful alternative text when a managed image is unavailable", () => {

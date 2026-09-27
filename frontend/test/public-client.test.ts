@@ -75,14 +75,37 @@ describe("public API client", () => {
     });
   });
 
-  it("aborts timed-out requests", async () => {
+  it("makes one bounded retry after a timed-out safe read, then fails", async () => {
     vi.useFakeTimers();
-    vi.stubGlobal("fetch", vi.fn((_url, init: RequestInit | undefined) => new Promise((_resolve, reject) => {
+    const fetchMock = vi.fn((_url, init: RequestInit | undefined) => new Promise((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
-    })));
+    }));
+    vi.stubGlobal("fetch", fetchMock);
     const assertion = expect(getServices()).rejects.toBeInstanceOf(PublicApiError);
     await vi.advanceTimersByTimeAsync(8_000);
+    await vi.advanceTimersByTimeAsync(8_000);
     await assertion;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ cache: "no-store" });
+  });
+
+  it("recovers once from a transient upstream response without retrying ordinary failures", async () => {
+    const unavailable = () => new Response("upstream is waking", { status: 503 });
+    const success = () => new Response(JSON.stringify({
+      success: true,
+      data: { services: [] },
+    }), { status: 200 });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(unavailable())
+      .mockResolvedValueOnce(success())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: false }), { status: 400 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getServices()).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "GET", cache: "no-store" });
+    await expect(getServices()).rejects.toMatchObject({ kind: "http", status: 400 });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("covers every allowlisted public endpoint wrapper and its identifier guard", async () => {

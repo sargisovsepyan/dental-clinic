@@ -30,6 +30,30 @@ beforeEach(() => {
 });
 
 describe("staff account email validation", () => {
+  it("reveals and remasks the password without clearing or submitting it", () => {
+    render(<StaffLoginForm />);
+    const password = screen.getByLabelText("Password");
+    fireEvent.change(password, { target: { value: "Strong123!" } });
+    expect(password).toHaveAttribute("type", "password");
+
+    fireEvent.click(screen.getByRole("button", { name: "Show password" }));
+    expect(password).toHaveAttribute("type", "text");
+    expect(password).toHaveValue("Strong123!");
+    expect(screen.getByRole("button", { name: "Hide password" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide password" }));
+    expect(password).toHaveAttribute("type", "password");
+    expect(password).toHaveValue("Strong123!");
+    expect(login).not.toHaveBeenCalled();
+  });
+
+  it("provides explicit password-toggle labels in every supported locale", () => {
+    expect(staffMessages.en).toMatchObject({ showPassword: "Show password", hidePassword: "Hide password" });
+    expect(staffMessages.ru).toMatchObject({ showPassword: "Показать пароль", hidePassword: "Скрыть пароль" });
+    expect(staffMessages.hy.showPassword).not.toBe(staffMessages.en.showPassword);
+    expect(staffMessages.hy.hidePassword).not.toBe(staffMessages.en.hidePassword);
+  });
+
   it("blocks a backend-incompatible login email before authentication", () => {
     render(<StaffLoginForm />);
     fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "staff@-example.com" } });

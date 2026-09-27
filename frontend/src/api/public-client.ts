@@ -43,6 +43,10 @@ interface GetOptions {
   timeoutMs?: number;
 }
 
+const DEFAULT_PUBLIC_GET_TIMEOUT_MS = 8_000;
+const MAX_PUBLIC_GET_ATTEMPTS = 2;
+const TRANSIENT_UPSTREAM_STATUSES = new Set([502, 503, 504]);
+
 const safeRequestId = (value: string | null) =>
   value && /^[a-zA-Z0-9-]{1,128}$/.test(value) ? value : undefined;
 
@@ -93,9 +97,12 @@ function buildApiUrl(path: string, query: GetOptions["query"]) {
   return url;
 }
 
-async function publicGet<T>(path: string, options: GetOptions = {}): Promise<T> {
+async function publicGetAttempt<T>(path: string, options: GetOptions, attempt: number): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort("timeout"), options.timeoutMs ?? 8_000);
+  const timeout = setTimeout(
+    () => controller.abort("timeout"),
+    options.timeoutMs ?? DEFAULT_PUBLIC_GET_TIMEOUT_MS,
+  );
   const signal = options.signal
     ? AbortSignal.any([controller.signal, options.signal])
     : controller.signal;
@@ -106,7 +113,9 @@ async function publicGet<T>(path: string, options: GetOptions = {}): Promise<T> 
       method: "GET",
       headers: { Accept: "application/json" },
       signal,
-      ...(options.cache
+      ...(attempt > 0
+        ? { cache: "no-store" as const }
+        : options.cache
         ? { cache: options.cache }
         : { next: { revalidate: options.revalidate ?? 300 } }),
     });
@@ -122,7 +131,9 @@ async function publicGet<T>(path: string, options: GetOptions = {}): Promise<T> 
     body = await readJsonWithSignal(response, signal);
   } catch (cause) {
     const kind = controller.signal.aborted && !options.signal?.aborted ? "timeout"
-      : options.signal?.aborted ? "network" : "protocol";
+      : options.signal?.aborted ? "network"
+      : !response.ok && TRANSIENT_UPSTREAM_STATUSES.has(response.status) ? "http"
+      : "protocol";
     throw new PublicApiError({ kind, status: response.status, requestId, cause });
   } finally {
     clearTimeout(timeout);
@@ -142,6 +153,27 @@ async function publicGet<T>(path: string, options: GetOptions = {}): Promise<T> 
   }
 
   return body as T;
+}
+
+function isRetryablePublicRead(error: unknown, signal?: AbortSignal) {
+  if (signal?.aborted || !(error instanceof PublicApiError)) return false;
+  return error.kind === "timeout" || error.kind === "network" ||
+    (error.kind === "http" && TRANSIENT_UPSTREAM_STATUSES.has(error.status));
+}
+
+async function publicGet<T>(path: string, options: GetOptions = {}): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < MAX_PUBLIC_GET_ATTEMPTS; attempt += 1) {
+    try {
+      return await publicGetAttempt<T>(path, options, attempt);
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 >= MAX_PUBLIC_GET_ATTEMPTS || !isRetryablePublicRead(error, options.signal)) {
+        throw error;
+      }
+    }
+  }
+  throw lastError;
 }
 
 export async function getServiceCategories() {

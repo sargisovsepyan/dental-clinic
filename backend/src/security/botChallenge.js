@@ -60,7 +60,9 @@ const createBotChallengeVerifier = ({
     throw new ApiError(503, 'Bot challenge verification is unavailable');
   }
   if (!response.ok || result?.success !== true) {
-    throw new ApiError(400, 'Bot challenge verification failed');
+    throw new ApiError(400, 'Bot challenge verification failed', {
+      code: 'BOOKING_CHALLENGE_FAILED',
+    });
   }
 };
 

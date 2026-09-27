@@ -72,6 +72,7 @@ export default async function HomePage({ params }: Props) {
   const cases = casesResult.status === "fulfilled"
     ? casesResult.value.cases.map((item) => beforeAfterView(item, locale, cloudName)).filter((item) => item.title.text)
     : [];
+  const collectionLinkClass = "inline-flex min-h-11 items-center gap-2 rounded-md text-sm font-bold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30";
 
   return (
     <>
@@ -106,13 +107,11 @@ export default async function HomePage({ params }: Props) {
       {services.length > 0 && (
         <section className="section-space">
           <div className="site-container">
-            <div className="flex items-end justify-between gap-6">
-              <SectionHeading title={copy.featuredServices} />
-              <Link href={localizedPath(locale, "services")} className="hidden min-h-11 items-center gap-2 text-sm font-bold text-primary sm:inline-flex">{copy.viewServices}<ArrowRight aria-hidden="true" className="size-4" /></Link>
-            </div>
+            <SectionHeading title={copy.featuredServices} />
             <div className="mt-12 grid gap-x-10 gap-y-8 lg:grid-cols-2">
               {services.slice(0, 4).map((service) => <ServiceCard key={service.id} service={service} locale={locale} />)}
             </div>
+            <div className="mt-9"><Link href={localizedPath(locale, "services")} className={collectionLinkClass}>{copy.allServices}<ArrowRight aria-hidden="true" className="size-4" /></Link></div>
           </div>
         </section>
       )}
@@ -129,12 +128,15 @@ export default async function HomePage({ params }: Props) {
             <div className="mt-12 grid gap-8 md:grid-cols-2 lg:grid-cols-3">
               {dentists.slice(0, 5).map((dentist) => <DentistCard key={dentist.id} dentist={dentist} locale={locale} />)}
             </div>
+            <div className="mt-9"><Link href={localizedPath(locale, "dentists")} className={collectionLinkClass}>{copy.allDentists}<ArrowRight aria-hidden="true" className="size-4" /></Link></div>
           </div>
         </section>
       )}
 
       {clinic?.description.text && <section className="section-space border-b"><div className="site-container grid gap-8 lg:grid-cols-12"><h2 className="display-type text-4xl lg:col-span-4">{text.about}</h2><p lang={locale} className="max-w-3xl text-lg leading-8 text-muted-foreground lg:col-span-8">{clinic.description.text}</p></div></section>}
-      <div className="site-container"><ClinicSpace images={gallery} locale={locale} /></div>
+      <div className="site-container"><ClinicSpace images={gallery} locale={locale}>
+        <Link href={localizedPath(locale, "gallery")} className={collectionLinkClass}>{copy.openGallery}<ArrowRight aria-hidden="true" className="size-4" /></Link>
+      </ClinicSpace></div>
 
       {cases.length > 0 && (
         <section className="section-space border-y bg-card">
@@ -143,6 +145,7 @@ export default async function HomePage({ params }: Props) {
             <div className="mt-12 grid gap-10 lg:grid-cols-3">
               {cases.slice(0, 3).map((item, index) => <BeforeAfterCard key={item.id} item={item} locale={locale} priority={index === 0} />)}
             </div>
+            <div className="mt-9"><Link href={localizedPath(locale, "before-after")} className={collectionLinkClass}>{copy.allCases}<ArrowRight aria-hidden="true" className="size-4" /></Link></div>
           </div>
         </section>
       )}

@@ -141,11 +141,21 @@ describe("booking API client", () => {
   });
 
   it("normalizes HTTP errors without exposing backend messages and parses Retry-After", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: false, message: "private backend detail", code: "RATE_LIMITED" }), { status: 429, headers: { "retry-after": "45" } })));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: false, message: "private backend detail", code: "RATE_LIMITED" }), { status: 429, headers: { "retry-after": "45", "x-request-id": "safe-request-123" } })));
     const error = await createPublicAppointment(payload, "0f459e5d-dbf8-4d92-b512-c329d39a610e").catch((value) => value);
     expect(error).toBeInstanceOf(BookingApiError);
-    expect(error).toMatchObject({ kind: "http", status: 429, code: "RATE_LIMITED", retryAfterSeconds: 45 });
+    expect(error).toMatchObject({ kind: "http", status: 429, code: "RATE_LIMITED", retryAfterSeconds: 45, requestId: "safe-request-123" });
     expect(error.message).not.toContain("private backend detail");
+  });
+
+  it("never automatically retries an uncertain appointment mutation", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("connection lost"));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(createPublicAppointment(
+      payload,
+      "0f459e5d-dbf8-4d92-b512-c329d39a610e",
+    )).rejects.toMatchObject({ kind: "network" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("distinguishes cancellation, timeout, network, and protocol failures", async () => {
@@ -156,6 +166,7 @@ describe("booking API client", () => {
 
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
     await expect(getAvailability({ dentistId: payload.dentistId, serviceId: payload.serviceId, date: payload.date })).rejects.toMatchObject({ kind: "network" });
+    expect(fetch).toHaveBeenCalledTimes(1);
 
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn((_url: URL, options: RequestInit) => new Promise((_resolve, reject) => {

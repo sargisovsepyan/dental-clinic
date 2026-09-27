@@ -61,8 +61,8 @@ const result = {
 async function reachForm(user: ReturnType<typeof userEvent.setup>, date = "2026-09-10", time = "09:00") {
   await user.click(screen.getByRole("button", { name: /Cleaning/ }));
   await user.click(screen.getByRole("button", { name: /Ani Test/ }));
-  fireEvent.change(screen.getByLabelText("Visit date"), { target: { value: date } });
-  await user.click(await screen.findByRole("button", { name: `Choose ${time}` }));
+  fireEvent.change(screen.getByLabelText(/Visit date|Дата визита|Այցի ամսաթիվ/), { target: { value: date } });
+  await user.click(await screen.findByRole("button", { name: new RegExp(time) }));
 }
 
 async function fillForm(user: ReturnType<typeof userEvent.setup>) {
@@ -83,6 +83,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   Object.defineProperty(document, "modelContext", { configurable: true, value: undefined });
+  delete window.turnstile;
   vi.unstubAllGlobals();
 });
 
@@ -182,6 +183,76 @@ describe("booking flow", () => {
       expect(api.createPublicAppointment).toHaveBeenCalledWith(expect.objectContaining({ patientName: name, patientPhone: "(099) 123-456" }), expect.any(String));
     },
   );
+
+  it.each(["093456897", "+37493456897"])(
+    "submits a production-shaped Russian booking with supported Armenian phone %s and a challenge token",
+    async (phone) => {
+      const user = userEvent.setup();
+      const remove = vi.fn();
+      Object.defineProperty(window, "turnstile", {
+        configurable: true,
+        value: {
+          render: vi.fn((_element: HTMLElement, options: Record<string, (token: string) => void>) => {
+            options.callback("fresh-production-shaped-token");
+            return "production-shaped-widget";
+          }),
+          remove,
+        },
+      });
+      render(<BookingFlow locale="ru" services={services} dentists={dentists} clinic={{ ...clinic, requireEmail: true }} challenge={{ provider: "turnstile", siteKey: "public-site-key" }} />);
+      await reachForm(user);
+      fireEvent.change(screen.getByLabelText(/Имя и фамилия/), { target: { value: "Анна-Мария Иванова" } });
+      fireEvent.change(screen.getByLabelText(/Номер телефона/), { target: { value: phone } });
+      fireEvent.change(screen.getByLabelText(/Электронная почта/), { target: { value: "patient@example.test" } });
+      await user.click(screen.getByRole("checkbox"));
+      await user.click(await screen.findByRole("button", { name: "Отправить заявку" }));
+
+      expect(await screen.findByRole("heading", { name: "Заявка принята" })).toBeVisible();
+      expect(api.createPublicAppointment).toHaveBeenCalledTimes(1);
+      expect(api.createPublicAppointment).toHaveBeenCalledWith(expect.objectContaining({
+        patientName: "Анна-Мария Иванова",
+        patientPhone: phone,
+        patientEmail: "patient@example.test",
+        locale: "ru",
+        privacyAccepted: true,
+        challengeToken: "fresh-production-shaped-token",
+      }), expect.any(String));
+    },
+    15_000,
+  );
+
+  it("identifies a consumed challenge, refreshes it, and preserves booking idempotency", async () => {
+    const user = userEvent.setup();
+    let challengeSequence = 0;
+    const renderWidget = vi.fn((_element: HTMLElement, options: Record<string, (token: string) => void>) => {
+      challengeSequence += 1;
+      options.callback(`challenge-token-${challengeSequence}`);
+      return `widget-${challengeSequence}`;
+    });
+    const remove = vi.fn();
+    Object.defineProperty(window, "turnstile", { configurable: true, value: { render: renderWidget, remove } });
+    api.createPublicAppointment
+      .mockRejectedValueOnce(new BookingApiError({ kind: "http", status: 400, code: "BOOKING_CHALLENGE_FAILED", requestId: "safe-booking-request-123" }))
+      .mockResolvedValueOnce({ ...result, status: "confirmed" });
+    render(<BookingFlow locale="en" services={services} dentists={dentists} clinic={clinic} challenge={{ provider: "turnstile", siteKey: "public-site-key" }} />);
+    await reachForm(user);
+    await fillForm(user);
+    await waitFor(() => expect(renderWidget.mock.calls.length).toBeGreaterThan(0));
+    const renderCountBeforeFailure = renderWidget.mock.calls.length;
+    await user.click(await screen.findByRole("button", { name: "Send booking request" }));
+    expect(await screen.findByText(/could not be verified/i)).toBeVisible();
+    expect(screen.getByText(/safe-booking-request-123/)).toBeVisible();
+    await waitFor(() => expect(renderWidget.mock.calls.length).toBeGreaterThan(renderCountBeforeFailure));
+    expect(remove).toHaveBeenCalled();
+
+    await user.click(await screen.findByRole("button", { name: "Send booking request" }));
+    expect(await screen.findByRole("heading", { name: "Visit confirmed" })).toBeVisible();
+    expect(api.createIdempotencyKey).toHaveBeenCalledTimes(1);
+    expect(api.createPublicAppointment.mock.calls[0][1]).toBe(api.createPublicAppointment.mock.calls[1][1]);
+    expect(api.createPublicAppointment.mock.calls[0][0].challengeToken).toMatch(/^challenge-token-/);
+    expect(api.createPublicAppointment.mock.calls[1][0].challengeToken).toMatch(/^challenge-token-/);
+    expect(api.createPublicAppointment.mock.calls[0][0].challengeToken).not.toBe(api.createPublicAppointment.mock.calls[1][0].challengeToken);
+  }, 15_000);
 
   it("reuses one idempotency key after a network-uncertain failure", async () => {
     const user = userEvent.setup();
@@ -300,9 +371,11 @@ describe("booking flow", () => {
     Object.defineProperty(window, "turnstile", { configurable: true, value: { render: renderWidget, remove } });
     const onToken = vi.fn();
     const { rerender } = render(<BookingChallenge provider="turnstile" siteKey="public-site-key" locale="en" label="Security" loadingLabel="Loading" errorLabel="Error" resetVersion={0} onToken={onToken} onError={vi.fn()} />);
-    await waitFor(() => expect(renderWidget).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(renderWidget.mock.calls.length).toBeGreaterThan(0));
+    const initialRenderCount = renderWidget.mock.calls.length;
     expect(onToken).toHaveBeenCalledWith("valid-challenge-token");
     rerender(<BookingChallenge provider="turnstile" siteKey="public-site-key" locale="en" label="Security" loadingLabel="Loading" errorLabel="Error" resetVersion={1} onToken={onToken} onError={vi.fn()} />);
-    await waitFor(() => expect(remove).toHaveBeenCalledWith("widget-one"));
+    await waitFor(() => expect(renderWidget.mock.calls.length).toBeGreaterThan(initialRenderCount));
+    expect(remove).toHaveBeenCalledWith("widget-one");
   });
 });

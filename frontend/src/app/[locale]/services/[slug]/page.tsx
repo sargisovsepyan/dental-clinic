@@ -83,7 +83,7 @@ export default async function ServiceDetailPage({ params }: Props) {
             <div className="lg:col-span-7"><h3 className="mb-3 font-semibold">{productMessages[locale].includes}</h3><p lang={service.description.lang} className="whitespace-pre-line text-base leading-8 text-muted-foreground">{service.description.text}</p></div>
           </div>
         )}
-        <section className="grid gap-8 pb-12 md:grid-cols-3">
+        <section className="grid gap-8 pb-12 pt-12 md:grid-cols-3">
           <div><h2 className="display-type text-2xl">{text.procedure}</h2><p className="mt-4 leading-7 text-muted-foreground">{text.procedureBody}</p></div>
           <div><h2 className="display-type text-2xl">{copy.duration}</h2><p className="mt-4 font-medium">{service.durationMinutes} {copy.minutes}</p><p className="mt-3 leading-7 text-muted-foreground">{text.timingBody}</p></div>
           <div><h2 className="display-type text-2xl">{text.when}</h2><p className="mt-4 leading-7 text-muted-foreground">{text.whenBody}</p></div>

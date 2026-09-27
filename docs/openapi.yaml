@@ -1609,7 +1609,7 @@ components:
         message: { type: string }
         code:
           type: string
-          description: Includes APPOINTMENT_VERSION_CONFLICT for stale staff appointment mutations.
+          description: Includes APPOINTMENT_VERSION_CONFLICT for stale staff appointment mutations and BOOKING_CHALLENGE_FAILED when the public booking challenge provider rejects a token.
         details: { type: object, additionalProperties: true }
     StaffUser:
       type: object

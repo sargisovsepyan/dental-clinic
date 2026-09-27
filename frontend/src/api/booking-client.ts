@@ -43,12 +43,14 @@ export class BookingApiError extends Error {
   readonly status: number;
   readonly code?: string;
   readonly retryAfterSeconds?: number;
+  readonly requestId?: string;
 
   constructor(options: {
     kind: BookingErrorKind;
     status?: number;
     code?: string;
     retryAfterSeconds?: number;
+    requestId?: string;
     cause?: unknown;
   }) {
     super("The booking API request could not be completed", { cause: options.cause });
@@ -57,6 +59,7 @@ export class BookingApiError extends Error {
     this.status = options.status ?? 0;
     this.code = options.code;
     this.retryAfterSeconds = options.retryAfterSeconds;
+    this.requestId = options.requestId;
   }
 }
 
@@ -71,6 +74,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const safeCode = (value: unknown) =>
   typeof value === "string" && /^[A-Z0-9_]{1,80}$/.test(value) ? value : undefined;
+
+const safeRequestId = (value: string | null) =>
+  value && /^[a-zA-Z0-9-]{1,128}$/.test(value) ? value : undefined;
 
 function localizedSummaryName(
   baseName: string,
@@ -140,13 +146,14 @@ async function requestJson(options: {
     if (timeoutController.signal.aborted) throw new BookingApiError({ kind: "timeout", cause });
     throw new BookingApiError({ kind: "network", cause });
   }
+  const requestId = safeRequestId(response.headers.get("x-request-id"));
   let body: unknown;
   try {
     body = await readJsonWithSignal(response, signal);
   } catch (cause) {
     if (options.signal?.aborted) throw new BookingApiError({ kind: "cancelled", cause });
     if (timeoutController.signal.aborted) throw new BookingApiError({ kind: "timeout", cause });
-    throw new BookingApiError({ kind: "protocol", status: response.status, cause });
+    throw new BookingApiError({ kind: "protocol", status: response.status, requestId, cause });
   } finally {
     clearTimeout(timeout);
   }
@@ -156,10 +163,11 @@ async function requestJson(options: {
       status: response.status,
       code: isRecord(body) ? safeCode(body.code) : undefined,
       retryAfterSeconds: parseRetryAfter(response.headers.get("retry-after")),
+      requestId,
     });
   }
   if (!isRecord(body) || body.success !== true || !isRecord(body.data)) {
-    throw new BookingApiError({ kind: "protocol", status: response.status });
+    throw new BookingApiError({ kind: "protocol", status: response.status, requestId });
   }
   return body.data;
 }

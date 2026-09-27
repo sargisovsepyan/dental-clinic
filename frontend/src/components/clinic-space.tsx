@@ -1,11 +1,13 @@
 import { PublicImage } from './public-media';
 import { productMessages } from '@/i18n/product-messages';
 import type { Locale } from '@/i18n/locales';
+import type { ReactNode } from 'react';
 
-export function ClinicSpace({ images, locale }: {
+export function ClinicSpace({ images, locale, children }: {
   images: { id: string; image: { src: string; width: number; height: number } | null;
     alt: { text: string; lang?: Locale }; caption: { text: string; lang?: Locale } }[];
   locale: Locale;
+  children?: ReactNode;
 }) {
   const text = productMessages[locale];
   if (!images.length) return null;
@@ -18,5 +20,6 @@ export function ClinicSpace({ images, locale }: {
         <figcaption lang={locale} className="mt-3 font-medium">{item.caption.text || item.alt.text}</figcaption>
       </figure>)}
     </div>
+    {children && <div className="mt-9">{children}</div>}
   </section>;
 }

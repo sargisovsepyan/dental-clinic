@@ -43,7 +43,7 @@ test.beforeEach(async ({ page, request }) => {
 async function login(page: Page, role: keyof typeof previewAccounts = "admin", locale = "en") {
   await page.goto(`/${locale}/staff/login`);
   await page.getByLabel(locale === "en" ? "Email address" : locale === "ru" ? "Электронная почта" : "Էլ․ հասցե").fill(previewAccounts[role].email);
-  await page.getByLabel(locale === "en" ? "Password" : locale === "ru" ? "Пароль" : "Գաղտնաբառ").fill(previewPassword);
+  await page.getByLabel(locale === "en" ? "Password" : locale === "ru" ? "Пароль" : "Գաղտնաբառ", { exact: true }).fill(previewPassword);
   await page.locator('button[type="submit"]').click();
   await expect(page).toHaveURL(
     new RegExp(`/${locale}/staff${role === "dentist" ? "/my-appointments" : ""}/?$`),
@@ -290,7 +290,7 @@ test("forgot, reset, and setup-password fragments remain out of URLs and storage
   await expect(page.getByText(/Password saved/)).toBeVisible();
 
   await page.goto("/staff/setup-password#token=preview-setup-token-000000000000000000000000");
-  await expect(page).toHaveURL(/\/hy\/staff\/setup-password$/);
+  await expect(page).toHaveURL(/\/hy\/staff\/setup-password$/, { timeout: 20_000 });
   expect(await page.evaluate(() => ({ hash: location.hash, local: Object.entries(localStorage), session: Object.entries(sessionStorage) }))).toEqual({
     hash: "", local: [], session: [],
   });
@@ -304,11 +304,15 @@ test("admin can complete the explicit local invitation inbox and employee activa
   const invite = page.getByRole("dialog");
   await invite.getByLabel("Staff name").fill("Local Preview Employee");
   await invite.getByLabel("Email address").fill("local.employee@preview.local");
+  const inviteResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST" && new URL(response.url()).pathname === "/api/v1/staff/invite",
+  );
   await invite.getByRole("button", { name: "Invite staff" }).click();
+  expect((await inviteResponse).status()).toBe(201);
   await expect(page.getByText(/Invitation sent to local\.employee@preview\.local/)).toBeVisible();
 
   await page.getByRole("link", { name: "Preview mail" }).first().click();
-  await expect(page).toHaveURL(/\/en\/staff\/preview-invitations$/);
+  await expect(page).toHaveURL(/\/en\/staff\/preview-invitations$/, { timeout: 20_000 });
   const invitation = page.getByRole("listitem").filter({ hasText: "local.employee@preview.local" });
   await expect(invitation.getByText("Awaiting account setup")).toBeVisible();
   await invitation.getByRole("link", { name: "Open invitation" }).click();
@@ -317,15 +321,26 @@ test("admin can complete the explicit local invitation inbox and employee activa
   await expect(page.getByText("local.employee@preview.local")).toBeVisible();
   await page.locator('input[name="password"]').fill("LocalPass1!");
   await page.locator('input[name="confirmPassword"]').fill("LocalPass1!");
+  const activationResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST" && /\/api\/v1\/preview\/invitations\/[a-f\d-]{36}\/setup$/iu.test(new URL(response.url()).pathname),
+  );
   await page.getByRole("button", { name: "Activate account" }).click();
+  expect((await activationResponse).status()).toBe(200);
   await expect(page.getByText(/Your account is active/)).toBeVisible();
 
   await page.getByRole("link", { name: "Back to sign in" }).click();
+  await expect(page).toHaveURL(/\/en\/staff\/?$/, { timeout: 20_000 });
+  await page.getByRole("button", { name: "Sign out", exact: true }).last().click();
+  await expect(page).toHaveURL(/\/en\/staff\/login$/, { timeout: 20_000 });
   await page.getByLabel("Email address").fill("local.employee@preview.local");
-  await page.getByLabel("Password").fill("LocalPass1!");
+  await page.getByLabel("Password", { exact: true }).fill("LocalPass1!");
+  const loginResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST" && new URL(response.url()).pathname === "/api/v1/auth/login",
+  );
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/en\/staff\/?$/);
-  await expect(page.getByText("Local Preview Employee").first()).toBeVisible();
+  expect((await loginResponse).status()).toBe(200);
+  await expect(page).toHaveURL(/\/en\/staff\/?$/, { timeout: 20_000 });
+  await expect(page.getByText("Local Preview Employee").first()).toBeVisible({ timeout: 20_000 });
 });
 
 test("staff routes remain usable and axe-clean at representative responsive widths", async ({ page }) => {

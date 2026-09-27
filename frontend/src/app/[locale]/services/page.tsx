@@ -7,6 +7,7 @@ import { isLocale } from "@/i18n/locales";
 import { messages } from "@/i18n/messages";
 import { getFrontendEnvironment } from "@/lib/env";
 import { publicMetadata } from "@/lib/metadata";
+import { isEquivalentDisplayCopy } from "@/lib/equivalent-copy";
 
 type Props = { params: Promise<{ locale: string }> };
 
@@ -48,7 +49,9 @@ export default async function ServicesPage({ params }: Props) {
                 <section key={category.id} aria-labelledby={`category-${category.id}`}>
                   <div className="grid gap-5 border-b pb-7 md:grid-cols-[1fr_2fr]">
                     <h2 id={`category-${category.id}`} lang={category.name.lang} className="display-type text-3xl sm:text-4xl">{category.name.text}</h2>
-                    {category.description.text && <p lang={category.description.lang} className="max-w-2xl leading-7 text-muted-foreground">{category.description.text}</p>}
+                    {category.description.text && !isEquivalentDisplayCopy(category.name.text, category.description.text, locale) && (
+                      <p lang={category.description.lang} className="max-w-2xl leading-7 text-muted-foreground">{category.description.text}</p>
+                    )}
                   </div>
                   {categoryServices.length > 0 ? (
                     <div className="mt-8 grid gap-x-10 gap-y-8 lg:grid-cols-2">

@@ -423,7 +423,9 @@ test('bot challenge verifier is provider-abstracted and uses only the fake reque
   });
   await assert.rejects(
     () => reject({ token: 'invalid-browser-token' }),
-    /verification failed/
+    (error) => error.statusCode === 400 &&
+      error.code === 'BOOKING_CHALLENGE_FAILED' &&
+      /verification failed/.test(error.message)
   );
 
   const testFailClosed = createBotChallengeVerifier({

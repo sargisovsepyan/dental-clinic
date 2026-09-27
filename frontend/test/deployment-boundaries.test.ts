@@ -90,15 +90,17 @@ it.each(["localhost", "127.0.0.1", "[::1]", "api.localhost", "0.0.0.0", "[::]", 
   expect(() => parseSiteBaseUrl(`https://${host}`, true)).toThrow(/localhost/);
 });
 
-it("bounds stalled public response bodies without replay", async () => {
+it("bounds stalled public response bodies to one safe-read replay", async () => {
   vi.useFakeTimers();
   Object.assign(process.env, { NEXT_PUBLIC_API_URL: "http://localhost:5000/api/v1", NEXT_PUBLIC_SITE_URL: "http://localhost:3000", NEXT_PUBLIC_BOOKING_CHALLENGE_PROVIDER: "disabled" });
   const fetch = vi.fn().mockResolvedValue({ status: 200, ok: true, headers: new Headers(), json: () => new Promise(() => {}) });
   vi.stubGlobal("fetch", fetch);
   const check = expect(getServices()).rejects.toMatchObject({ kind: "timeout" });
   await vi.advanceTimersByTimeAsync(8000);
+  await vi.advanceTimersByTimeAsync(8000);
   await check;
-  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: "GET", cache: "no-store" });
 });
 
 it("bounds indeterminate booking response bodies without mutation replay", async () => {

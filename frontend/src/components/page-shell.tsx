@@ -18,10 +18,12 @@ export function PageIntro({
   descriptionLang?: Locale;
 }) {
   return (
-    <header className="site-container max-w-4xl pb-12 pt-16 sm:pb-16 sm:pt-24">
-      {eyebrow && <p className="eyebrow">{eyebrow}</p>}
-      <h1 lang={titleLang} className="display-type mt-4 text-balance text-4xl leading-[1.12] sm:text-6xl">{title}</h1>
-      {description && <p lang={descriptionLang} className="mt-6 max-w-2xl text-base leading-8 text-muted-foreground sm:text-lg">{description}</p>}
+    <header className="site-container pb-12 pt-16 sm:pb-16 sm:pt-24">
+      <div className="max-w-4xl">
+        {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+        <h1 lang={titleLang} className="display-type mt-4 text-balance text-4xl leading-[1.12] sm:text-6xl">{title}</h1>
+        {description && <p lang={descriptionLang} className="mt-6 max-w-2xl text-base leading-8 text-muted-foreground sm:text-lg">{description}</p>}
+      </div>
     </header>
   );
 }

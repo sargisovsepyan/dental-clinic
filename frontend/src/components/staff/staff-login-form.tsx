@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { useEffect, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { StaffApiError } from "@/api/staff-client";
 import { StaffAuthCard } from "@/components/staff/staff-auth-card";
 import { staffErrorMessage } from "@/components/staff/staff-feedback";
@@ -21,6 +22,7 @@ export function StaffLoginForm() {
   const { locale, copy, status, user, notice, login, clearNotice } = useStaffAuth();
   const router = useRouter();
   const [pending, setPending] = useState(false);
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [error, setError] = useState<{ message: string; requestId?: string } | null>(null);
 
   useEffect(() => {
@@ -67,10 +69,22 @@ export function StaffLoginForm() {
           {copy.email}
           <input className={fieldClass} name="email" type="email" autoComplete="username" required maxLength={254} disabled={pending} />
         </label>
-        <label className="block text-sm font-medium">
-          {copy.password}
-          <input className={fieldClass} name="password" type="password" autoComplete="current-password" required minLength={6} maxLength={1024} disabled={pending} />
-        </label>
+        <div>
+          <label htmlFor="staff-password" className="block text-sm font-medium">{copy.password}</label>
+          <div className="relative">
+            <input id="staff-password" className={`${fieldClass} pr-12`} name="password" type={passwordVisible ? "text" : "password"} autoComplete="current-password" required minLength={6} maxLength={1024} disabled={pending} />
+            <button
+              type="button"
+              aria-label={passwordVisible ? copy.hidePassword : copy.showPassword}
+              aria-pressed={passwordVisible}
+              disabled={pending}
+              onClick={() => setPasswordVisible((value) => !value)}
+              className="absolute right-0.5 top-1/2 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30 disabled:opacity-60"
+            >
+              {passwordVisible ? <EyeOff aria-hidden="true" className="size-5" /> : <Eye aria-hidden="true" className="size-5" />}
+            </button>
+          </div>
+        </div>
         <Button className="w-full" size="lg" type="submit" disabled={pending || status === "loading"}>
           {pending ? copy.signingIn : copy.signIn}
         </Button>

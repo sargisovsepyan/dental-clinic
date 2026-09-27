@@ -39,7 +39,7 @@ export function MobileNavigation({ locale, copy, bookingEnabled }: { locale: Loc
       <SheetContent side="right" closeLabel={copy.closeMenu} className="w-[min(88vw,24rem)] p-2">
         <SheetHeader className="border-b px-4 pb-5 pt-4">
           <SheetTitle className="display-type text-xl">{copy.menu}</SheetTitle>
-          <SheetDescription>{copy.language}</SheetDescription>
+          <SheetDescription className="sr-only">{copy.primaryNavigation}</SheetDescription>
         </SheetHeader>
         <nav aria-label={copy.primaryNavigation} className="flex flex-col px-2 py-3">
           {navItems.map(([key, segment]) => (
@@ -58,9 +58,10 @@ export function MobileNavigation({ locale, copy, bookingEnabled }: { locale: Loc
             {bookingMessages[locale].nav}
           </Link>
         )}
-        <div className="mt-auto border-t p-3">
+        <section aria-labelledby="mobile-language-heading" className="mt-auto border-t p-3">
+          <h2 id="mobile-language-heading" className="px-3 pb-2 pt-1 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">{copy.language}</h2>
           <LocaleSwitcher locale={locale} label={copy.language} compact />
-        </div>
+        </section>
       </SheetContent>
     </Sheet>
   );

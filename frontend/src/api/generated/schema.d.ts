@@ -1207,7 +1207,7 @@ export interface components {
             /** @constant */
             success: false;
             message: string;
-            /** @description Includes APPOINTMENT_VERSION_CONFLICT for stale staff appointment mutations. */
+            /** @description Includes APPOINTMENT_VERSION_CONFLICT for stale staff appointment mutations and BOOKING_CHALLENGE_FAILED when the public booking challenge provider rejects a token. */
             code?: string;
             details?: {
                 [key: string]: unknown;

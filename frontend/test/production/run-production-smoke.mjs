@@ -120,7 +120,7 @@ try {
   await page.getByRole("link", { name: "Book a visit" }).first().waitFor();
   await page.goto(`${site}/en/staff/login`);
   await page.getByLabel("Email address").fill("admin@example.com");
-  await page.getByLabel("Password").fill("correct horse battery staple");
+  await page.getByLabel("Password", { exact: true }).fill("correct horse battery staple");
   await page.locator('button[type="submit"]').click();
   await page.waitForURL(`${site}/en/staff`);
   const cookie = (await context.cookies()).find(({ name }) => name === "refresh_token");

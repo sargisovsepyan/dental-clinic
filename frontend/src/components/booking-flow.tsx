@@ -49,10 +49,10 @@ export interface BookingClinicOptions {
   maxBookingDaysAhead: number;
 }
 
-type SubmitError = "conflict" | "validation" | "not-found" | "rate" | "service" | "uncertain" | "generic";
+type SubmitError = "challenge" | "conflict" | "validation" | "not-found" | "rate" | "service" | "uncertain" | "generic";
 type AvailabilityError = "selection" | "rate" | "service" | "generic";
 
-const fieldClass = "min-h-12 w-full rounded-lg border bg-background px-3.5 text-base outline-none transition-shadow focus:border-ring focus:ring-3 focus:ring-ring/25 disabled:opacity-60";
+const fieldClass = "min-h-12 w-full min-w-0 max-w-full rounded-lg border bg-background px-3.5 text-base outline-none transition-shadow focus:border-ring focus:ring-3 focus:ring-ring/25 disabled:opacity-60";
 
 function reasonMessage(reason: AvailabilityReason, copy: BookingMessages) {
   switch (reason) {
@@ -66,6 +66,7 @@ function reasonMessage(reason: AvailabilityReason, copy: BookingMessages) {
 
 function submitErrorMessage(error: SubmitError, copy: BookingMessages) {
   switch (error) {
+    case "challenge": return copy.challengeRejected;
     case "conflict": return copy.conflict;
     case "validation": return copy.validationError;
     case "not-found": return copy.notFoundError;
@@ -198,6 +199,7 @@ export function BookingFlow({
   const [challengeVersion, setChallengeVersion] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<SubmitError>();
+  const [submitRequestId, setSubmitRequestId] = useState<string>();
   const [result, setResult] = useState<BookingResult>();
   const requestVersion = useRef(0);
   const activeSubmit = useRef(false);
@@ -286,6 +288,7 @@ export function BookingFlow({
     setAvailabilityStatus("idle");
     setFieldErrors({});
     setSubmitError(undefined);
+    setSubmitRequestId(undefined);
     setRetryAfterSeconds(undefined);
   }, [dentistId, dentists]);
   const chooseDentist = useCallback((id: string) => {
@@ -299,6 +302,7 @@ export function BookingFlow({
     setAvailabilityStatus("idle");
     setFieldErrors({});
     setSubmitError(undefined);
+    setSubmitRequestId(undefined);
     setRetryAfterSeconds(undefined);
   }, []);
   const chooseDate = useCallback((value: string) => {
@@ -310,6 +314,7 @@ export function BookingFlow({
     setAvailabilityStatus(value && isBookingDate(value, bookingDateRange({ timezone: clinic.timezone, allowSameDay: clinic.allowSameDayBooking, maxDaysAhead: clinic.maxBookingDaysAhead })) ? "loading" : "idle");
     setFieldErrors({});
     setSubmitError(undefined);
+    setSubmitRequestId(undefined);
     setRetryAfterSeconds(undefined);
   }, [clinic]);
   const stageBooking = useCallback((nextServiceId: string, nextDentistId: string, nextDate?: string) => {
@@ -322,6 +327,7 @@ export function BookingFlow({
     setAvailabilityError(undefined);
     setAvailabilityStatus(nextDate && isBookingDate(nextDate, bookingDateRange({ timezone: clinic.timezone, allowSameDay: clinic.allowSameDayBooking, maxDaysAhead: clinic.maxBookingDaysAhead })) ? "loading" : "idle");
     setSubmitError(undefined);
+    setSubmitRequestId(undefined);
     setRetryAfterSeconds(undefined);
   }, [clinic]);
 
@@ -365,11 +371,13 @@ export function BookingFlow({
     activeSubmit.current = true;
     setSubmitting(true);
     setSubmitError(undefined);
+    setSubmitRequestId(undefined);
     setRetryAfterSeconds(undefined);
     try {
       setResult(await createPublicAppointment(payload, attempt.current.key));
     } catch (error) {
       if (error instanceof BookingApiError) {
+        setSubmitRequestId(error.requestId);
         if (error.status === 409) {
           requestVersion.current += 1;
           setSubmitError("conflict");
@@ -379,7 +387,13 @@ export function BookingFlow({
           setAvailabilityStatus("loading");
           setRefreshVersion((value) => value + 1);
           window.setTimeout(() => availabilityHeading.current?.focus(), 0);
-        } else if (error.status === 400) setSubmitError("validation");
+        } else if (error.status === 400) {
+          setSubmitError(
+            error.code === "BOOKING_CHALLENGE_FAILED"
+              ? "challenge"
+              : "validation",
+          );
+        }
         else if (error.status === 404) {
           requestVersion.current += 1;
           setSubmitError("not-found");
@@ -424,6 +438,7 @@ export function BookingFlow({
     setAvailabilityStatus("idle");
     setFieldErrors({});
     setSubmitError(undefined);
+    setSubmitRequestId(undefined);
     setRetryAfterSeconds(undefined);
     setResult(undefined);
     attempt.current = undefined;
@@ -461,13 +476,13 @@ export function BookingFlow({
         )}
 
         {dentistId && (
-          <section className="rounded-2xl border bg-card p-5 sm:p-7" aria-labelledby="availability-heading">
+          <section className="min-w-0 rounded-2xl border bg-card p-5 sm:p-7" aria-labelledby="availability-heading">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 ref={availabilityHeading} tabIndex={-1} id="availability-heading" className="display-type scroll-mt-28 text-2xl sm:text-3xl">{copy.chooseDate}</h2>
               {validDate && <Button type="button" variant="ghost" size="sm" onClick={() => { requestVersion.current += 1; setSlot(undefined); setAvailability(undefined); setAvailabilityError(undefined); setRetryAfterSeconds(undefined); setAvailabilityStatus("loading"); setRefreshVersion((value) => value + 1); }}><RefreshCw aria-hidden="true" />{copy.refreshSlots}</Button>}
             </div>
             <label htmlFor="booking-date" className="mt-6 block text-sm font-bold">{copy.date}</label>
-            <input id="booking-date" name="date" type="date" min={dateRange.min} max={dateRange.max} value={date} onChange={(event) => chooseDate(event.target.value)} className={cn(fieldClass, "mt-2 max-w-sm")} />
+            <input id="booking-date" name="date" type="date" min={dateRange.min} max={dateRange.max} value={date} onChange={(event) => chooseDate(event.target.value)} className={cn(fieldClass, "mt-2 block max-w-sm [box-sizing:border-box] [min-inline-size:0]")} />
             {date && !validDate && <p role="alert" className="mt-3 text-sm text-destructive">{validationCopy.invalidDate}</p>}
             <div className="mt-6" aria-live="polite" aria-busy={availabilityStatus === "loading"}>
               {submitError === "conflict" && <Alert variant="destructive" className="mb-5"><AlertCircle aria-hidden="true" /><AlertTitle>{copy.conflict}</AlertTitle></Alert>}
@@ -502,7 +517,7 @@ export function BookingFlow({
               <label className="flex cursor-pointer items-start gap-3 rounded-xl border p-4 text-sm leading-6"><input name="privacyAccepted" aria-invalid={Boolean(fieldErrors.privacyAccepted)} aria-describedby={fieldErrors.privacyAccepted ? 'privacyAccepted-error' : undefined} type="checkbox" className="mt-1 size-5 shrink-0 accent-primary" required checked={privacyAccepted} onChange={(event) => setPrivacyAccepted(event.target.checked)} /><span>{copy.privacy}</span></label>
               <BookingChallenge provider={challenge.provider} siteKey={challenge.siteKey} locale={locale} label={copy.challenge} loadingLabel={copy.challengeLoading} errorLabel={copy.challengeError} resetVersion={challengeVersion} onToken={handleChallengeToken} onError={handleChallengeError} />
               {challengeFailed && <Alert variant="destructive"><ShieldCheck aria-hidden="true" /><AlertDescription>{copy.challengeError}</AlertDescription></Alert>}
-              {submitError && submitError !== "conflict" && submitError !== "not-found" && <Alert ref={submitErrorAlert} tabIndex={-1} variant="destructive"><AlertCircle aria-hidden="true" /><AlertTitle>{submitErrorMessage(submitError, copy)}</AlertTitle>{(submitError === "uncertain" || (submitError === "rate" && retryAfterSeconds !== undefined)) && <AlertDescription><span className="mt-2 block">{submitError === "rate" ? copy.waitSeconds.replace("{seconds}", String(retryAfterSeconds)) : copy.retrySame}</span></AlertDescription>}</Alert>}
+              {submitError && submitError !== "conflict" && submitError !== "not-found" && <Alert ref={submitErrorAlert} tabIndex={-1} variant="destructive"><AlertCircle aria-hidden="true" /><AlertTitle>{submitErrorMessage(submitError, copy)}</AlertTitle>{(submitError === "uncertain" || (submitError === "rate" && retryAfterSeconds !== undefined) || submitRequestId) && <AlertDescription>{(submitError === "uncertain" || (submitError === "rate" && retryAfterSeconds !== undefined)) && <span className="mt-2 block">{submitError === "rate" ? copy.waitSeconds.replace("{seconds}", String(retryAfterSeconds)) : copy.retrySame}</span>}{submitRequestId && <span className="mt-2 block font-mono text-xs">{messages[locale].supportReference}: {submitRequestId}</span>}</AlertDescription>}</Alert>}
               <Button type="submit" size="lg" disabled={submitting || (challenge.provider === "turnstile" && !challengeToken)} className="w-full sm:w-auto">
                 {submitting ? <><RefreshCw aria-hidden="true" className="animate-spin" />{copy.submitting}</> : <>{copy.submit}<ArrowRight aria-hidden="true" /></>}
               </Button>

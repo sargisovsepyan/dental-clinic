@@ -21,7 +21,7 @@ async function setScenario(request: APIRequestContext, scenario: string) {
 async function login(page: Page, role: keyof typeof previewAccounts = "admin") {
   await page.goto("/en/staff/login");
   await page.getByLabel("Email address").fill(previewAccounts[role].email);
-  await page.getByLabel("Password").fill(previewPassword);
+  await page.getByLabel("Password", { exact: true }).fill(previewPassword);
   await page.locator('button[type="submit"]').click();
   await expect(page).toHaveURL(/\/en\/staff\/?$/, { timeout: 20_000 });
 }

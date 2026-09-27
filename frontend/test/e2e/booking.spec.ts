@@ -207,7 +207,9 @@ test("empty, validation, rate-limit, and service failures stay actionable and no
 
 test("the full form has no serious accessibility issues or horizontal overflow at required widths", async ({ page }) => {
   for (const viewport of [
+    { width: 320, height: 760 },
     { width: 375, height: 812 },
+    { width: 390, height: 844 },
     { width: 430, height: 932 },
     { width: 768, height: 1024 },
     { width: 1024, height: 768 },
@@ -216,6 +218,14 @@ test("the full form has no serious accessibility issues or horizontal overflow a
     await page.setViewportSize(viewport);
     await page.goto("/en/book");
     await reachForm(page);
+    const dateInput = page.getByLabel("Visit date");
+    const card = dateInput.locator("xpath=ancestor::section[1]");
+    const inputBox = await dateInput.boundingBox();
+    const cardBox = await card.boundingBox();
+    expect(inputBox).not.toBeNull();
+    expect(cardBox).not.toBeNull();
+    expect(inputBox!.x).toBeGreaterThanOrEqual(cardBox!.x);
+    expect(inputBox!.x + inputBox!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width + 0.5);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
   }
   const results = await new AxeBuilder({ page }).analyze();
