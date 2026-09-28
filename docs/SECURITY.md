@@ -16,7 +16,7 @@ Deployment trust/cookie/configuration contracts are in [DEPLOYMENT_ARCHITECTURE.
 - Booking bot: global/IP and HMAC-phone limits, server-side challenge verification, database-hard phone/date quota, and required database-backed idempotency; slot and overlap uniqueness remains authoritative.
 - Stolen refresh cookie: single-use rotation, separate TTL consumed-token detection bounded by the family absolute lifetime, user-wide refresh revocation, and immediate bearer invalidation.
 - Compromised receptionist: appointment operations only; no staff, catalog, audit, cleanup, or consent-governance access.
-- Compromised dentist account: authenticated profile only; no patient appointment or administrative access.
+- Compromised dentist account: read-only access is limited to privacy-minimized appointments assigned to the linked dentist profile; no global appointment or administrative access.
 - Malicious/accidental admin: explicit validation and audit, last-admin protection, soft lifecycle, consent confirmation phrase, reference-guarded cleanup, and non-destructive index tooling.
 - Upload attacker: small in-memory limits, allowed magic bytes, MIME/extension agreement, Cloudinary image-only mode with mandatory WebP normalization, strict returned-asset metadata/URL validation before persistence, rollback cleanup, admin authorization, and upload throttling.
 - Concurrency attacker: unique indexes, monotonic category/service/clinic/dentist admission guards, request-bound appointment mutation versions, compare-and-set writes, serialized last-admin transactions, and repeatable parallel tests.

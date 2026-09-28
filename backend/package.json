@@ -1,8 +1,8 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "private": true,
+  "description": "Production-oriented API for the Arelis Dental booking and staff operations platform.",
   "scripts": {
     "test": "node --test --test-concurrency=1",
     "dev": "nodemon src/server.js",
@@ -23,9 +23,13 @@
     "test:coverage": "node --experimental-test-coverage --test --test-concurrency=1 --test-coverage-lines=85 --test-coverage-branches=75 --test-coverage-functions=75",
     "verify": "npm run check:syntax && npm run check:secrets && npm run openapi:lint && npm run test:coverage"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Sargis Hovsepyan",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sargisovsepyan/dental-clinic.git",
+    "directory": "backend"
+  },
+  "homepage": "https://arelis-dental.vercel.app",
   "type": "module",
   "engines": {
     "node": "^22.12.0 || ^24.0.0"

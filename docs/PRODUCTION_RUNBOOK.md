@@ -1,6 +1,6 @@
 # Production deployment runbook
 
-Phase 4A prepares code/config/runbooks and provisions/deploys nothing. Read [DEPLOYMENT_ARCHITECTURE.md](DEPLOYMENT_ARCHITECTURE.md), [PRODUCTION_ENVIRONMENT.md](PRODUCTION_ENVIRONMENT.md) and [OPERATIONS.md](OPERATIONS.md). Browser frontend/API MUST share one public HTTPS origin with fixed edge API routing and Strict host-only cookies. Independent service addresses are private upstreams, not browser API origins.
+This runbook governs new deployments and subsequent releases; the public portfolio demo is currently deployed, but every environment must satisfy the same gates. Read [DEPLOYMENT_ARCHITECTURE.md](DEPLOYMENT_ARCHITECTURE.md), [PRODUCTION_ENVIRONMENT.md](PRODUCTION_ENVIRONMENT.md) and [OPERATIONS.md](OPERATIONS.md). Browser frontend/API MUST share one public HTTPS origin with fixed edge API routing and Strict host-only cookies. Independent service addresses are private upstreams, not browser API origins.
 
 ## Required topology
 

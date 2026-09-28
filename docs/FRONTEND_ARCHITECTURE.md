@@ -1,6 +1,6 @@
 # Frontend architecture
 
-## Phase 3C2: governed team and audit administration
+## Governed team and audit administration
 
 `/[locale]/staff/team` and `/[locale]/staff/audit` mount their protected content only for an admin principal. Denied receptionist/dentist routes perform no team/audit reads and retain the signed-in access-denied boundary. Backend authorization remains authoritative; a 403 alone never expires a valid session.
 
@@ -14,7 +14,7 @@ Successful self revoke-all-sessions immediately clears the in-memory client/prin
 
 ## Purpose and scope
 
-The `frontend/` application contains two deliberately separated surfaces: the public presentation/no-account booking site and the authenticated staff workspace. The public side publishes clinic information, services, dentists, gallery media, and already-approved before/after cases. The staff side provides authentication/account security, admin/receptionist appointment operations, Phase 3B clinic management, Phase 3C1 admin-only governed media/consent administration, and Phase 3C2 staff lifecycle/session governance and privacy-safe audit administration. It does not provide patient accounts, clinical records, or generalized document management.
+The `frontend/` application contains two deliberately separated surfaces: the public presentation/no-account booking site and the authenticated staff workspace. The public side publishes clinic information, services, dentists, gallery media, and already-approved before/after cases. The staff side provides authentication/account security, admin/receptionist appointment operations, a privacy-scoped dentist assigned-appointment workspace, admin clinic management, admin-only governed media/consent administration, and staff lifecycle/session governance with privacy-safe audit administration. It does not provide patient accounts, clinical records, or generalized document management.
 
 The frontend consumes only documented `/api/v1` endpoints described by `openapi.yaml`. It does not connect directly to MongoDB or any backend provider SDK.
 
@@ -77,7 +77,7 @@ Password setup and reset tokens arrive only in URL fragments, are captured into 
 
 ## Staff RBAC and appointment operations
 
-The shell removes appointment navigation for dentists and renders an access-denied boundary on direct dentist navigation, but this is only UX. The backend remains authoritative: every staff request carries the memory token, and appointment endpoints independently require administrator or receptionist roles. No staff role or permission is inferred from a route parameter.
+The shell gives administrators and receptionists the appointment-management workspace and gives dentists a separate “My appointments” workspace. Dentist list/detail reads are privacy-minimized and limited to appointments assigned to the authenticated account's linked dentist profile; global appointment routes and every appointment mutation remain unavailable to dentists. These route and navigation boundaries are only UX and defense in depth: the backend independently authorizes every request and no role, profile, or permission is inferred from a route parameter.
 
 Appointment list filters are limited to documented date, status, dentist, service, page, and bounded limit fields. Patient names, phone numbers, email addresses, comments, and notes never enter URLs. Authorized list/detail views may display the minimum operational contact fields returned by the protected API. Creation records an explicit phone or in-person privacy-consent method and never invents consent evidence.
 
@@ -153,7 +153,7 @@ The public frontend has no secrets. `.env*` files are ignored except the safe `.
 - reduced-motion handling, 44px-or-larger interactive targets, and no horizontal overflow at 375, 430, 768, 1024, or 1440 px
 - semantic pressed-state service/dentist/slot controls, native mobile date input, explicit progress summary, live loading/results, focus movement after stale-slot and invalid-selection failures, and connected form labels/hints
 
-Automated axe checks cover representative public pages, a staff appointment detail view, Phase 3B management, and Phase 3C1 media/consent administration. Staff forms use native file controls and labels, deliberate status/alert regions, keyboard-safe Base UI dialogs/sheets with focus management, and mobile cards instead of forcing desktop tables into narrow viewports. Before/after sides, conflict, consent, and lifecycle state are expressed in localized text as well as color. Automated results complement rather than replace deployment-time assistive-technology testing.
+Automated axe checks cover representative public pages, a staff appointment detail view, clinic management, and governed media/consent administration. Staff forms use native file controls and labels, deliberate status/alert regions, keyboard-safe Base UI dialogs/sheets with focus management, and mobile cards instead of forcing desktop tables into narrow viewports. Before/after sides, conflict, consent, and lifecycle state are expressed in localized text as well as color. Automated results complement rather than replace deployment-time assistive-technology testing.
 
 ## SEO
 
@@ -171,7 +171,7 @@ The backend regression suite remains responsible for disposable MongoDB safety a
 
 ## Deployment contract
 
-Phase 4A production site/API share one exact non-local HTTPS origin, enforced in build/runtime public env parsing, backed by fixed infrastructure edge routing. `src/proxy.ts` remains locale middleware, not an open proxy. Independent upstream service origins/credentials never become public variables. Strict host-only refresh cookies and trusted original Origin are unchanged; see DEPLOYMENT_ARCHITECTURE and PRODUCTION_ENVIRONMENT. Public/booking request deadlines now cover stalled JSON body consumption, not only fetch headers, with no mutation replay. Backend prerequisite/lifecycle checks and explicit operators' provider smoke are separate from frontend builds.
+The production site and browser API share one exact non-local HTTPS origin, enforced in build/runtime public environment parsing and backed by fixed infrastructure edge routing. `src/proxy.ts` remains locale middleware, not an open proxy. Independent upstream service origins and credentials never become public variables. Strict host-only refresh cookies and trusted original Origin are unchanged; see DEPLOYMENT_ARCHITECTURE and PRODUCTION_ENVIRONMENT. Public/booking request deadlines cover stalled JSON body consumption, not only fetch headers, with no mutation replay. Backend prerequisite/lifecycle checks and explicit operator provider smoke remain separate from frontend builds.
 
 The provider-isolated `test/production/run-production-smoke.mjs` uses the actual production build/start plus real API/disposable Mongo in test mode; fixed reserved-origin test routing blocks all external providers. It is distinct from dev-mode Playwright/preview and does not certify live TLS/provider configuration. There are no frontend private provider secrets; the five public inputs are build-time values. Build caches are reconstructible, never business state. Native supported Node22/24 roles are documented without adding Docker solely for appearance.
 

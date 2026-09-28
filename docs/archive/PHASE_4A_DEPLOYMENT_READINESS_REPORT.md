@@ -43,11 +43,11 @@ One public HTTPS origin, with a fixed infrastructure edge routing `/api/v1/*` to
 
 Startup order is dependencies/configuration, approved backup/migration/index/preflight, API, worker, frontend, protected smoke, then traffic. Native standard Node roles were selected; Docker was evaluated but not added because an additional unverified packaging surface adds no current portability guarantee. A later container can package these same commands without rewriting business logic.
 
-See [DEPLOYMENT_ARCHITECTURE.md](DEPLOYMENT_ARCHITECTURE.md) for role scaling, fixed-edge illustrative nginx contract, build/cache behavior and private hop requirements.
+See [DEPLOYMENT_ARCHITECTURE.md](../DEPLOYMENT_ARCHITECTURE.md) for role scaling, fixed-edge illustrative nginx contract, build/cache behavior and private hop requirements.
 
 ## Environment, browser auth and proxy boundary
 
-[PRODUCTION_ENVIRONMENT.md](PRODUCTION_ENVIRONMENT.md) inventories backend schema inputs, maintenance/bootstrap inputs and exactly five application public frontend variables, with bounds/defaults/production requirements. Examples remain obvious development placeholders, never deployable secrets. Lockfiles changed only engine metadata; dependency versions were not changed. Password minimum remains EXACTLY 6 Unicode characters with the bcrypt 72-byte cap and no trimming.
+[PRODUCTION_ENVIRONMENT.md](../PRODUCTION_ENVIRONMENT.md) inventories backend schema inputs, maintenance/bootstrap inputs and exactly five application public frontend variables, with bounds/defaults/production requirements. Examples remain obvious development placeholders, never deployable secrets. Lockfiles changed only engine metadata; dependency versions were not changed. Password minimum remains EXACTLY 6 Unicode characters with the bcrypt 72-byte cap and no trimming.
 
 Access token remains memory-only. Refresh cookie remains Secure, HttpOnly, Strict, host-only, path `/api/v1/auth`; login/refresh/logout enforce the original exact trusted Origin. Production browser API uses the site's exact HTTPS origin. Independent private infrastructure addresses never become browser API bases. Separate unrelated hosting origins are not accommodated by SameSite=None or weakened Origin checks.
 
@@ -75,15 +75,15 @@ The durable outbox still commits with appointment mutations without synchronous 
 
 SMTP remains provider-portable with mandatory verified TLS and bounded transport/worker windows. Cloudinary remains the intentional existing media adapter: magic-byte/type/size checks, WebP normalization, public-ID/URL integrity, replacement CAS/reference ordering, durable rollback debt, before/after two-upload rollback, consent withdrawal and purge remain protected. Turnstile keeps existing server-side abstraction, required private production secret and public paired key, bounded fail-closed verification and hostname requirements.
 
-[OPERATIONS.md](OPERATIONS.md) provides separately explicit synthetic Mongo/Redis, SMTP receipt, Cloudinary upload→authoritative verify→exact-asset deletion/finally cleanup and manual real-domain Turnstile procedures, with safe timeboxes, categorical evidence and failure/cleanup-debt gates. They were NOT executed against real services. Tests/ordinary CI/preview/health do not contact real Cloudinary, SMTP, Redis, monitoring or challenge providers.
+[OPERATIONS.md](../OPERATIONS.md) provides separately explicit synthetic Mongo/Redis, SMTP receipt, Cloudinary upload→authoritative verify→exact-asset deletion/finally cleanup and manual real-domain Turnstile procedures, with safe timeboxes, categorical evidence and failure/cleanup-debt gates. They were NOT executed against real services. Tests/ordinary CI/preview/health do not contact real Cloudinary, SMTP, Redis, monitoring or challenge providers.
 
 ## Statelessness, backups, releases and rollback
 
 Runtime filesystem audit found bounded in-memory uploads, immutable migration checksum reads and reconstructible Next build/image/ISR caches, not local durable business state. Business authority remains MongoDB/Redis/Cloudinary. Test Mongo directories and test Next dist directories are disposable. No dumps, runtime uploads, logs, credentials, coverage or browser traces are staged. Backup/private-key ignore patterns were strengthened.
 
-[BACKUP_RESTORE_RUNBOOK.md](BACKUP_RESTORE_RUNBOOK.md) defines named ownership/approval, encrypted protected off-service retention, recommended RPO<=15min/RTO<=4h (targets, NOT achieved guarantees), measured isolated restore drills, full replica-set compatible oplog tooling constraints and separate Cloudinary/withdrawal recovery authority. No backup/restore command was executed. No --drop or automatic restore is added.
+[BACKUP_RESTORE_RUNBOOK.md](../BACKUP_RESTORE_RUNBOOK.md) defines named ownership/approval, encrypted protected off-service retention, recommended RPO<=15min/RTO<=4h (targets, NOT achieved guarantees), measured isolated restore drills, full replica-set compatible oplog tooling constraints and separate Cloudinary/withdrawal recovery authority. No backup/restore command was executed. No --drop or automatic restore is added.
 
-[PRODUCTION_RUNBOOK.md](PRODUCTION_RUNBOOK.md) defines reproducible install/build, CI, secret/config provisioning, backup, read-only checks, explicit migration/index apply, role rollout, health, protected operator/browser/provider/booking/media/log checks and monitoring. Database compatibility is checked before application rollback; forward-only refresh/idempotency boundaries require compatible roll-forward or approved isolated restore/cutover, not imaginary DB reversal from old code.
+[PRODUCTION_RUNBOOK.md](../PRODUCTION_RUNBOOK.md) defines reproducible install/build, CI, secret/config provisioning, backup, read-only checks, explicit migration/index apply, role rollout, health, protected operator/browser/provider/booking/media/log checks and monitoring. Database compatibility is checked before application rollback; forward-only refresh/idempotency boundaries require compatible roll-forward or approved isolated restore/cutover, not imaginary DB reversal from old code.
 
 ## Adversarial review evidence
 

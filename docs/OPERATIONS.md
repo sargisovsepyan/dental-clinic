@@ -1,6 +1,6 @@
 # Operations and explicit provider smoke
 
-All procedures below require an approved environment, restricted operator, injected credentials (never command-line URI/password), synthetic data and recorded safe pass/fail evidence. Phase 4A does NOT execute them against real services. Unit/CI/preview/health never send provider email, uploads or challenge requests.
+All protected procedures below require an approved environment, restricted operator, injected credentials (never command-line URI/password), synthetic data, and recorded safe pass/fail evidence. They are deliberate operator actions, not consequences of a build or ordinary health check. Unit, CI, deterministic preview, and health endpoints never send provider email, uploads, or challenge requests.
 
 ## Health, process and observability
 
@@ -20,7 +20,7 @@ From backend: `npm run production:preflight -- --config-only` validates producti
 
 `npm run migrate` defaults dry-run; apply is explicit and requires evidence/drained writers. `npm run production:indexes` is explicit non-dropping APPLY with duplicate pre-scan; ordinary preflight/startup never calls it. Never use syncIndexes, delete conflicts or erase ledger leases. `npm run reconcile:appointment-quota` defaults dry-run; inspect before --apply. `npm run reconcile:media -- --limit=50` DOES delete eligible unreferenced provider assets and updates cleanup jobs; scheduler must use approved credentials/maintenance acknowledgement, safe timeout and durable-lock-aware supervision. Alert on terminal failed cleanup rather than ignoring it.
 
-## Provider smoke procedures (later, explicit)
+## Explicit provider smoke procedures
 
 1. **MongoDB / Redis (non-destructive connectivity):** inject reviewed production configuration, run config-only and full drained preflight, record only booleans/counts and exit status. MongoDB target must be the approved database with transaction-capable topology and exact indexes. PING alone is insufficient; through the gateway use one harmless public API GET to exercise lazy Redis script loading/limit increment and inspect generated request ID/status; never publish URI/user/password. Timebox to90s preflight and10s request; failures block traffic. Rate-limit cache increments are expected, not business mutations.
 2. **SMTP (one deliberate synthetic email):** choose a clinic-approved operator-owned recipient, never a patient. In a restricted operator Node session load the default `createSmtpAdapter` export (`src/mail/smtp.adapter.js`), then explicitly call `send` once with fixed synthetic subject/body and unique non-sensitive Message-ID, OR use an equivalent operator SMTP test client with mandatory verified TLS/timeouts. Use injected validated SMTP settings, never print transport configuration/provider response. Apply a hard60s operator process deadline in addition to configured DNS/connect/greeting/socket bounds. Record only accepted/rejected and independently verify mailbox arrival/sender/SPF/DKIM/DMARC; delete synthetic mailbox content. An approved synthetic booking then verifies separate-worker outbox delivery; clean up via normal cancellation/retention, not arbitrary DB edits. Staff credential delivery is separate SMTP, not appointment outbox.

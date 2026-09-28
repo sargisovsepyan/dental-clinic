@@ -4,6 +4,14 @@
 
 coverage/
 *.log
+
+# Owner-local portfolio preparation and editor/OS files.
+/assets/
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+
 # Backup/private deployment artifacts never belong in application Git history.
 *.bson
 *.bson.gz

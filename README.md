@@ -1,93 +1,142 @@
-# Dental clinic platform
+# Arelis Dental
 
-Production-oriented dental-clinic public website and backend for catalog publishing, staff administration, availability, appointment booking, governed media, and patient notifications. It is deliberately not a medical-record system: diagnoses, treatment notes, billing, and clinical records are outside its boundary.
+Multilingual full-stack dental clinic platform with online booking, role-based staff workspaces, governed media, and production-oriented infrastructure.
 
-## Repository map
+[![Backend CI](https://github.com/sargisovsepyan/dental-clinic/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/sargisovsepyan/dental-clinic/actions/workflows/backend-ci.yml)
+[![Frontend CI](https://github.com/sargisovsepyan/dental-clinic/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/sargisovsepyan/dental-clinic/actions/workflows/frontend-ci.yml)
+[![CodeQL](https://github.com/sargisovsepyan/dental-clinic/actions/workflows/codeql.yml/badge.svg)](https://github.com/sargisovsepyan/dental-clinic/actions/workflows/codeql.yml)
 
-- `backend/` — Express 5 API, MongoDB models/migrations, durable notification worker/reconciliation, and tests
-- `frontend/` — Next.js 16 public site, booking flow, appointment workspace, clinic management, and governed media/consent administration for HY/RU/EN
-- `docs/openapi.yaml` — machine-readable API contract
-- `docs/API_CONTRACT.md` — frontend-facing behavior and invariants
-- `docs/FRONTEND_ARCHITECTURE.md` — frontend boundaries, rendering, localization, and security design
-- `docs/FRONTEND_FOUNDATION_FINAL_REPORT.md` — Phase 1 scope, verification evidence, limitations, and verdicts
-- `docs/FRONTEND_BOOKING_FINAL_REPORT.md` — Phase 2 booking architecture, QA evidence, and release limitations
-- `docs/FRONTEND_STAFF_ADMIN_FOUNDATION_FINAL_REPORT.md` — Phase 3A staff authentication, appointment operations, QA, and verdicts
-- `docs/FRONTEND_CLINIC_MANAGEMENT_FINAL_REPORT.md` — Phase 3B catalog, dentist, schedule, clinic-management, QA, and verdicts
-- `docs/FRONTEND_MEDIA_CONSENT_FINAL_REPORT.md` — Phase 3C1 governed media, consent, privacy, QA, and verdicts
-- `docs/PRODUCTION_RUNBOOK.md` — deployment and operations sequence
-- `docs/FINAL_BACKEND_HARDENING_REPORT.md` — authoritative final hardening evidence, verdicts, and residual responsibilities
-- `docs/APPOINTMENT_NOTIFICATIONS_FINAL_REPORT.md` — notification architecture, verification evidence, and delivery limitations
+[Live application](https://arelis-dental.vercel.app) · [Backend service](https://arelis-api.onrender.com) · [API readiness](https://arelis-api.onrender.com/api/v1/health/ready) · [OpenAPI contract](docs/openapi.yaml)
 
-## Backend development
+## Overview
 
-Deployment preparation: [architecture](docs/DEPLOYMENT_ARCHITECTURE.md), [complete environment contract](docs/PRODUCTION_ENVIRONMENT.md), [release/rollback](docs/PRODUCTION_RUNBOOK.md), [operations/provider smoke](docs/OPERATIONS.md), and [backup/restore](docs/BACKUP_RESTORE_RUNBOOK.md). Production browser API shares the frontend HTTPS origin via a fixed edge route; never relax Strict cookies for unrelated hosting domains. Run `npm run production:preflight -- --config-only` for provider-free configuration, full preflight explicitly during the drained release window. No infrastructure is provisioned by these commands/docs.
+Arelis Dental is a deployed portfolio application for a fictional dental clinic. It combines a localized public website and no-account booking journey with protected operational workspaces for administrators, receptionists, and dentists. The system is deliberately scoped to clinic marketing, booking, media, and staff operations—it is not an electronic health record or medical-record system.
 
-Use current patched Node.js22 (>=22.12) or24 consistently across install/build/runtime; CI uses22. Copy `backend/.env.example` to an untracked `backend/.env`, replace development values, and never commit that file.
+Armenian is the primary publication language, with explicitly authored Russian and English routes. The frontend runs on Vercel; its fixed same-origin `/api/v1` route forwards to the Express API on Render while preserving strict cookies and Origin validation.
+
+## Product highlights
+
+### Public experience
+
+- HY / RU / EN clinic, services, dentists, gallery, and consent-approved before/after pages
+- live availability and no-account appointment requests
+- service and dentist preselection with clinic-timezone scheduling
+- Cloudflare Turnstile protection and accessible responsive layouts
+- privacy-minimized confirmation states with no patient data in URLs or browser storage
+
+### Staff operations
+
+- administrator and receptionist appointment workflows, including creation, status changes, rescheduling, and cancellation
+- dentist workspace with privacy-scoped, read-only access to assigned appointments
+- admin management for clinic content, services, dentists, schedules, gallery media, and before/after governance
+- staff invitations, setup, password recovery/change, activation, role management, session revocation, and audit history
+- explicit consent withdrawal/purge flows and durable media-cleanup visibility
+
+### Engineering controls
+
+- rotating refresh sessions, memory-only access tokens, RBAC, and current-database authorization checks
+- booking idempotency, atomic phone quotas, optimistic mutation versions, and database-enforced exact/overlapping slot locks
+- transaction-safe rescheduling and cancellation with lock preservation/release guarantees
+- explicit migrations, non-dropping index management, production preflight, liveness, readiness, and graceful shutdown
+- isolated backend integration/concurrency coverage, frontend unit/component coverage, Chromium Playwright, targeted WebKit/iPhone regression coverage, and CodeQL
+
+## Screenshots
+
+All screenshots below use fictional data from the provider-free local preview.
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/home-desktop.png" alt="Arelis Dental Armenian desktop homepage" /></td>
+    <td><img src="docs/screenshots/booking-flow.png" alt="Arelis Dental booking flow" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Localized public homepage</sub></td>
+    <td align="center"><sub>Online booking with live availability</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/booking-details.png" alt="Arelis Dental booking details and review state" /></td>
+    <td><img src="docs/screenshots/staff-workspace.png" alt="Arelis Dental administrator workspace" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Booking details and review state</sub></td>
+    <td align="center"><sub>Role-aware staff workspace</sub></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/screenshots/home-mobile.png" alt="Arelis Dental mobile homepage" width="390" />
+  <br />
+  <sub>Responsive mobile experience</sub>
+</p>
+
+## Roles and access
+
+| Role | Primary capabilities |
+| --- | --- |
+| Administrator | Appointments, catalog, dentists, schedules, clinic settings, governed media/consent, staff, and audit history |
+| Receptionist | Operational appointment creation and management without administrative configuration access |
+| Dentist | Read-only, privacy-scoped access to appointments assigned to the linked dentist profile |
+
+Frontend navigation is convenience and defense in depth; the API independently authorizes every protected operation.
+
+## Tech stack
+
+| Layer | Technologies |
+| --- | --- |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS, Base UI |
+| Backend | Node.js 22+, Express 5, Mongoose |
+| Data and infrastructure | MongoDB Atlas, Render Redis / Key Value, Cloudinary, SMTP, Cloudflare Turnstile |
+| Quality | Node test runner, Vitest, Testing Library, axe-core, Playwright, OpenAPI, Redocly, CodeQL |
+| Hosting | Vercel frontend, Render API, GitHub Actions CI |
+
+## Architecture
+
+```mermaid
+flowchart LR
+    B[Browser] --> V[Vercel / Next.js]
+    V -->|fixed same-origin /api/v1 rewrite| A[Render / Express API]
+    A --> M[(MongoDB Atlas)]
+    A --> R[(Render Redis)]
+    A --> C[Cloudinary]
+    A --> S[SMTP]
+    A --> T[Cloudflare Turnstile]
+```
+
+The public browser API remains on the frontend origin. The upstream is fixed server-side deployment configuration, not a user-selectable proxy. Refresh cookies stay Secure, HttpOnly, host-only, `SameSite=Strict`, and scoped to authentication routes.
+
+## Booking and concurrency
+
+A logical booking attempt receives one idempotency key. An uncertain retry reuses that key, while changed appointment data creates a new attempt. MongoDB owns slot authority through unique minute-level locks that prevent exact and overlapping bookings across processes. Atomic quota records bound public submissions, and versioned appointment mutations reject stale writes.
+
+Rescheduling acquires the replacement authority before releasing the original; a failed move preserves the existing appointment and lock. Cancellation releases booking authority safely. Availability is calculated in the configured clinic timezone from clinic hours, dentist schedules and exceptions, duration, buffers, notice, and booking horizon.
+
+## Security and privacy
+
+- short-lived JWT access tokens with single-use refresh rotation, replay detection, and revocation
+- exact-Origin checks, strict cookie policy, fixed proxy trust, CORS/CSP/Helmet controls, and shared Redis rate limits
+- server-side input allowlists and production-safe error responses
+- upload signature/type/size checks, Cloudinary rollback, reference guards, and cleanup reconciliation
+- consent-governed before/after publication with withdrawal and purge boundaries
+- sanitized business audit records and structured logs that exclude secrets and patient contact data
+- automated tests restricted to disposable local databases and fake/local provider adapters
+
+See the [security model](docs/SECURITY.md) and [retention and privacy decisions](docs/RETENTION_AND_PRIVACY.md) for the full boundaries.
+
+## Testing and CI/CD
+
+GitHub Actions installs from lockfiles and runs separate backend and frontend pipelines plus CodeQL. The repository includes comprehensive backend unit, integration, migration, security, and concurrency tests; frontend component and contract tests; a full Chromium Playwright suite; and targeted WebKit/iPhone regression coverage. Automated tests do not contact production MongoDB, Redis, SMTP, Cloudinary, monitoring, or challenge providers.
+
+Common local quality gates:
 
 ```text
 cd backend
 npm ci
-npm run dev
-```
-
-Appointment delivery runs as a separate process and never inside the API import/startup path:
-
-```text
-cd backend
-npm run worker:notifications
-```
-
-Development notifications default to disabled. Enabling them outside tests requires complete SMTP configuration and the separate operational `CLINIC_NOTIFICATION_EMAIL`; production requires explicit `NOTIFICATIONS_ENABLED=true`. API and worker processes share MongoDB but may scale independently.
-
-The new-password minimum is exactly six characters; passwords exceeding bcrypt’s 72-byte input boundary are rejected when created. Armenian (`hy`) is the primary publication locale, with explicit Russian (`ru`) and English (`en`) translations.
-
-## Verification
-
-From `backend/`:
-
-```text
 npm run verify
-npm run audit:runtime
-npm run audit:full
 ```
-
-`verify` checks syntax, tracked-secret safety, OpenAPI linting, the full isolated test suite, and coverage thresholds. Tests use disposable local in-memory MongoDB instances or replica sets and are designed to fail before contacting real Cloudinary, SMTP, Redis, monitoring, or bot-challenge services.
-
-## Production boundary
-
-Production requires an HTTPS edge with explicit trusted proxy CIDRs, a TLS/authenticated transaction-capable MongoDB deployment, TLS/authenticated Redis, SMTP with a verified sender and operational reception mailbox, Cloudinary, monitoring, independent application secrets, a server-versioned consent policy, and a configured public-booking challenge provider. Run at least one notification worker alongside the API. Production maintenance commands require the acknowledgement and stopped-write migration window documented in the runbook and remain explicit—migrations and index changes never run automatically at application startup.
-
-Follow the deployment sequence and backup/restore drill in `docs/PRODUCTION_RUNBOOK.md`; do not treat a successful local test run as infrastructure approval.
-
-## Frontend development
-
-Use Node.js 22. Copy `frontend/.env.example` to an untracked `frontend/.env.local` and set the local API and site origins. The Cloudinary cloud name is public configuration, not a secret; leaving it empty intentionally renders accessible image placeholders.
 
 ```text
 cd frontend
 npm ci
-npm run api:types
-npm run dev
-```
-
-The public site is available under explicit `/hy`, `/ru`, and `/en` routes, with Armenian as the primary editorial fallback. It includes services, dentists, clinic/contact information, gallery, consent-approved before/after publications, and no-account booking. The staff surface provides localized authentication/account pages, an admin/receptionist appointment workspace, admin-only clinic/media/consent management, and completed staff lifecycle/session/audit administration. Dentists receive the authenticated shell but no patient appointment or administrative access.
-
-### LOCAL FRONTEND PREVIEW
-
-To view the complete public site and booking flow without MongoDB or any real backend/provider:
-
-```text
-cd D:\projects\dental-clinic\frontend
-npm run dev:preview
-```
-
-Open `http://127.0.0.1:3000/hy` or `http://127.0.0.1:3000/hy/staff/login`; press Ctrl+C to stop. The launcher prints local-only admin/receptionist/dentist credentials plus deterministic booking, appointment, clinic-management, media failure/conflict, and consent-governance scenarios. Preview images stay local and no provider is contacted. See `frontend/README.md` for exact details.
-
-For real-backend mode, configure and start `backend/` on port 5000, copy `frontend/.env.example` to the untracked `frontend/.env.local`, then run `npm run dev` from `frontend/`. The local examples explicitly disable the booking challenge on both sides; production requires Turnstile with only its public site key in frontend configuration.
-
-From `frontend/`:
-
-```text
 npm run typecheck
 npm run lint
 npm run test:coverage
@@ -95,4 +144,69 @@ npm run build
 npm run test:e2e
 ```
 
-The E2E suite owns an isolated Next.js cache and a localhost-only mock API. Automated frontend tests block non-local browser requests and do not contact the real API, Cloudinary, SMTP, Redis, monitoring, or challenge providers.
+## Project structure
+
+```text
+backend/   Express API, models, services, migrations, workers, and tests
+frontend/  Next.js public site, booking flow, staff workspaces, and tests
+shared/    Cross-application contract fixtures and schemas
+docs/      Current architecture, API, security, and operational documentation
+.github/   Backend CI, Frontend CI, CodeQL, and dependency automation
+```
+
+## Local development
+
+Use a current supported Node.js release (Node 22.12+ or Node 24). Copy each checked-in example to an untracked local environment file and keep credentials out of Git.
+
+Real local backend:
+
+```text
+cd backend
+npm ci
+# Copy .env.example to .env and provide local-only values.
+npm run dev
+```
+
+Frontend against that backend:
+
+```text
+cd frontend
+npm ci
+# Copy .env.example to .env.local and use the documented local origins.
+npm run api:types
+npm run dev
+```
+
+For a deterministic, provider-free product tour with fictional content:
+
+```text
+cd frontend
+npm ci
+npm run dev:preview
+```
+
+The preview launcher prints its local URLs and demo credentials, keeps all traffic on localhost, and requires no MongoDB, Redis, SMTP, Cloudinary, or Turnstile account. See the [frontend guide](frontend/README.md) for scenarios and detailed commands.
+
+## Environment and deployment
+
+The example environment files are development templates, not production configuration:
+
+- [`backend/.env.example`](backend/.env.example)
+- [`frontend/.env.example`](frontend/.env.example)
+- [production environment contract](docs/PRODUCTION_ENVIRONMENT.md)
+
+Migrations and production index changes are explicit operator actions and never run automatically at API startup. Use the [deployment architecture](docs/DEPLOYMENT_ARCHITECTURE.md), [production runbook](docs/PRODUCTION_RUNBOOK.md), [operations guide](docs/OPERATIONS.md), and [backup/restore runbook](docs/BACKUP_RESTORE_RUNBOOK.md) for controlled releases.
+
+## API and documentation
+
+The machine-readable contract is [`docs/openapi.yaml`](docs/openapi.yaml); [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) explains behavioral and concurrency guarantees. The [documentation index](docs/README.md) separates current reference material from historical engineering reports.
+
+## Demo deployment notes
+
+- Render's free tier can cold-start after inactivity, so the first API request may take longer.
+- Durable notification-outbox and worker support is implemented, but the free demo does not currently host a separate always-on notification worker.
+- Clinic identities, people, appointments, and editorial content shown in the demo are fictional portfolio content.
+
+## Author
+
+**Sargis Hovsepyan** · [GitHub](https://github.com/sargisovsepyan)

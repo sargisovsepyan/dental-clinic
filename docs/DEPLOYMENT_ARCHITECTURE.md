@@ -1,6 +1,6 @@
-# Deployment architecture (Phase 4A)
+# Deployment architecture
 
-This is a provider-portable deployment contract, not a provisioned or certified production installation. Infrastructure, domains, certificates, credentials, provider smoke and backup certification are later gates.
+This is the provider-portable deployment contract for Arelis Dental. The public portfolio demo currently uses Vercel for Next.js, Render for the Express API and Redis/Key Value, MongoDB Atlas, Cloudinary, SMTP, and Cloudflare Turnstile. Credentials, certificates, provider smoke evidence, backup certification, and release approval remain protected operator responsibilities and must be revalidated for each environment.
 
 ## One browser origin, independently deployable processes
 

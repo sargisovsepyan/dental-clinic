@@ -1,16 +1,16 @@
-# Dental clinic frontend
+# Arelis Dental frontend
 
 Production uses current patched Node22 (>=22.12) or24, `npm ci`, explicit public build values, `npm run build`, then `npm start`. `NEXT_PUBLIC_API_URL` MUST be `<NEXT_PUBLIC_SITE_URL>/api/v1` on the same non-local HTTPS origin; the server-only `API_UPSTREAM_ORIGIN` fixes that namespace to the independent API through the deployment edge. `src/proxy.ts` remains locale middleware, not a gateway. Never put provider secrets in public inputs or switch Strict cookies to third-party mode. See [deployment architecture](../docs/DEPLOYMENT_ARCHITECTURE.md), [environment contract](../docs/PRODUCTION_ENVIRONMENT.md), [operations](../docs/OPERATIONS.md) and [release runbook](../docs/PRODUCTION_RUNBOOK.md). Public values and the fixed rewrite are resolved at build time; release changes require rebuilding.
 
 `node test/production/run-production-smoke.mjs` verifies the actual compiled production web runtime against a real provider-isolated test API/disposable replica set; requires both installs and the documented same-origin fixture build. It is distinct from dev-mode E2E/preview and does not certify real gateways/TLS/providers. Its test-only preload is never imported by application code. CI includes frontend contract drift/types/lint/coverage/public-placeholder build/E2E/audits without real credentials.
 
-## Phase 3C2 administration preview
+## Deterministic administration preview
 
 Run `npm run dev:preview` for the provider-free supervised local workspace. Admin routes include `/hy/staff/team` and `/hy/staff/audit` (also RU/EN). Accounts include `admin@preview.local`, `second-admin@preview.local`, `reception@preview.local`, and `dentist@preview.local`; the local-only password is `Preview123!`. Team fixtures include an established deactivated account and a pending setup account. Thirty-six bounded audit events exercise filtering and equal-timestamp pagination. Invitations simulate the mail outcome without SMTP, tokens in output, or external dependencies.
 
 Use the printed local scenario URLs for `staff-invite-uncertain`, `staff-last-admin-conflict`, and `governance-forbidden`. Scenario switches reset fixture state; `success` also clears sessions, so sign in again afterward. The backend regression suite, not this simulator, proves real MongoDB/authVersion/token invariants. Stop with Ctrl+C; the existing supervisor releases ports 3000/5000 and removes only `.next-preview`.
 
-Next.js 16 App Router frontend for the clinic’s public website, no-account booking flow, authenticated staff appointment workspace, clinic management, governed media/consent administration, and Phase 3C2 staff governance/audit administration. Armenian (`hy`) is the primary publication locale; Russian (`ru`) and English (`en`) are explicit routes with field-level Armenian fallback when authored public content is absent.
+Next.js 16 App Router frontend for the clinic’s public website, no-account booking flow, authenticated staff appointment workspaces, clinic management, governed media/consent administration, and staff governance/audit administration. Armenian (`hy`) is the primary publication locale; Russian (`ru`) and English (`en`) are explicit routes with field-level Armenian fallback when authored public content is absent.
 
 ## Scope
 
@@ -26,6 +26,7 @@ Implemented public routes:
 - `/{locale}/staff/login`, `/forgot-password`, `/reset-password`, and `/setup-password`
 - `/{locale}/staff` and `/account` — role-aware staff shell and password change
 - `/{locale}/staff/appointments` and `/appointments/{id}` — admin/receptionist list, create, detail, status, reschedule, and cancellation
+- `/{locale}/staff/my-appointments` and `/my-appointments/{id}` — dentist-only privacy-scoped assigned appointment list/detail
 - `/{locale}/staff/services` — admin-only localized service-category and service lifecycle management
 - `/{locale}/staff/dentists` — admin-only public dentist profiles and service assignments
 - `/{locale}/staff/schedules` — admin-only clinic/dentist weekly hours, dentist exceptions, and clinic date overrides
@@ -43,7 +44,7 @@ Patient accounts and clinical records remain intentionally out of scope. Public 
 The deterministic preview needs no MongoDB, backend process, Cloudinary, Redis, SMTP, Turnstile, or external network service:
 
 ```text
-cd D:\projects\dental-clinic\frontend
+cd frontend
 npm run dev:preview
 ```
 
@@ -71,7 +72,7 @@ npm run dev:preview -- --scenario=error
 
 While preview is running, the printed local scenario endpoint can switch between `success`, `pending`, `confirmed`, `conflict`, `empty-availability`, `validation`, `rate-limit`, `error`, `empty`, and `catalog-error` without source edits. All fixtures are development-only and are imported only by test/preview launchers.
 
-Staff scenarios use the same local endpoint and add `staff-conflict`, `staff-stale-availability`, `staff-expired`, `management-schedule-conflict`, and `management-schedule-stale`. Phase 3C1 adds `media-conflict`, `media-replacement-failure`, `media-pair-failure`, `media-unsupported`, and `media-rate-limit`. The stateful preview supports category/service/dentist lifecycle operations, safe clinic settings, schedules/overrides, gallery archive/restore, entity image lifecycle, cleanup retry, paired media, withdrawal/purge, role denial, and public-site reflection. Media resolves only to local `/og.png`; no preview upload contacts a provider. The launcher never prints one-time setup/reset tokens or links.
+Staff scenarios use the same local endpoint and add `staff-conflict`, `staff-stale-availability`, `staff-expired`, `management-schedule-conflict`, and `management-schedule-stale`. Media scenarios add `media-conflict`, `media-replacement-failure`, `media-pair-failure`, `media-unsupported`, and `media-rate-limit`. The stateful preview supports category/service/dentist lifecycle operations, safe clinic settings, schedules/overrides, gallery archive/restore, entity image lifecycle, cleanup retry, paired media, withdrawal/purge, role denial, and public-site reflection. Media resolves only to local `/og.png`; no preview upload contacts a provider. The launcher never prints one-time setup/reset tokens or links.
 
 ## Requirements and setup
 
@@ -129,7 +130,7 @@ Windows preview/E2E launches use the documented `next dev --webpack` option afte
 - The consent control is explicit and initially unchecked. Approved clinic privacy-policy text and a public policy URL have not been supplied and remain a deployment content requirement; the frontend does not invent either.
 - Staff access tokens are memory-only. The refresh token remains in a backend-owned HttpOnly cookie; refresh/login/logout are single-flight/serialized around rotation, and `403` never masquerades as logout.
 - Appointment mutations always send the reviewed `mutationVersion`, never auto-retry stale writes, and refetch authoritative state. Availability responses are bound to the selected version/service/dentist/date.
-- Frontend role-aware navigation is convenience only. The backend remains authoritative for admin/receptionist appointment access and dentist denial.
+- Frontend role-aware navigation is convenience only. The backend remains authoritative for admin/receptionist appointment management and dentist privacy-scoped, read-only assigned-appointment access; dentists remain denied from global appointment routes and mutations.
 - Clinic-management navigation and direct routes are admin-only. Protected responses are runtime-allowlisted and no-store; `403` preserves the current session.
 - Schedule and date-override mutations send the reviewed `scheduleRevision`. Appointment-impact responses freeze the exact proposal and bounded conflict metadata; only an explicit acknowledgement replays that proposal and token. Stale or indeterminate acknowledgement results discard the old token, refetch authority, and never auto-retry.
 - Clinic-local dates and weekly clock times are sent as contract strings under the displayed backend timezone. The frontend neither converts them through the browser timezone nor offers live timezone mutation.
@@ -137,4 +138,4 @@ Windows preview/E2E launches use the documented `next dev --webpack` option afte
 - Client file checks mirror the backend's 5 MiB and JPEG/PNG/WebP/HEIC/HEIF envelope for UX only; backend signature validation is authoritative. Successful uploads are normalized to browser-safe WebP and provider output is validated before persistence; direct HEIC/HEIF managed delivery remains rejected. Ephemeral local previews revoke object URLs on replacement/unmount.
 - Gallery archive is distinct from provider cleanup. Before/after ordinary unpublish is distinct from irreversible consent withdrawal, and purge is separately guarded after withdrawal.
 
-See `../docs/FRONTEND_ARCHITECTURE.md`, `../docs/FRONTEND_FOUNDATION_FINAL_REPORT.md`, `../docs/FRONTEND_BOOKING_FINAL_REPORT.md`, `../docs/FRONTEND_STAFF_ADMIN_FOUNDATION_FINAL_REPORT.md`, `../docs/FRONTEND_CLINIC_MANAGEMENT_FINAL_REPORT.md`, and `../docs/FRONTEND_MEDIA_CONSENT_FINAL_REPORT.md` for the complete design and verification record.
+See the current [frontend architecture](../docs/FRONTEND_ARCHITECTURE.md) and [documentation index](../docs/README.md). Historical implementation and verification reports remain available through the index's archive section.
