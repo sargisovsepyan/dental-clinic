@@ -58,6 +58,15 @@ Mongo network selection/connect/socket timeouts are code-bounded at10s; startup 
 
 These are inlined at BUILD time and public. Changing them requires rebuilding/releasing the web artifact, not merely restarting with different values.
 
+The Vercel build value `NEXT_PUBLIC_TURNSTILE_SITE_KEY` and the Render secret
+`PUBLIC_BOOKING_CHALLENGE_SECRET` must come from the same Cloudflare Turnstile
+widget. Repository validation can prove that both values are configured and
+non-placeholder, but it cannot prove that independently deployed values form a
+matching pair. A safe backend diagnostic with failure category `configuration`
+and allowlisted provider code `invalid-input-secret` means the Render secret
+must be replaced with the current secret for the widget whose site key was built
+into the Vercel frontend; never copy the secret into a public frontend variable.
+
 `API_UPSTREAM_ORIGIN` is separately required for a production frontend build. It is server/build deployment configuration, not public application configuration and must never use the `NEXT_PUBLIC_*` prefix. It must be one fixed non-local HTTPS origin without credentials, path, query or fragment, and must differ from `NEXT_PUBLIC_SITE_URL`. The only generated rewrite is `/api/v1/:path*` to `<API_UPSTREAM_ORIGIN>/api/v1/:path*`; missing or unsafe production values fail the build. For the current Vercel/Render deployment it is `https://arelis-api.onrender.com`.
 
 `PORT`/CLI port is a runtime listener setting; `NODE_ENV=production` is runtime/build mode; `NEXT_TELEMETRY_DISABLED=1` disables framework telemetry. `NEXT_DIST_DIR` selects a reviewed build directory (default.next); `.next-preview`/`.next-e2e` belong only to test launchers. The fixed same-origin API route is configured in `next.config.ts`, not `src/proxy.ts`, and no provider SDK is needed in frontend.

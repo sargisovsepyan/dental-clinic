@@ -20,7 +20,7 @@ The source tree deliberately does not contain provider credentials, certificates
 - Create the monitoring endpoint with a reviewed data-processing/privacy agreement.
 - Inject four independent high-entropy JWT, phone-quota HMAC, rate-limit HMAC and audit-pseudonym secrets.
 - Set exact HTTPS `CLIENT_URL`, `FRONTEND_URL`, `CORS_ORIGINS` to the approved public origin; require Secure/Strict/host-only cookies and matching same-origin frontend public build values.
-- Provision paired Turnstile keys restricted to the exact public hostname; no wildcard/test key in a release.
+- Provision paired Turnstile keys restricted to the exact public hostname; set the widget's public key as Vercel `NEXT_PUBLIC_TURNSTILE_SITE_KEY` and that same widget's private secret as Render `PUBLIC_BOOKING_CHALLENGE_SECRET`. No wildcard/test key belongs in a release, and source/config validation cannot prove that independently deployed values match.
 - Set and approve `BEFORE_AFTER_CONSENT_VERSION`.
 - Explicitly set `NOTIFICATIONS_ENABLED=true`, the clinic recipient, and bounded worker lease/poll/concurrency/retry/retention values. The lease must exceed the SMTP connection plus socket timeout window.
 - Enable real MongoDB backups and complete the restore drill in `BACKUP_RESTORE_RUNBOOK.md`.

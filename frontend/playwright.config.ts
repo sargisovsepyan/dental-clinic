@@ -18,7 +18,13 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
+      testIgnore: /booking-ios\.spec\.ts/,
       use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "webkit-iphone",
+      testMatch: /booking-ios\.spec\.ts/,
+      use: { ...devices["iPhone 13"] },
     },
   ],
 });

@@ -379,7 +379,7 @@ test('booking limiter canonicalizes Armenian forms without changing explicit int
 });
 
 
-test('bot challenge verifier is provider-abstracted and uses only the fake request', async () => {
+test('bot challenge verifier omits booking idempotency from the provider request', async () => {
   const calls = [];
   const verify = createBotChallengeVerifier({
     provider: 'turnstile',
@@ -397,7 +397,7 @@ test('bot challenge verifier is provider-abstracted and uses only the fake reque
 
   await verify({
     token: 'fake-browser-token',
-    idempotencyKey: '123e4567-e89b-42d3-a456-426614174000',
+    requestId: '123e4567-e89b-42d3-a456-426614174000',
   });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, TURNSTILE_URL);
@@ -405,11 +405,131 @@ test('bot challenge verifier is provider-abstracted and uses only the fake reque
     calls[0].options.body.get('secret'),
     'server-side-test-secret'
   );
-  assert.equal(calls[0].options.body.has('remoteip'), false);
   assert.equal(
-    calls[0].options.body.get('idempotency_key'),
-    '123e4567-e89b-42d3-a456-426614174000'
+    calls[0].options.body.get('response'),
+    'fake-browser-token'
   );
+  assert.equal(calls[0].options.body.has('remoteip'), false);
+  assert.equal(calls[0].options.body.has('idempotency_key'), false);
+});
+
+
+test('bot challenge verifier logs only safe diagnostics and accepts a fresh token', async () => {
+  const calls = [];
+  const logged = [];
+  const results = [
+    {
+      success: false,
+      'error-codes': ['timeout-or-duplicate', 'untrusted-provider-detail'],
+      hostname: 'arelis-dental.vercel.app',
+      action: 'public_booking',
+      privateProviderDetail: 'must-not-be-logged',
+    },
+    { success: true },
+  ];
+  const verify = createBotChallengeVerifier({
+    provider: 'turnstile',
+    secret: 'server-side-test-secret',
+    log: {
+      warn: (event, metadata) => logged.push({ event, metadata }),
+    },
+    request: async (_url, options) => {
+      calls.push(options.body);
+      const result = results.shift();
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return result;
+        },
+      };
+    },
+  });
+
+  await assert.rejects(
+    () => verify({
+      token: 'consumed-browser-token-must-stay-private',
+      requestId: 'b12c2b5b-6c05-4ec7-b93c-fba9021eee59',
+    }),
+    (error) => error.statusCode === 400 &&
+      error.code === 'BOOKING_CHALLENGE_FAILED' &&
+      /verification failed/.test(error.message)
+  );
+  await verify({
+    token: 'fresh-browser-token-must-stay-private',
+    requestId: 'second-safe-request-id',
+  });
+
+  assert.deepEqual(
+    calls.map((body) => body.get('response')),
+    [
+      'consumed-browser-token-must-stay-private',
+      'fresh-browser-token-must-stay-private',
+    ]
+  );
+  assert.equal(calls.every((body) => !body.has('idempotency_key')), true);
+  assert.deepEqual(logged, [{
+    event: 'public_booking_challenge_failed',
+    metadata: {
+      failureCategory: 'expired-or-duplicate',
+      requestId: 'b12c2b5b-6c05-4ec7-b93c-fba9021eee59',
+      providerStatus: 200,
+      errorCodes: ['timeout-or-duplicate'],
+      hostname: 'arelis-dental.vercel.app',
+      action: 'public_booking',
+    },
+  }]);
+  const serializedLog = JSON.stringify(logged);
+  assert.doesNotMatch(serializedLog, /browser-token|server-side-test-secret/);
+  assert.doesNotMatch(serializedLog, /untrusted-provider-detail|must-not-be-logged/);
+});
+
+
+test('bot challenge verifier distinguishes an invalid provider secret safely', async () => {
+  const logged = [];
+  const verify = createBotChallengeVerifier({
+    provider: 'turnstile',
+    secret: 'mismatched-server-side-test-secret',
+    log: {
+      warn: (event, metadata) => logged.push({ event, metadata }),
+    },
+    request: async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          success: false,
+          'error-codes': ['invalid-input-secret'],
+        };
+      },
+    }),
+  });
+
+  await assert.rejects(
+    () => verify({
+      token: 'private-browser-token',
+      requestId: 'safe-request-id',
+    }),
+    (error) => error.statusCode === 400 &&
+      error.code === 'BOOKING_CHALLENGE_FAILED'
+  );
+  assert.deepEqual(logged, [{
+    event: 'public_booking_challenge_failed',
+    metadata: {
+      failureCategory: 'configuration',
+      requestId: 'safe-request-id',
+      providerStatus: 200,
+      errorCodes: ['invalid-input-secret'],
+    },
+  }]);
+  assert.doesNotMatch(
+    JSON.stringify(logged),
+    /private-browser-token|mismatched-server-side-test-secret/
+  );
+});
+
+
+test('bot challenge verifier returns safe failures and cannot contact providers in tests', async () => {
 
   const reject = createBotChallengeVerifier({
     provider: 'turnstile',

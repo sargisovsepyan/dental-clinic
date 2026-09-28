@@ -28,7 +28,7 @@ const createAppointment = async (
 
   await verifyPublicBookingChallenge({
     token: req.body.challengeToken,
-    idempotencyKey,
+    requestId: req.id,
   });
 
   const appointment =

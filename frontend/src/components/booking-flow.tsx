@@ -482,7 +482,9 @@ export function BookingFlow({
               {validDate && <Button type="button" variant="ghost" size="sm" onClick={() => { requestVersion.current += 1; setSlot(undefined); setAvailability(undefined); setAvailabilityError(undefined); setRetryAfterSeconds(undefined); setAvailabilityStatus("loading"); setRefreshVersion((value) => value + 1); }}><RefreshCw aria-hidden="true" />{copy.refreshSlots}</Button>}
             </div>
             <label htmlFor="booking-date" className="mt-6 block text-sm font-bold">{copy.date}</label>
-            <input id="booking-date" name="date" type="date" min={dateRange.min} max={dateRange.max} value={date} onChange={(event) => chooseDate(event.target.value)} className={cn(fieldClass, "mt-2 block max-w-sm [box-sizing:border-box] [min-inline-size:0]")} />
+            <div className="mt-2 w-full min-w-0 max-w-sm rounded-lg border bg-background px-3.5 transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/25">
+              <input id="booking-date" name="date" type="date" min={dateRange.min} max={dateRange.max} value={date} onChange={(event) => chooseDate(event.target.value)} className="block min-h-12 w-full min-w-0 max-w-full border-0 bg-transparent p-0 text-base outline-none disabled:opacity-60 [inline-size:100%] [max-inline-size:100%] [min-inline-size:0]" />
+            </div>
             {date && !validDate && <p role="alert" className="mt-3 text-sm text-destructive">{validationCopy.invalidDate}</p>}
             <div className="mt-6" aria-live="polite" aria-busy={availabilityStatus === "loading"}>
               {submitError === "conflict" && <Alert variant="destructive" className="mb-5"><AlertCircle aria-hidden="true" /><AlertTitle>{copy.conflict}</AlertTitle></Alert>}
