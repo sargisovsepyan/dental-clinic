@@ -22,6 +22,7 @@ const {
   TURNSTILE_URL,
 } = await import('../src/security/botChallenge.js');
 const {
+  default: createSmtpAdapter,
   getSmtpTransportOptions,
   buildSmtpMessage,
 } = await import('../src/mail/smtp.adapter.js');
@@ -568,6 +569,12 @@ test('SMTP adapter enforces STARTTLS and bounded transport timeouts', () => {
   assert.ok(options.socketTimeout <= 120_000);
   assert.equal(options.disableFileAccess, true);
   assert.equal(options.disableUrlAccess, true);
+});
+
+
+test('SMTP adapter initializes without contacting the configured provider', () => {
+  const adapter = createSmtpAdapter();
+  assert.equal(typeof adapter.send, 'function');
 });
 
 

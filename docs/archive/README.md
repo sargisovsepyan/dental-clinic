@@ -10,7 +10,7 @@ Historical reports may mention old branch names, phase labels, test totals, depl
 - [Arelis content and staff UX report](ARELIS_CONTENT_STAFF_UX_REPORT.md)
 - [Arelis manual-QA corrective report](ARELIS_MANUAL_QA_CORRECTIVE_REPORT.md)
 - [Backend audit](BACKEND_AUDIT.md)
-- [Backend production-readiness report](CODEX_PRODUCTION_READINESS_REPORT.md)
+- [Backend production-readiness report](PRODUCTION_READINESS_REPORT.md)
 - [Final backend hardening report](FINAL_BACKEND_HARDENING_REPORT.md)
 - [Final staff onboarding polish report](FINAL_STAFF_ONBOARDING_POLISH_REPORT.md)
 - [Frontend booking final report](FRONTEND_BOOKING_FINAL_REPORT.md)

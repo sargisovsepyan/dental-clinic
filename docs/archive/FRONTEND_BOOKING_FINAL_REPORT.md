@@ -2,7 +2,7 @@
 
 Date: 2026-09-03
 
-Branch: `codex/frontend-booking`
+Branch: dedicated frontend-booking implementation branch
 
 Baseline: `41b892e docs: record frontend architecture and readiness`
 

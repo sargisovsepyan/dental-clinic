@@ -1,6 +1,6 @@
 # Backend production-readiness audit
 
-Audit branch: `codex/final-production-hardening`
+Audit branch: dedicated final-production-hardening branch
 
 ## Verdict
 
@@ -63,4 +63,4 @@ No known unresolved critical or high code vulnerability remains after the final 
 - Legal retention durations are intentionally unset until clinic/legal policy approves them.
 - Docker/Kubernetes were not added because no target hosting platform is selected; the runtime contract is Node 22+ with provider-managed secrets and signals.
 
-Exact final tests, stress repetitions, audit result, files, migrations, and commits are recorded in `FINAL_BACKEND_HARDENING_REPORT.md`. The earlier `CODEX_PRODUCTION_READINESS_REPORT.md` remains a historical checkpoint.
+Exact final tests, stress repetitions, audit result, files, migrations, and commits are recorded in `FINAL_BACKEND_HARDENING_REPORT.md`. The earlier `PRODUCTION_READINESS_REPORT.md` remains a historical checkpoint.

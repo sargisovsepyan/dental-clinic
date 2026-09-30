@@ -2,9 +2,9 @@
 
 Evidence date: 2026-08-14
 
-Reviewed baseline: `140f9f7` (`codex/backend-audit-hardening`)
+Reviewed baseline: `140f9f7` from the backend-audit hardening phase
 
-Review branch: `codex/production-readiness-hardening`
+Review branch: dedicated production-readiness hardening branch
 
 ## 1. Overall production-readiness verdict
 
@@ -12,7 +12,7 @@ The backend codebase is ready for frontend integration and for a controlled prod
 
 ## 2. Branch name
 
-All work remains on `codex/production-readiness-hardening`. It has not been merged and was not pushed.
+At this checkpoint, all work remained on the dedicated production-readiness hardening branch. It had not been merged or pushed.
 
 ## 3. Architecture after this phase
 
@@ -150,7 +150,7 @@ Including this report, 56 files were added relative to `140f9f7`:
 - Localization/migrations/production: `backend/src/i18n/localization.js`, `backend/src/migrations/20260814_001_localized_content.js`, `backend/src/migrations/20260814_002_phone_daily_quota.js`, `backend/src/migrations/20260814_003_auth_security_fields.js`, `backend/src/migrations/20260814_004_before_after_consent.js`, `backend/src/migrations/runner.js`, `backend/src/modules/migrations/migration.model.js`, `backend/src/production/criticalIndexes.js`, `backend/src/production/indexManagement.service.js`, `backend/src/production/models.js`, `backend/src/production/preflight.service.js`.
 - Domain/auth/media: `backend/src/modules/appointments/phoneDailyQuota.model.js`, `backend/src/modules/appointments/phoneDailyQuota.service.js`, `backend/src/modules/auth/oneTimeToken.model.js`, `backend/src/modules/media/mediaCleanup.model.js`, `backend/src/modules/media/mediaCleanup.service.js`, `backend/src/modules/media/mediaUpload.service.js`, `backend/src/modules/staff/adminInvariant.model.js`, `backend/src/modules/staff/staff.controller.js`, `backend/src/modules/staff/staff.routes.js`, `backend/src/modules/staff/staff.service.js`, `backend/src/modules/staff/staff.validation.js`, `backend/src/utils/oneTimeToken.js`, `backend/src/utils/runTransaction.js`.
 - Scripts/tests: `backend/src/scripts/checkSyntax.js`, `backend/src/scripts/checkTrackedSecrets.js`, `backend/src/scripts/ensureIndexes.js`, `backend/src/scripts/migrate.js`, `backend/src/scripts/productionPreflight.js`, `backend/src/scripts/reconcileAppointmentQuota.js`, `backend/src/scripts/reconcileMediaCleanup.js`, `backend/test-support/replDatabase.js`, `backend/test/appointment-quota.test.js`, `backend/test/multilingual.test.js`, `backend/test/preflight.test.js`, `backend/test/production-config.test.js`, `backend/test/staff-security.test.js`.
-- Documentation: `docs/ARCHITECTURE.md`, `docs/BACKUP_RESTORE_RUNBOOK.md`, `docs/CODEX_PRODUCTION_READINESS_REPORT.md`, `docs/ENGINEERING_OVERVIEW.md`, `docs/PRODUCTION_RUNBOOK.md`, `docs/RETENTION_AND_PRIVACY.md`, `docs/SECURITY.md`, `docs/openapi.yaml`.
+- Documentation: `docs/ARCHITECTURE.md`, `docs/BACKUP_RESTORE_RUNBOOK.md`, `docs/archive/PRODUCTION_READINESS_REPORT.md`, `docs/ENGINEERING_OVERVIEW.md`, `docs/PRODUCTION_RUNBOOK.md`, `docs/RETENTION_AND_PRIVACY.md`, `docs/SECURITY.md`, `docs/openapi.yaml`.
 
 ## 33. Files modified
 
@@ -201,7 +201,7 @@ All provider work in section 37, a real backup/restore proof, secret injection/r
 
 ## 42. Git status
 
-The final intended state is a clean working tree on `codex/production-readiness-hardening`, ahead of reviewed baseline `140f9f7`, with no merge and no push. This report is the only file added after the final code/test/audit passes; status and the last 30 commits are rechecked immediately after its commit.
+The final intended state was a clean working tree on the dedicated production-readiness hardening branch, ahead of reviewed baseline `140f9f7`, with no merge and no push. This report was the only file added after the final code/test/audit passes; status and the last 30 commits were rechecked immediately after its commit.
 
 ## 43. Complete list of commits created in this task
 

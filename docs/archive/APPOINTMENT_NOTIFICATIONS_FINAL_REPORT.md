@@ -3,7 +3,7 @@
 ## Scope and repository state
 
 - Starting commit: `9318b9215318664668398466cc4bcf6372c42a67` (`docs: finalize backend hardening report`)
-- Dedicated branch: `codex/appointment-notifications`
+- Dedicated implementation branch was used.
 - Backend root: `backend/`
 - Feature scope: durable appointment email notifications, clinic new-booking mail, and 24-hour reminders; no patient accounts, medical records, payments, or live SMS provider were added.
 - Push/merge status: nothing was pushed or merged.
@@ -188,12 +188,12 @@ No unresolved P1/P2 notification defect was found after the fixes and final regr
 
 ## Commits and final status
 
-No commit could be created in this run because `.git/index` is outside the writable sandbox and approval escalation was unavailable. This is an environment-control blocker, not an implementation/test failure. The verified worktree is intentionally preserved on `codex/appointment-notifications`; do not reset or discard it. Once approval is available, create logical code/tests and documentation commits, rerun the final staged-secret/status checks, and do not push.
+No commit could be created in this run because `.git/index` is outside the writable sandbox and approval escalation was unavailable. This is an environment-control blocker, not an implementation/test failure. The verified worktree was intentionally preserved on its dedicated implementation branch; it was not reset or discarded. Once approval became available, the remaining logical code/tests and documentation commits and final staged-secret/status checks could proceed.
 
 At report creation:
 
 - HEAD: `9318b9215318664668398466cc4bcf6372c42a67`
-- Branch: `codex/appointment-notifications`
+- Branch: dedicated appointment-notifications implementation branch
 - Git status: intentionally dirty with the complete verified implementation and report
 - Push/merge: not performed
 

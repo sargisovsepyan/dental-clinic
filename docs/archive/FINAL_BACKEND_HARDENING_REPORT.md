@@ -8,7 +8,7 @@ The backend codebase is safe to merge and ready for a controlled production depl
 
 ## 2. Branch
 
-`codex/final-production-hardening`. No merge, rebase, history rewrite, force reset, or push was performed.
+A dedicated final-production-hardening branch was used. No merge, rebase, history rewrite, force reset, or push was performed.
 
 ## 3. Starting interrupted state
 

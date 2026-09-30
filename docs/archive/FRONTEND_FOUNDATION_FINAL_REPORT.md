@@ -1,7 +1,7 @@
 # Frontend foundation final report
 
 Date: 2026-09-03
-Branch: `codex/frontend-foundation`
+Branch: dedicated frontend-foundation implementation branch
 Baseline: `4ccab37 feat: add production appointment notifications`
 
 ## Outcome
